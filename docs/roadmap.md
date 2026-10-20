@@ -1,9 +1,9 @@
 # Roadmap
 
-## M1 — Dec 15, 2026 (industry showcase + RL course final project)
+## M1 — Dec 15, 2026 (RL course final project, school demo)
 
 Budget: 8 weeks × 12–15 h ≈ **100–110 h**. Two audiences: course graders (need RL rigor) and
-showcase visitors (need a live demo that's fast, safe, funny).
+class demo (needs a live run that is fast, safe, funny).
 
 **Principle:** the RL contribution is proven in **simulation** (reproducible, thousands of
 episodes); the live demo shows the same policy acting in the real world. Build the sim first

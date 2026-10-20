@@ -25,7 +25,7 @@ Primary: own logs. Cold start: rJokes, HumorGen/LoL methods. Deferred: scrapsfro
 ## 2026-10-20 — Research framing
 H1: adaptive bandit beats best fixed mode and random mode live. H2: learned RM beats LLM judge.
 
-## 2026-10-20 — M1 = Dec 15 (industry showcase + RL course final project)
+## 2026-10-20 — M1 = Dec 15 (RL course final project, school demo)
 Budget ~100–110 h. RL contribution proven in a simulated audience env (regret curves vs
 baselines); live demo shows the same policy acting live. Cut for M1: VLM snapshot, commute,
 learned RM, DPO, live H1 experiment. See roadmap.md.
