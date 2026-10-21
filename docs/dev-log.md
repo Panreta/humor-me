@@ -76,6 +76,27 @@ Format: **Symptom** → **Cause** → **Caught by** → **Fix** (commit / file).
 
 ---
 
+## Data pipeline: tuning S4 without overfitting
+
+### First evaluation: Gemini under-segments and finds no callbacks
+- **Result (Bargatze, tuning set):** bits F1 0.75 (P 0.89, R 0.65), threads F1 0.61, callbacks 0/3;
+  even-spacing baseline F1 ~0.21. Half the missed boundaries were same-topic splits, half new topics.
+- **Changes (general, not set-specific):** prompt gives an explicit procedure (topic map, standalone
+  test, `continues` only for same subject, callback check on every bit incl. thematic ones);
+  local callback candidates (corpus-rare terms that vanish ≥ 30 lines and return) fed as hints.
+- **Hint pass alone:** finds 1/3 Bargatze callbacks (the lexical one); the 2 thematic ones need the
+  LLM. A first version found 0/3: 60-line gap too strict, and coverage was checked too narrowly
+  (the return landed in the setup bit just before the callback bit).
+- **Protocol:** Bargatze = tuning set; Birbiglia = held-out test, labeled and scored once.
+
+### Gemini free-tier quota exhausted mid-run
+- **Symptom:** repeated HTTP 429 with escalating backoff; probe says "exceeded your current quota".
+- **Cause:** daily request quota on the free tier; long thinking-model calls (300–530 s) under load.
+- **Fix:** stopped the run (outputs from the old prompt are re-requested automatically via the
+  prompt hash). Options: wait for the daily reset, paid tier, or another provider.
+
+---
+
 ## Hand labeling
 
 ### Label template had lines split in two
