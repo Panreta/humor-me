@@ -14,6 +14,15 @@ files are committed, and they hold counts and marker strings, no transcript text
 | `processed/laugh_labeled/` | no | S3+ (planned) | `beats.jsonl`, `bits.jsonl`, `sets.jsonl` with laugh labels |
 | `processed/structure_only/` | no | S3+ (planned) | `bits.jsonl`, `sets.jsonl`, no laugh labels |
 
+## Hand labels (`labels/`)
+
+| Path | Committed | Contents |
+|---|---|---|
+| `labels/work/<set>.txt` | no | Numbered lines with laugh tags; you type `>>>` above each bit start. Never overwritten. |
+| `labels/<set>.yaml` | **yes** | Bit-start line indices + your notes, no transcript text |
+
+`python -m pipeline.labels template <set>` → edit → `python -m pipeline.labels import <set>`.
+
 ## Two datasets that grow independently
 
 All PDFs go through one pipeline; membership is decided at the end of `pipeline.markers`:
