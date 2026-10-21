@@ -17,9 +17,11 @@ import yaml
 
 from pipeline.common import INTERIM, LEXICON
 
-# Group 1 = bracketed stage direction. A ♪...♪ span is walk-on/outro music: removed from the
-# clean text like any marker, and stored only as "♪" so lyrics never land in events.
-BRACKET = re.compile(r"[\[\(]([^\[\]\(\)\n]{2,60})[\]\)]|♪[^♪\n]{0,200}♪")
+BRACKET = re.compile(r"[\[\(]([^\[\]\(\)\n]{2,60})[\]\)]")
+NOTE = "♪"
+SONG_SPAN = re.compile(r"♪[^♪\n]*♪")
+SONG_LABEL = "[sings]"
+MIXED_MIN_WORDS = 4  # a song paragraph with this many words outside ♪ spans also has speech
 REACTION = re.compile(
     r"laugh|chuckl|giggl|snicker|titter|applau|clap|cheer|whoop|whistl|ovation|roar|"
     r"groan|gasp|aww|boo\b|booing|scream|murmur|sigh",
@@ -56,6 +58,8 @@ def classify(raw: str, lexicon: dict) -> dict | None:
         if entry is None:
             return None
         return {"category": "reaction", **entry}
+    if raw == "sings":
+        return {"category": "song"}  # performer sings mid-set (from strip_songs or a transcriber)
     if ACT_OUT_END.match(raw):
         return {"category": "act_out_end"}  # back in own voice: closes a character span
     if ACT_OUT.search(raw):
@@ -103,6 +107,38 @@ def merge_adjacent(events: list[dict], clean: str) -> list[dict]:
     return merged
 
 
+def _strip_notes(para: str) -> str:
+    """Remove sung text from a paragraph that also has speech; keep the speech."""
+    para = SONG_SPAN.sub(" ", para)
+    if NOTE in para:  # unpaired note: the song runs to/from a paragraph edge
+        i = para.index(NOTE)
+        para = para[i + 1:] if i < len(para) - i else para[:i]
+    return para.replace(NOTE, " ")
+
+
+def strip_songs(body: str) -> str:
+    """Drop walk-on/outro songs entirely; label mid-set singing as [sings]. Lyrics are never kept.
+
+    Songs are found at paragraph level because lyric lines often lack a closing note.
+    """
+    paras = body.split("\n")
+    is_song = [NOTE in p for p in paras]
+    spoken = [i for i, p in enumerate(paras) if not is_song[i] and BRACKET.sub("", p).strip()]
+    first, last = (spoken[0], spoken[-1]) if spoken else (len(paras), -1)
+    out: list[str] = []
+    for i, p in enumerate(paras):
+        if not is_song[i]:
+            out.append(p)
+            continue
+        edge = i < first or i > last
+        speech = _strip_notes(p)
+        if len(BRACKET.sub("", speech).split()) >= MIXED_MIN_WORDS:
+            out.append(speech if edge else f"{SONG_LABEL} {speech}")
+        elif not edge and (not out or out[-1] != SONG_LABEL):
+            out.append(SONG_LABEL)  # one label per run of song-only paragraphs
+    return "\n".join(out)
+
+
 def _append_clean(out: list[str], segment: str) -> None:
     # Collapse whitespace per segment and at the seam left by a removed marker, so the running
     # length is the final clean-text offset. (Collapsing once at the end shifted every later
@@ -119,11 +155,8 @@ def process(set_id: str, body: str, lexicon: dict, unknown: dict) -> tuple[str, 
         _append_clean(parts, body[pos:m.start()])
         length = sum(map(len, parts))
         pos = m.end()
-        if m.group(1) is None:
-            raw, fields = "♪", {"category": "music"}
-        else:
-            raw = normalize(m.group(1))
-            fields = classify(raw, lexicon)
+        raw = normalize(m.group(1))
+        fields = classify(raw, lexicon)
         if fields is None:
             unknown.setdefault(raw, set()).add(set_id)
             continue
@@ -184,7 +217,8 @@ def main() -> None:
     results = {}
     for body_path in sorted(INTERIM.glob("*.body.txt")):
         set_id = body_path.name.removesuffix(".body.txt")
-        results[set_id] = process(set_id, body_path.read_text(encoding="utf-8"), lexicon, unknown)
+        body = strip_songs(body_path.read_text(encoding="utf-8"))
+        results[set_id] = process(set_id, body, lexicon, unknown)
 
     if unknown:
         if args.draft:
