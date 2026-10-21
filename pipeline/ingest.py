@@ -30,7 +30,11 @@ LEADING_WINDOW = 4
 HEADINGS = {"transcript", "full transcript"}
 HEADING_WINDOW = 40
 DISCLAIMER = "Note for Students"
-MORE_FOOTER = re.compile(r"^MORE\b.*Stand-Up Transcripts")  # both "MORE <name> S-U T" and "MORE S-U T <name>"
+SEPARATOR = "* * *"
+SEPARATOR_WINDOW = 15
+# Reaction markers only: the post title above a synopsis has "(2023)"-style parentheses too.
+MARKER = re.compile(r"[\[\(][^\]\)\n]{0,30}(laugh|chuckl|applau|cheer|clap)[^\]\)\n]{0,30}[\]\)]", re.I)
+MORE_FOOTER =re.compile(r"^MORE\b.*Stand-Up Transcripts")  # both "MORE <name> S-U T" and "MORE S-U T <name>"
 END_ANCHORS = ("Share this article", "Leave a Comment")
 
 
@@ -76,6 +80,11 @@ def extract_body(paras: list[str], meta: dict, overrides: dict) -> list[str]:
 
     override = overrides.get(meta["set_id"], {})
     heading = next((i for i, p in enumerate(body[:HEADING_WINDOW]) if p.strip().lower() in HEADINGS), None)
+    # A "* * *" divider with no stage markers above it separates the site synopsis from the
+    # set; one with markers above it is a section break inside the performance.
+    sep = next((i for i, p in enumerate(body[:SEPARATOR_WINDOW]) if p.strip() == SEPARATOR), None)
+    if sep is not None and MARKER.search("\n".join(body[:sep])):
+        sep = None
     if "skip_leading" in override:
         dropped = override["skip_leading"]
         body = body[dropped:]
@@ -86,6 +95,9 @@ def extract_body(paras: list[str], meta: dict, overrides: dict) -> list[str]:
         while body and body[0].startswith(DISCLAIMER):
             body.pop(0)
             dropped += 1
+    elif sep is not None:
+        dropped = sep + 1
+        body = body[dropped:]
     else:
         # Older posts: infobox, title and blurb name the special or comedian, which the
         # opening lines of a set almost never do verbatim.
@@ -99,7 +111,12 @@ def extract_body(paras: list[str], meta: dict, overrides: dict) -> list[str]:
     if override.get("skip_trailing"):
         body = body[: -override["skip_trailing"]]
     meta["leading_dropped"] = dropped
-    meta["start_rule"] = "override" if "skip_leading" in override else "heading" if heading is not None else "heuristic"
+    meta["start_rule"] = (
+        "override" if "skip_leading" in override
+        else "heading" if heading is not None
+        else "separator" if sep is not None
+        else "heuristic"
+    )
     return body
 
 
