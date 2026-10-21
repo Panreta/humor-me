@@ -88,3 +88,11 @@ bandit, and the cross-bit context the user wants the agent to use.
 `lines.jsonl`: last line before a reaction gets its level, setup lines 0, each with 150 words of
 preceding context (bit-scoped after S4). Beats stay for structure. Why: beat length alone
 predicted the beat label (77% positive; 23 vs 74 median words).
+
+## 2026-10-21 — Gemini (free tier) for S4–S5, with minimal excerpts
+User's call: small, non-commercial corpus; annotation quality outweighs the exposure. Mitigations:
+TextTiling runs locally and only windows around uncertain boundaries are sent; responses must
+paraphrase (premises, hooks), never quote; small batches with backoff for free-tier rate limits.
+Considered: paid Gemini / Claude API (no training on API data, ~$3–6 batched), local 8B via
+Ollama on the RTX 4060 (private, weaker annotation). Revisit local 8B as an offline fallback
+for the live demo.
