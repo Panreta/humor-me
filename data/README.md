@@ -11,8 +11,8 @@ files are committed, and they hold counts and marker strings, no transcript text
 | `markers.yaml` | **yes** | `markers --draft` + human review | Reaction string → `kind`, `source`, `intense` |
 | `interim/` | no | `pipeline.ingest`, `pipeline.markers` | `<set>.body.txt`, `.clean.txt`, `.events.jsonl`, `.meta.json` |
 | `processed/datasets.json` | no | `pipeline.markers` | Which sets belong to which dataset (see below) |
-| `processed/laugh_labeled/` | no | S3+ (planned) | `beats.jsonl`, `bits.jsonl`, `sets.jsonl` with laugh labels |
-| `processed/structure_only/` | no | S3+ (planned) | `bits.jsonl`, `sets.jsonl`, no laugh labels |
+| `processed/laugh_labeled/` | no | S3 (`beats`, `lines`); S4+ planned (`bits`, `sets`) | jsonl with laugh labels |
+| `processed/structure_only/` | no | S3 (`beats`, `lines`); S4+ planned (`bits`, `sets`) | jsonl, labels `null` |
 
 ## Hand labels (`labels/`)
 
