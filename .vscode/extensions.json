@@ -1,0 +1,7 @@
+{
+  // Mermaid diagrams in README/docs/wiki need a renderer in the Markdown preview.
+  "recommendations": [
+    "mermaidchart.vscode-mermaid-chart",
+    "ms-python.python"
+  ]
+}
