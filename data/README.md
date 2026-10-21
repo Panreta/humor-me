@@ -21,6 +21,8 @@ files are committed, and they hold counts and marker strings, no transcript text
 | `labels/work/<set>.txt` | no | Numbered lines with laugh tags; you type `>>>` above each bit start. Never overwritten. |
 | `labels/<set>.yaml` | **yes** | Bit-start line indices + your notes, no transcript text |
 
+Marks: `>>>` new bit · `>>> callback NNNN: note` callback bit (starts at its setup; NNNN = earlier bit's start) · `@callback NNNN: note` one line inside a bit referring back (NNNN = the earlier line). Test: delete the reference; still a bit? yes → `@callback`, no → `>>> callback`.
+
 `python -m pipeline.labels template <set>` → edit → `python -m pipeline.labels import <set>`.
 
 ## Two datasets that grow independently

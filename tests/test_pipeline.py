@@ -197,12 +197,14 @@ def test_label_import_reads_marks_and_rejects_edits(tmp_path, monkeypatch):
     text = work.read_text(encoding="utf-8")
     text = (text.replace("[0002]", ">>> second bit\n[0002]")
                 .replace("[0004]", ">>>\n[0004]")
-                .replace("[0005]", ">>> callback 0002: back to it\n[0005]"))
+                .replace("[0005]", ">>> callback 0002: back to it\n[0005]")
+                .replace("[0003]", "@callback 0001: nod\n[0003]"))
     work.write_text(text, encoding="utf-8")
     L.import_labels("s")
-    starts = yaml.safe_load((tmp_path / "s.yaml").read_text(encoding="utf-8"))["bit_starts"]
-    assert starts == [{"line": 0}, {"line": 2, "note": "second bit"}, {"line": 4},
-                      {"line": 5, "callback_to": 2, "note": "back to it"}]
+    out = yaml.safe_load((tmp_path / "s.yaml").read_text(encoding="utf-8"))
+    assert out["bit_starts"] == [{"line": 0}, {"line": 2, "note": "second bit"}, {"line": 4},
+                                 {"line": 5, "callback_to": 2, "note": "back to it"}]
+    assert out["line_callbacks"] == [{"line": 3, "callback_to_line": 1, "note": "nod"}]
 
     work.write_text(text.replace("[0003] Line 3 text.  ⟨L2⟩\n", ""), encoding="utf-8")
     with pytest.raises(SystemExit):
