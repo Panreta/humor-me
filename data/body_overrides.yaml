@@ -49,7 +49,7 @@ maria-bamford_weakness-is-the-brand_2020:  # heuristic
   skip_leading: 2
   skip_trailing: 1
 
-michael-mcintyre_showman_2020:  # heuristic, hit cap: verify
+michael-mcintyre_showman_2020:  # heuristic, hit cap: verified by hand 2026-10-20
   skip_leading: 4
   skip_trailing: 1
 
