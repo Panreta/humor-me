@@ -1,0 +1,36 @@
+# data/
+
+Transcript corpus and the config that controls how it's processed. **Transcript text never
+leaves this machine**: `raw/`, `interim/` and `processed/` are gitignored. Only the two YAML
+files are committed, and they hold counts and marker strings, no transcript text.
+
+| Path | Committed | Written by | Contents |
+|---|---|---|---|
+| `raw/` | no | you (manual download) | Transcript PDFs, browser "Save as PDF" of the site pages |
+| `body_overrides.yaml` | **yes** | `ingest --suggest` + human review | Per-set `skip_leading` / `skip_trailing` paragraph counts |
+| `markers.yaml` | **yes** | `markers --draft` + human review | Reaction string → `kind`, `source`, `intense` |
+| `interim/` | no | `pipeline.ingest`, `pipeline.markers` | `<set>.body.txt`, `.clean.txt`, `.events.jsonl`, `.meta.json` |
+| `processed/` | no | S3+ (planned) | `beats.jsonl`, `bits.jsonl`, `sets.jsonl`, n-gram index |
+
+## Adding a transcript
+
+1. Save the page as PDF into `raw/`. Keep the browser's default filename: `set_id` is parsed
+   from `Comedian_ Title (Year) …pdf`.
+2. `.venv/Scripts/python -m pipeline.ingest --suggest`, then open `body_overrides.yaml`.
+   The comment shows which rule proposed the counts; `hit cap: verify` means check by hand.
+3. `.venv/Scripts/python -m pipeline.ingest`, then open `interim/<set>.body.txt`. The first
+   line should be the performance, the last the closer. Adjust the counts if not.
+4. `.venv/Scripts/python -m pipeline.markers`. If it stops, run `--draft`, review the proposed
+   entries (watch for the performer's own name, e.g. "jeff laughs" = performer), add them.
+5. Check `interim/<set>.meta.json` → `laugh_labeled`. Only dense transcripts help the reward model.
+
+## File formats in `interim/`
+
+| File | Format |
+|---|---|
+| `.body.txt` | One paragraph per line, markers still inline |
+| `.clean.txt` | Same text with markers removed; event offsets index into this |
+| `.events.jsonl` | One marker per line: `offset`, `raw`, `category`, `kind`, `source`, `level`, `flags`, `interrupt`, `rel_pos` |
+| `.meta.json` | `set_id`, comedian, title, year, trims, word counts, `audience_laughs`, `words_per_laugh`, `laugh_labeled` |
+
+Everything in `interim/` and `processed/` is regenerable: delete and rerun the pipeline.

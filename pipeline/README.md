@@ -1,0 +1,70 @@
+# pipeline/
+
+Turns locally stored stand-up transcript PDFs into **structure and reward data**: beats
+labeled with audience reactions, bits (one premise each) and whole-set sequences. These feed
+the laugh predictor (reward model), the RL planner's demonstrations and the simulated audience.
+
+Full spec with schemas: [docs/pipeline.md](../docs/pipeline.md).
+Concepts behind each stage: [wiki/](wiki/README.md).
+
+## Stages
+
+```mermaid
+flowchart LR
+    A["S0 ingest<br/>✅"] --> B["S1+S2 markers<br/>✅"] --> C["S3 beats<br/>⏳"] --> D["S4 bits<br/>⏳ TextTiling+LLM"] --> E["S5 annotate<br/>⏳ LLM"] --> F["S6 validate<br/>⏳"]
+```
+
+| Stage | Module | Status | Input | Output | Concepts |
+|---|---|---|---|---|---|
+| S0 | `pipeline.ingest` | built | `data/raw/*.pdf`, `data/body_overrides.yaml` | `data/interim/<set>.body.txt`, `.meta.json` | [PDF extraction](wiki/pdf-extraction.md) |
+| S1+S2 | `pipeline.markers` | built | `.body.txt`, `data/markers.yaml` | `.clean.txt`, `.events.jsonl`, meta update | [Reaction markers & laugh labels](wiki/laugh-labels.md) |
+| S3 | `pipeline.beats` | planned | `.clean.txt`, `.events.jsonl` | `data/processed/beats.jsonl` | [Beats, bits, sets](wiki/beats-bits-sets.md) |
+| S4 | `pipeline.bits` | planned | beats | `bits.jsonl` | [TextTiling](wiki/texttiling.md) |
+| S5 | `pipeline.annotate` | planned | bits | annotated `bits.jsonl`, `sets.jsonl` | [Beats, bits, sets](wiki/beats-bits-sets.md) |
+| S6 | `pipeline.validate` | planned | all of the above + hand labels | metrics report | [Segmentation evaluation](wiki/segmentation-evaluation.md) |
+| guard | *(planned)* | planned | `.clean.txt` | n-gram index | [Memorization guard](wiki/memorization-guard.md) |
+
+## How to run
+
+From the repo root, with the tooling env (see the [root README](../README.md#setup)):
+
+```sh
+# New PDFs only: propose trim counts, then review data/body_overrides.yaml
+.venv/Scripts/python -m pipeline.ingest --suggest
+
+# S0: PDF -> body text
+.venv/Scripts/python -m pipeline.ingest
+
+# S1+S2: markers -> events + clean text + laugh_labeled flag
+.venv/Scripts/python -m pipeline.markers
+# if it stops on unmapped reaction strings:
+.venv/Scripts/python -m pipeline.markers --draft   # copy reviewed entries into data/markers.yaml
+```
+
+Order matters: `markers` reads what `ingest` wrote. After changing either YAML file, rerun
+from `ingest`. Run with plain `python -m` (not `python -I`), since the package is imported from
+the repo root.
+
+## Design rules
+
+- **Fail loud, never guess.** A set without a trim entry or a reaction string without a
+  lexicon entry stops the run. Heuristics only *propose* entries (`--suggest`, `--draft`);
+  a human approves them.
+- **Config is committed, data is not.** `data/markers.yaml` and `data/body_overrides.yaml`
+  hold counts and marker strings, never transcript text.
+- **Deterministic.** Same inputs → byte-identical outputs. Verify with `md5sum` after a refactor.
+- **Don't print transcript text** in logs or debug output; print counts and masked shapes.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `common.py` | Paths, filename → `set_id` parsing |
+| `ingest.py` | S0: page-margin chrome removal, paragraph rebuild, post region, trims, `--suggest` heuristics |
+| `markers.py` | S1+S2: bracket extraction, reaction lexicon lookup, levels, merge, density gate, `--draft` |
+| `wiki/` | Concept pages for each stage |
+
+## Current corpus numbers (20 sets)
+
+- 11 sets `laugh_labeled` (≤150 words per audience laugh); 9 structure-only.
+- Held-out comedians for the laugh predictor: Birbiglia, Gaffigan, Bargatze → 8 training sets.
