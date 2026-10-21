@@ -17,6 +17,10 @@ from pipeline.common import INTERIM, PROCESSED
 
 MAX_BEAT_WORDS = 80
 SENTENCE_END = re.compile(r"(?<=[.!?…])[\"”’)]*\s+|\n+")
+# A laugh after a one-word line ("Yeah.") belongs to the punchline before it.
+MIN_LINE_WORDS = 3
+# Words of preceding text given as context; becomes bit-scoped once S4 exists.
+CONTEXT_WORDS = 150
 
 
 def load_events(set_id: str) -> list[dict]:
@@ -80,6 +84,45 @@ def build_beats(set_id: str, clean: str, events: list[dict], labeled: bool) -> l
     return beats
 
 
+def build_lines(clean: str, beats: list[dict]) -> list[dict]:
+    """Per-sentence laugh labels: the line a reaction follows gets its level, setup lines get 0.
+
+    Fixes the beat-level shortcut where beat length alone predicts the label (beats end at
+    laughs, so almost all are positive and only long chunks are negative).
+    """
+    lines = []
+    for b in beats:
+        spans = sentence_spans(clean, *b["span"])
+        spans = [(s, e) for s, e in spans if clean[s:e].strip()]
+        if not spans:
+            continue
+        # Fold a too-short final line into the one before it so the label lands on the punchline.
+        if len(spans) > 1 and len(clean[spans[-1][0]:spans[-1][1]].split()) < MIN_LINE_WORDS:
+            spans[-2:] = [(spans[-2][0], spans[-1][1])]
+        for i, (s, e) in enumerate(spans):
+            last = i == len(spans) - 1
+            if b["label"] is None:
+                label = None
+            else:
+                label = b["label"] if last else 0
+            ctx_words = clean[:s].split()[-CONTEXT_WORDS:]
+            lines.append({
+                "set_id": b["set_id"],
+                "beat_idx": b["beat_idx"],
+                "span": [s, e],
+                "text": clean[s:e].strip(),
+                "words": len(clean[s:e].split()),
+                "label": label,
+                "flags": b["flags"] if last else [],
+                "interrupt": bool(last and b["interrupt"]),
+                "context": " ".join(ctx_words),
+                "rel_pos": round(s / max(len(clean), 1), 4),
+            })
+    for i, line in enumerate(lines):
+        line["line_idx"] = i
+    return lines
+
+
 def labeled_view(clean: str, events: list[dict], beats: list[dict]) -> str:
     """Human-readable check file: normalized levels inline. Never a training input."""
     inserts: list[tuple[int, str]] = []
@@ -96,7 +139,7 @@ def labeled_view(clean: str, events: list[dict], beats: list[dict]) -> str:
     inserts += [(b["span"][1], " ⟨·⟩\n") for b in beats if b["split"] == "chunk"]
     out, pos = [], 0
     for off, tag in sorted(inserts, key=lambda t: t[0]):
-        out.append(clean[pos:off])
+        out.append(clean[pos:off].rstrip(" "))  # offsets sit after the space; avoid "word  ⟨L2⟩"
         out.append(tag)
         pos = off
     out.append(clean[pos:])
@@ -112,7 +155,7 @@ def main() -> None:
     for dataset in ("laugh_labeled", "structure_only"):
         out_dir = PROCESSED / dataset
         out_dir.mkdir(parents=True, exist_ok=True)
-        all_beats = []
+        all_beats, all_lines = [], []
         for set_id in manifest[dataset]:
             clean = (INTERIM / f"{set_id}.clean.txt").read_text(encoding="utf-8")
             events = load_events(set_id)
@@ -122,21 +165,30 @@ def main() -> None:
             if covered.split() != clean.split():
                 sys.exit(f"{set_id}: beat spans do not tile the clean text")
             (INTERIM / f"{set_id}.labeled.txt").write_text(labeled_view(clean, events, beats), encoding="utf-8")
+            lines = build_lines(clean, beats)
             all_beats += beats
+            all_lines += lines
             if dataset == "laugh_labeled":
-                hist = [sum(b["label"] == lv for b in beats) for lv in range(5)]
-                print(f"{set_id:50} beats={len(beats):4} labels0-4={hist}")
+                rate = sum((ln["label"] or 0) >= 2 for ln in lines) / max(len(lines), 1)
+                print(f"{set_id:50} beats={len(beats):4} lines={len(lines):5} line_laugh_rate={rate:.2f}")
             else:
-                print(f"{set_id:50} beats={len(beats):4} (unlabeled)")
-        with open(out_dir / "beats.jsonl", "w", encoding="utf-8") as f:
-            for b in all_beats:
-                f.write(json.dumps(b, ensure_ascii=False) + "\n")
-        words = [b["words"] for b in all_beats]
-        summary = f"{dataset}: {len(all_beats)} beats, median {sorted(words)[len(words) // 2]} words"
+                print(f"{set_id:50} beats={len(beats):4} lines={len(lines):5} (unlabeled)")
+        for name, rows in (("beats", all_beats), ("lines", all_lines)):
+            with open(out_dir / f"{name}.jsonl", "w", encoding="utf-8") as f:
+                for row in rows:
+                    f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        print(f"\n{dataset}: {len(all_beats)} beats, {len(all_lines)} lines -> {out_dir}")
         if dataset == "laugh_labeled":
-            pos = sum((b["label"] or 0) >= 2 for b in all_beats)
-            summary += f", laugh (level>=2) rate {pos / len(all_beats):.2f}"
-        print(f"\n{summary} -> {out_dir / 'beats.jsonl'}\n")
+            for name, rows in (("beats", all_beats), ("lines", all_lines)):
+                pos = [r["words"] for r in rows if r["label"] >= 2]
+                neg = [r["words"] for r in rows if r["label"] < 2]
+                print(f"  {name:5} laugh rate {len(pos) / len(rows):.2f} | median words "
+                      f"laugh={median(pos)} no-laugh={median(neg)}")
+        print()
+
+
+def median(xs: list[int]) -> int:
+    return sorted(xs)[len(xs) // 2] if xs else 0
 
 
 if __name__ == "__main__":

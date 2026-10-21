@@ -42,6 +42,9 @@ From the repo root, with the tooling env (see the [root README](../README.md#set
 
 # S3: beats per dataset (+ data/interim/<set>.labeled.txt to eyeball)
 .venv/Scripts/python -m pipeline.beats
+
+# Tests: synthetic transcripts, never reads data/
+.venv/Scripts/python -m pytest tests -q
 ```
 
 Order matters: `markers` reads what `ingest` wrote. After changing either YAML file, rerun

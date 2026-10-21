@@ -85,6 +85,8 @@ Run from the repo root with the tooling env. Each stage reads the previous stage
 | 5 | *(planned)* `pipeline.bits` | beats | `bits.jsonl` | S4: TextTiling + LLM. Needs an LLM key. |
 | 6 | *(planned)* `pipeline.annotate` / `pipeline.validate` | bits | `sets.jsonl`, metrics | S5–S6 |
 
+Tests (synthetic data only, never reads the corpus): `.venv/Scripts/python -m pytest tests -q`
+
 Rerun from scratch at any time: delete `data/interim/` and `data/processed/`, then run
 steps 2 → 3. Everything there is regenerated; `data/raw/` and the two YAML files are inputs.
 

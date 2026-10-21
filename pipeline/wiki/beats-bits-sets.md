@@ -23,6 +23,21 @@ next?"), the data must keep these levels.
 - Very long reaction-free spans are split into sentence groups so no "beat" is a whole story.
 - This is what the laugh predictor trains on: *(beat text, context) → laugh level*.
 
+## Lines (S3): the laugh predictor's input
+
+Beats end at laughs, so ~77% of them are positive and the few negatives are long chunks: beat
+length alone predicts the label (median 23 vs 74 words). Training on beats would teach "short =
+funny". So each beat is split into sentences:
+
+- the **last line** before a reaction gets its level (a final line under 3 words, like "Yeah.",
+  is folded into the punchline before it);
+- earlier lines in the beat (setup) get 0;
+- each line carries `context`: the 150 words before it (becomes bit-scoped after S4).
+
+Result on the 11 labeled sets: 13,395 lines, laugh rate 0.15, median length 7 vs 6 words, so
+length no longer gives the label away. Laugh rate varies by set (0.08–0.25) with transcriber
+density, so evaluate per set or on held-out comedians.
+
 ## Bits (S4 boundaries, S5 annotation)
 
 - Boundaries come from [TextTiling](texttiling.md), refined by an LLM.

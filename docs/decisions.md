@@ -83,3 +83,8 @@ Each bit stores a paraphrased `hook` and how hard it landed; the planner can cal
 hook ≥ 2 bits later. Sim callback payoff parameters are fit from transcript callback stats
 (S4–S5). Why: callbacks are the delayed-reward decision that justifies sequential RL over a
 bandit, and the cross-bit context the user wants the agent to use.
+
+## 2026-10-21 — Laugh predictor trains on lines, not beats
+`lines.jsonl`: last line before a reaction gets its level, setup lines 0, each with 150 words of
+preceding context (bit-scoped after S4). Beats stay for structure. Why: beat length alone
+predicted the beat label (77% positive; 23 vs 74 median words).
