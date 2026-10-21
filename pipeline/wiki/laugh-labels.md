@@ -24,7 +24,9 @@ Across 20 transcripts there are ~4,500 bracketed strings and ~425 distinct ones:
 ## How we label
 
 1. **Extract** every `[...]` / `(...)` (2–60 chars), remember its offset, remove it from the
-   text → `clean.txt` + `events.jsonl`.
+   text → `clean.txt` + `events.jsonl`. Whitespace is collapsed segment by segment as the
+   clean text is built, so each offset is exact in the final file. Collapsing once at the end
+   shifted every later offset by one character per removed marker.
 2. **Bucket.** Reaction-like strings (laugh, chuckle, applause, cheer, groan, gasp…) must be
    in the lexicon. Everything else is `act_out` (voices, imitations), `music`, or `direction`.
 3. **Lexicon lookup.** `markers.yaml` maps each exact reaction string to `kind`, `source` and
@@ -38,9 +40,11 @@ Across 20 transcripts there are ~4,500 bracketed strings and ~425 distinct ones:
    | 1 | chuckle | audience chuckles, scattered |
    | 2 | laugh | laughter, audience laughs |
    | 3 | big laugh | laugh + "roars / wildly / continues", or back-to-back laugh markers |
-   | 4 | applause break | laugh + applause/cheer mid-set, or applause mid-set |
+   | 4 | applause break | laugh + applause/cheer mid-set (one marker, or a laugh merged with adjacent applause) |
 
    Groans and gasps are **flags**, not levels: a groan at a pun can be the payoff.
+   **Applause or cheers alone** get level 0 plus an `applause` flag: they're often for a
+   hometown shout-out or a sentiment, not a joke.
 5. **Merge.** Audience reactions fewer than 3 words apart are one sustained reaction.
 6. **Interrupt flag.** A marker that cuts a sentence mid-line means the laugh came before the
    line finished, which is a strong-laugh signal.
