@@ -1,0 +1,7 @@
+# Per-set body trimming for posts the heuristics can't handle. Holds counts only, no text.
+# Counts are applied to the body after the "Stand-Up Transcripts" breadcrumb and MORE footer
+# are removed. Check data/interim/<set_id>.body.txt after a rerun.
+#
+# <set_id>:
+#   skip_leading: N    # paragraphs of site blurb before the performance starts
+#   skip_trailing: N   # paragraphs of site text after the performance ends

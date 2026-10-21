@@ -6,6 +6,7 @@ RAW = ROOT / "data" / "raw"
 INTERIM = ROOT / "data" / "interim"
 PROCESSED = ROOT / "data" / "processed"
 LEXICON = ROOT / "data" / "markers.yaml"
+OVERRIDES = ROOT / "data" / "body_overrides.yaml"
 
 # Filenames come from the browser's "save as PDF": "Comedian_ Title (Year) – Transcript _ Scraps from the loft.pdf"
 FILENAME = re.compile(r"^(?P<comedian>[^_]+)_\s*(?P<title>.+?)\s*\((?P<year>\d{4})\)")
