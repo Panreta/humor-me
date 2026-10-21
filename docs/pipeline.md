@@ -51,7 +51,12 @@ flowchart LR
 
 ### S0: Ingest
 - `pymupdf` text extraction → `data/interim/<slug>.txt`. Slug from filename: `gulman_great-depresh_2019`.
-- Strip site chrome: page headers/footers, nav, "related posts", comments, cookie text.
+- Strip print chrome (outer page margins), then take the post region between the
+  "Stand-Up Transcripts" breadcrumb and the comment section.
+- Trim each set by **explicit counts in `data/body_overrides.yaml`** (`skip_leading`,
+  `skip_trailing`). Every set must have an entry; a missing one stops the run.
+  `--suggest` proposes entries for new sets via heuristics ("Transcript" heading →
+  reaction-free `* * *` divider → blurb/title match) for human review.
 - Build the **n-gram index** (e.g. 8-grams) of transcript text for the generation-time
   memorization guard. Any generated line overlapping a transcript 8-gram is rejected.
 

@@ -1,7 +1,90 @@
-# Per-set body trimming for posts the heuristics can't handle. Holds counts only, no text.
-# Counts are applied to the body after the "Stand-Up Transcripts" breadcrumb and MORE footer
-# are removed. Check data/interim/<set_id>.body.txt after a rerun.
+# Per-set body trim: the single source of truth for where each set starts and ends.
+# Holds counts only, no transcript text. Committed.
 #
-# <set_id>:
-#   skip_leading: N    # paragraphs of site blurb before the performance starts
-#   skip_trailing: N   # paragraphs of site text after the performance ends
+# Counts index into the post region: paragraphs between the site's "Stand-Up Transcripts"
+# breadcrumb and the comment section ("Share this article").
+#   skip_leading:  site synopsis / heading / disclaimer paragraphs before the performance
+#   skip_trailing: site paragraphs after the performance (e.g. the "MORE ... Transcripts" link)
+#
+# New PDFs: `python -m pipeline.ingest --suggest` appends proposed entries; review them here.
+# The comment after each set_id says which rule proposed it.
+
+brian-regan_on-the-rocks_2021:  # heuristic
+  skip_leading: 3
+  skip_trailing: 1
+
+demetri-martin_demetri-deconstructed_2024:  # heuristic
+  skip_leading: 2
+  skip_trailing: 1
+
+dusty-slay_wet-heat_2025:  # heuristic
+  skip_leading: 3
+  skip_trailing: 1
+
+gary-gulman_the-great-depresh_2019:  # separator
+  skip_leading: 10
+  skip_trailing: 1
+
+ismo_hello_2026:  # heading
+  skip_leading: 14
+  skip_trailing: 1
+
+jeff-arcuri_nice-to-meet-you_2026:  # heading
+  skip_leading: 8
+  skip_trailing: 1
+
+jerry-seinfeld_23-hours-to-kill_2020:  # heuristic
+  skip_leading: 3
+  skip_trailing: 1
+
+jim-gaffigan_quality-time_2019:  # heuristic
+  skip_leading: 1
+  skip_trailing: 1
+
+leanne-morgan_i-m-every-woman_2023:  # separator
+  skip_leading: 10
+  skip_trailing: 1
+
+maria-bamford_weakness-is-the-brand_2020:  # heuristic
+  skip_leading: 2
+  skip_trailing: 1
+
+michael-mcintyre_showman_2020:  # heuristic, hit cap: verify
+  skip_leading: 4
+  skip_trailing: 1
+
+mike-birbiglia_the-old-man-and-the-pool_2023:  # heuristic
+  skip_leading: 3
+  skip_trailing: 1
+
+nate-bargatze_hello-world_2023:  # separator
+  skip_leading: 8
+  skip_trailing: 1
+
+ronny-chieng_love-to-hate-it_2024:  # heuristic
+  skip_leading: 2
+  skip_trailing: 1
+
+ryan-hamilton_this-just-hit-me_2026:  # heading
+  skip_leading: 8
+  skip_trailing: 1
+
+sam-morril_incorrect_2026:  # heading
+  skip_leading: 7
+  skip_trailing: 1
+
+sebastian-maniscalco_stay-hungry_2019:  # heuristic
+  skip_leading: 1
+  skip_trailing: 1
+
+seth-meyers_lobby-baby_2019:  # heuristic
+  skip_leading: 1
+  skip_trailing: 1
+
+tig-notaro_hello-again_2024:  # separator
+  skip_leading: 11
+  skip_trailing: 1
+
+tom-papa_you-re-doing-great_2020:  # heuristic
+  skip_leading: 2
+  skip_trailing: 1
