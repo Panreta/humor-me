@@ -82,7 +82,7 @@ Run from the repo root with the tooling env. Each stage reads the previous stage
 | 2 | `.venv/Scripts/python -m pipeline.ingest` | PDFs + overrides | `data/interim/*.body.txt`, `*.meta.json` | Stops if a set has no override entry. |
 | 3 | `.venv/Scripts/python -m pipeline.markers` | `*.body.txt` + `data/markers.yaml` | `*.clean.txt`, `*.events.jsonl`, updates `*.meta.json` | Stops on unmapped reaction strings → run with `--draft`, review, add to lexicon. |
 | 4 | `.venv/Scripts/python -m pipeline.beats` | clean text + events + `datasets.json` | `data/processed/<dataset>/beats.jsonl`, `*.labeled.txt` | S3. Check `labeled.txt` by eye. |
-| 5 | *(planned)* `pipeline.bits` | beats | `bits.jsonl` | S4: TextTiling + LLM. Needs an LLM key. |
+| 5 | `.venv/Scripts/python -m pipeline.bits <set_id>` (or `--all`) | `lines.jsonl` + `backend/.env` | `data/processed/<dataset>/bits.jsonl` | S4+S5 in one Gemini call per set; output validated, cached. Needs `PIPELINE_MODEL` + key. |
 | 6 | *(planned)* `pipeline.annotate` / `pipeline.validate` | bits | `sets.jsonl`, metrics | S5–S6 |
 
 Tests (synthetic data only, never reads the corpus): `.venv/Scripts/python -m pytest tests -q`

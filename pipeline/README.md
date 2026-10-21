@@ -19,7 +19,7 @@ flowchart LR
 | S0 | `pipeline.ingest` | built | `data/raw/*.pdf`, `data/body_overrides.yaml` | `data/interim/<set>.body.txt`, `.meta.json` | [PDF extraction](wiki/pdf-extraction.md) |
 | S1+S2 | `pipeline.markers` | built | `.body.txt`, `data/markers.yaml` | `.clean.txt`, `.events.jsonl`, meta update | [Reaction markers & laugh labels](wiki/laugh-labels.md) |
 | S3 | `pipeline.beats` | built | `.clean.txt`, `.events.jsonl`, `datasets.json` | `data/processed/<dataset>/beats.jsonl`, `.labeled.txt` (debug view) | [Beats, bits, sets](wiki/beats-bits-sets.md) |
-| S4 | `pipeline.bits` | planned | beats | `bits.jsonl` | [TextTiling](wiki/texttiling.md) |
+| S4+S5 | `pipeline.bits` | built (Gemini, 1 call/set) | `lines.jsonl`, `backend/.env` | `data/processed/<dataset>/bits.jsonl`, cache `data/interim/<set>.bits.raw.json` | [Beats, bits, sets](wiki/beats-bits-sets.md) · [TextTiling](wiki/texttiling.md) (deferred baseline) |
 | S5 | `pipeline.annotate` | planned | bits | annotated `bits.jsonl`, `sets.jsonl` | [Beats, bits, sets](wiki/beats-bits-sets.md) |
 | S6 | `pipeline.validate` | planned | all of the above + hand labels | metrics report | [Segmentation evaluation](wiki/segmentation-evaluation.md) |
 | guard | *(planned)* | planned | `.clean.txt` | n-gram index | [Memorization guard](wiki/memorization-guard.md) |
@@ -42,6 +42,9 @@ From the repo root, with the tooling env (see the [root README](../README.md#set
 
 # S3: beats per dataset (+ data/interim/<set>.labeled.txt to eyeball)
 .venv/Scripts/python -m pipeline.beats
+
+# S4+S5: bits + annotation via Gemini (cached per set; --force to re-request)
+.venv/Scripts/python -m pipeline.bits <set_id> [<set_id> ...]   # or --all
 
 # Hand labels (reference bit boundaries for S6): edit the work file, then import
 .venv/Scripts/python -m pipeline.labels template <set_id>   # data/labels/work/<set_id>.txt (local)
