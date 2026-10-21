@@ -19,6 +19,7 @@ from pipeline.common import PROCESSED, ROOT
 LABELS = ROOT / "data" / "labels"
 WORK = LABELS / "work"
 MARK = ">>>"
+LINE_MARK = "@callback"  # a single line inside a bit that refers back to an earlier line
 LINE = re.compile(r"^\[(\d{4,5})\] ")
 CALLBACK = re.compile(r"^callback\s+(\d{1,5})\s*:?(.*)$", re.I)
 
@@ -32,7 +33,10 @@ HEADER = """\
 #      Optional note after it, e.g.  {mark} the dentist
 #      CALLBACK: on the LATER bit, name the line where the earlier bit starts:
 #          {mark} callback 0042: the dentist
-#      (only for whole bits; a one-line reference inside a bit needs no mark)
+#      (a callback bit starts where its SETUP starts, not at the payoff line)
+#      LINE CALLBACK: one line inside an ordinary bit that refers back; put directly above it:
+#          @callback 0189: the front door      (number = the earlier line it refers to)
+#      Test: delete the reference; is the stretch still a bit? yes -> @callback, no -> >>> callback
 #      The first line of the set is always a bit start; no need to mark it.
 #      ⟨L2⟩ etc. show the laugh that followed a line (context only, don't edit them).
 #      Don't edit or reorder the [NNNN] lines. Save, then run:
@@ -72,8 +76,16 @@ def import_labels(set_id: str) -> None:
         sys.exit(f"{src} missing; run `template` first")
     expected = [ln["line_idx"] for ln in load_lines(set_id)]
     seen, starts, pending = [], [], None
+    line_cbs, pending_line_cb = [], None
     for raw in src.read_text(encoding="utf-8").splitlines():
         if raw.startswith("#") or not raw.strip():
+            continue
+        if raw.strip().lower().startswith(LINE_MARK):
+            cb = CALLBACK.match(raw.strip()[1:])
+            if not cb:
+                sys.exit(f"bad line-callback mark (use '@callback 0189: note'): {raw.strip()[:40]!r}")
+            pending_line_cb = {"callback_to_line": int(cb.group(1)),
+                               **({"note": cb.group(2).strip()} if cb.group(2).strip() else {})}
             continue
         if raw.strip().startswith(MARK):
             pending = raw.strip()[len(MARK):].strip()  # "" for a bare marker; None means no marker
@@ -83,6 +95,9 @@ def import_labels(set_id: str) -> None:
             sys.exit(f"unrecognized line (edited by accident?): {raw[:40]!r}")
         idx = int(m.group(1))
         seen.append(idx)
+        if pending_line_cb is not None:
+            line_cbs.append({"line": idx, **pending_line_cb})
+            pending_line_cb = None
         if pending is not None or not starts and not seen[:-1]:
             entry = {"line": idx}
             cb = CALLBACK.match(pending or "")
@@ -99,10 +114,17 @@ def import_labels(set_id: str) -> None:
         starts.insert(0, {"line": expected[0]})
     LABELS.mkdir(parents=True, exist_ok=True)
     out = LABELS / f"{set_id}.yaml"
+    valid = set(expected)
+    bad = [c for c in line_cbs + [s for s in starts if "callback_to" in s]
+           if c.get("callback_to_line", c.get("callback_to")) not in valid]
+    if bad:
+        sys.exit(f"callback targets that aren't line numbers in this set: {bad}")
     out.write_text(yaml.safe_dump({"set_id": set_id, "unit": "line_idx", "n_lines": len(expected),
-                                   "bit_starts": starts}, sort_keys=False, allow_unicode=True),
+                                   "bit_starts": starts, "line_callbacks": line_cbs},
+                                  sort_keys=False, allow_unicode=True),
                    encoding="utf-8")
-    print(f"{set_id}: {len(starts)} bits -> {out}")
+    print(f"{set_id}: {len(starts)} bits, {sum('callback_to' in s for s in starts)} callback bits, "
+          f"{len(line_cbs)} line callbacks -> {out}")
 
 
 def main() -> None:
