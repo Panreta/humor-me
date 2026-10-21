@@ -5,6 +5,8 @@
 # breadcrumb and the comment section ("Share this article").
 #   skip_leading:  site synopsis / heading / disclaimer paragraphs before the performance
 #   skip_trailing: site paragraphs after the performance (e.g. the "MORE ... Transcripts" link)
+#   dataset:       optional; laugh_labeled | structure_only. Overrides the density gate
+#                  (≤150 words per audience laugh) used by `pipeline.markers`.
 #
 # New PDFs: `python -m pipeline.ingest --suggest` appends proposed entries; review them here.
 # The comment after each set_id says which rule proposed it.

@@ -157,7 +157,11 @@ Annotations are **abstract**: premises are paraphrased descriptions, not quoted 
 data/
   raw/          PDFs (gitignored)
   interim/      extracted text, marker events (gitignored)
-  processed/    beats/bits/sets jsonl, n-gram index (gitignored)
+  processed/    (gitignored)
+    datasets.json        membership: laugh_labeled vs structure_only
+    laugh_labeled/       beats/bits/sets jsonl with laugh labels
+    structure_only/      bits/sets jsonl, no laugh labels
+    ngrams.*             memorization guard index
   markers.yaml  lexicon (committed)
 pipeline/       code (committed)
 ```

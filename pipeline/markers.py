@@ -15,7 +15,10 @@ import sys
 
 import yaml
 
-from pipeline.common import INTERIM, LEXICON
+from pipeline.common import INTERIM, LEXICON, OVERRIDES, PROCESSED
+
+LAUGH_LABELED, STRUCTURE_ONLY = "laugh_labeled", "structure_only"
+DATASETS = (LAUGH_LABELED, STRUCTURE_ONLY)
 
 BRACKET = re.compile(r"[\[\(]([^\[\]\(\)\n]{2,60})[\]\)]")
 NOTE = "♪"
@@ -230,6 +233,8 @@ def main() -> None:
             print(f"  {raw!r}  ({len(sets)} sets)", file=sys.stderr)
         sys.exit(1)
 
+    trims = yaml.safe_load(OVERRIDES.read_text(encoding="utf-8")) or {} if OVERRIDES.exists() else {}
+    membership: dict[str, list[str]] = {name: [] for name in DATASETS}
     for set_id, (clean, events) in results.items():
         (INTERIM / f"{set_id}.clean.txt").write_text(clean, encoding="utf-8")
         with open(INTERIM / f"{set_id}.events.jsonl", "w", encoding="utf-8") as f:
@@ -243,12 +248,27 @@ def main() -> None:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         # Sparse transcribers leave most laughs untagged, so absent markers would read as
         # "no laugh" and poison the reward labels; those sets are structure-only.
+        gate = LAUGH_LABELED if words_per_laugh <= DENSE_WORDS_PER_LAUGH else STRUCTURE_ONLY
+        dataset = trims.get(set_id, {}).get("dataset", gate)
+        if dataset not in DATASETS:
+            sys.exit(f"{set_id}: dataset override must be one of {DATASETS}, got {dataset!r}")
         meta |= {"audience_laughs": laughs, "words_per_laugh": round(words_per_laugh),
-                 "laugh_labeled": words_per_laugh <= DENSE_WORDS_PER_LAUGH}
+                 "laugh_labeled": dataset == LAUGH_LABELED, "dataset": dataset,
+                 "dataset_source": "override" if dataset != gate else "density_gate"}
         meta_path.write_text(json.dumps(meta, indent=1), encoding="utf-8")
+        membership[dataset].append(set_id)
         print(f"{set_id:50} audience={len(reactions):4} levels0-4={hist} "
               f"act_out={sum(e['category'] == 'act_out' for e in events):3} "
-              f"labeled={meta['laugh_labeled']}")
+              f"dataset={dataset}")
+
+    # Downstream stages read membership from here, so each dataset grows independently and
+    # the laugh predictor can never see a structure-only set.
+    PROCESSED.mkdir(parents=True, exist_ok=True)
+    manifest = {"density_threshold_words_per_laugh": DENSE_WORDS_PER_LAUGH,
+                **{name: sorted(ids) for name, ids in membership.items()}}
+    (PROCESSED / "datasets.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
+    print("\n" + "  ".join(f"{name}={len(ids)}" for name, ids in membership.items())
+          + f"  -> {PROCESSED / 'datasets.json'}")
 
 
 if __name__ == "__main__":
