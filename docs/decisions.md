@@ -37,3 +37,25 @@ infer age. Commute deferred (transit noise, unclear audience).
 
 ## 2026-10-20 — Teens = stricter safety filter (hard rule)
 Why: minors. Not left to the bandit.
+
+## 2026-10-20 — Model output = next bit, conditioned on room state
+State: context (venue/energy/age), bits so far (mode, premise, laugh outcome), open
+callbacks, laugh trend, elapsed time. RL planner picks the next bit spec; generator writes it.
+Why: fits a sequential RL framing (MDP over bits), and keeps the set coherent.
+
+## 2026-10-20 — Transcripts are for structure + reward, never as imitation text
+Uses: (1) laugh predictor from normalized audience markers (reward model / sim reward),
+(2) set structure (bit order, segues, callbacks) as planner demonstrations, (3) bit skeletons
+→ synthetic sets in the robot's voice → SFT. Why: SFT on raw transcripts blends 19 voices
+into a generic one and memorizes lines. Corpus stays local in data/ (gitignored).
+Crowd-work is its own bit type.
+
+## 2026-10-20 — Laugh labels: lexicon-mapped levels, binary primary
+Levels 0–4 (none/chuckle/laugh/big laugh/applause break) from a versioned markers.yaml;
+unknown marker strings stop the pipeline. Unattributed chuckles/sighs = performer, not
+audience. Binary (≥2) is the primary target; ordinal only within-set. Groan/gasp are a
+separate channel; groan is mode-dependent reward (positive for Wordsmith).
+Why: transcribers differ in vocabulary and density; most never write audience chuckles.
+
+## 2026-10-20 — Opener/closer are positions, not bit types
+Bit types: prepared, crowd_work, callback, segue. Position assigned by index in set.
