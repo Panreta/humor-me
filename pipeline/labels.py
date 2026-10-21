@@ -20,6 +20,7 @@ LABELS = ROOT / "data" / "labels"
 WORK = LABELS / "work"
 MARK = ">>>"
 LINE = re.compile(r"^\[(\d{4,5})\] ")
+CALLBACK = re.compile(r"^callback\s+(\d{1,5})\s*:?(.*)$", re.I)
 
 HEADER = """\
 # Bit-boundary labeling: {set_id}
@@ -28,7 +29,10 @@ HEADER = """\
 # starts a NEW bit. Crowd-work exchanges are their own bit.
 #
 # HOW: put a line with only {mark} directly ABOVE the first line of each new bit.
-#      Optional note after it, e.g.  {mark} callback: the dentist
+#      Optional note after it, e.g.  {mark} the dentist
+#      CALLBACK: on the LATER bit, name the line where the earlier bit starts:
+#          {mark} callback 0042: the dentist
+#      (only for whole bits; a one-line reference inside a bit needs no mark)
 #      The first line of the set is always a bit start; no need to mark it.
 #      ⟨L2⟩ etc. show the laugh that followed a line (context only, don't edit them).
 #      Don't edit or reorder the [NNNN] lines. Save, then run:
@@ -80,7 +84,14 @@ def import_labels(set_id: str) -> None:
         idx = int(m.group(1))
         seen.append(idx)
         if pending is not None or not starts and not seen[:-1]:
-            starts.append({"line": idx, **({"note": pending} if pending else {})})
+            entry = {"line": idx}
+            cb = CALLBACK.match(pending or "")
+            if cb:
+                entry["callback_to"] = int(cb.group(1))
+                pending = cb.group(2).strip() or None
+            if pending:
+                entry["note"] = pending
+            starts.append(entry)
         pending = None
     if seen != expected:
         sys.exit("line numbers were edited, removed or reordered; restore them and re-import")
