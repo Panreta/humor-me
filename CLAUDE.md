@@ -4,6 +4,8 @@ Research project: a live, voice-only stand-up comedy agent that reads the room v
 adapts its material, and learns from audience feedback across sessions.
 
 Read before working:
+- [README.md](README.md): repo map, setup, run order per phase
+- [pipeline/wiki/](pipeline/wiki/README.md): concepts behind each pipeline stage
 - [docs/design.md](docs/design.md) — architecture, reward design, research hypothesis
 - [docs/data-sources.md](docs/data-sources.md) — what data we use and for what role
 - [docs/pipeline.md](docs/pipeline.md) — transcript → beats/bits/sets pipeline, labels, schemas
