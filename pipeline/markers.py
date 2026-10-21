@@ -60,11 +60,13 @@ def classify(raw: str, lexicon: dict) -> dict | None:
     return {"category": "direction"}
 
 
-def level_of(ev: dict, rel_pos: float) -> int:
+def level_of(ev: dict) -> int:
     if ev.get("source") != "audience" or ev.get("kind") not in KIND_LEVEL:
         return 0
-    if ev["kind"] == "applause" and not (EDGE < rel_pos < 1 - EDGE):
-        return 0  # entrance/exit applause says nothing about a joke
+    # Applause/cheers alone are often for a hometown or a sentiment, not a joke; they only
+    # count as an applause break when merged with an adjacent laugh (see merge_adjacent).
+    if ev["kind"] == "applause":
+        return 0
     level = KIND_LEVEL[ev["kind"]]
     if ev["kind"] == "laugh" and ev.get("intense"):
         level = 3
@@ -82,19 +84,35 @@ def merge_adjacent(events: list[dict], clean: str) -> list[dict]:
             and len(clean[prev["offset"]:ev["offset"]].split()) < MERGE_GAP_WORDS
         ):
             both_laugh = prev.get("kind") in ("laugh", "laugh_applause") and ev.get("kind") in ("laugh", "laugh_applause")
-            prev["level"] = max(prev["level"], ev["level"], 3 if both_laugh and prev["level"] >= 2 else 0)
-            prev["flags"] = sorted(set(prev["flags"]) | set(ev["flags"]))
+            laugh_level = max(prev["level"], ev["level"])
+            flags = set(prev["flags"]) | set(ev["flags"])
+            if laugh_level >= 2 and "applause" in flags:
+                laugh_level = 4  # laugh rolling into applause = applause break
+            elif both_laugh and laugh_level >= 2:
+                laugh_level = max(laugh_level, 3)
+            prev["level"] = laugh_level
+            prev["flags"] = sorted(flags)
             prev["raw"] += " | " + ev["raw"]
             continue
         merged.append(ev)
     return merged
 
 
+def _append_clean(out: list[str], segment: str) -> None:
+    # Collapse whitespace per segment and at the seam left by a removed marker, so the running
+    # length is the final clean-text offset. (Collapsing once at the end shifted every later
+    # offset by one char per removed marker.)
+    segment = re.sub(r"[ \t]+", " ", segment)
+    if out and out[-1] and out[-1][-1] in " \n" and segment.startswith(" "):
+        segment = segment[1:]
+    out.append(segment)
+
+
 def process(set_id: str, body: str, lexicon: dict, unknown: dict) -> tuple[str, list[dict]]:
-    parts, events, length, pos = [], [], 0, 0
+    parts, events, pos = [], [], 0
     for m in BRACKET.finditer(body):
-        parts.append(body[pos:m.start()])
-        length += len(parts[-1])
+        _append_clean(parts, body[pos:m.start()])
+        length = sum(map(len, parts))
         pos = m.end()
         raw = normalize(m.group(1))
         fields = classify(raw, lexicon)
@@ -107,11 +125,14 @@ def process(set_id: str, body: str, lexicon: dict, unknown: dict) -> tuple[str, 
         after = body[m.end():m.end() + 2].lstrip()
         interrupt = bool(before) and before[-1] not in ".?!…\"”" and after[:1].islower()
         ev = {"offset": length, "rel_pos": round(rel, 4), "raw": raw, "interrupt": interrupt, **fields}
-        ev["level"] = level_of(ev, rel)
+        ev["level"] = level_of(ev)
         ev["flags"] = [f for f in ("groan", "gasp") if ev.get("kind") == f]
+        # Entrance/exit applause says nothing about a joke, so it gets no flag either.
+        if ev.get("source") == "audience" and ev.get("kind") in ("applause", "laugh_applause") and EDGE < rel < 1 - EDGE:
+            ev["flags"].append("applause")
         events.append(ev)
-    parts.append(body[pos:])
-    clean = re.sub(r"[ \t]+", " ", "".join(parts))
+    _append_clean(parts, body[pos:])
+    clean = "".join(parts)
     return clean, merge_adjacent(events, clean)
 
 

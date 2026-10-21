@@ -65,3 +65,8 @@ Only 11/20 sets are densely tagged (≤150 words per audience laugh). Sparse/unm
 are structure-only, since absent markers would be read as "no laugh". Bamford is sparse, so
 Birbiglia (also Neurotic) takes her held-out slot. 8 training sets remain for the laugh
 predictor: thin; more *densely tagged* transcripts are the highest-value data to add.
+
+## 2026-10-21 — Applause alone is not a laugh
+Applause/cheer markers without a laugh get level 0 + `applause` flag; level 4 requires a laugh
+(same marker or merged with adjacent applause). Why: eyeball check found mid-set cheers for
+hometown mentions labeled as applause breaks. Level-4 counts dropped (e.g. Notaro 23 → 0).
