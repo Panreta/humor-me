@@ -21,7 +21,7 @@ flowchart LR
 | S3 | `pipeline.beats` | built | `.clean.txt`, `.events.jsonl`, `datasets.json` | `data/processed/<dataset>/beats.jsonl`, `.labeled.txt` (debug view) | [Beats, bits, sets](wiki/beats-bits-sets.md) |
 | S4+S5 | `pipeline.bits` | built (Gemini, 1 call/set) | `lines.jsonl`, `backend/.env` | `data/processed/<dataset>/bits.jsonl`, cache `data/interim/<set>.bits.raw.json` | [Beats, bits, sets](wiki/beats-bits-sets.md) · [TextTiling](wiki/texttiling.md) (deferred baseline) |
 | S5 | `pipeline.annotate` | planned | bits | annotated `bits.jsonl`, `sets.jsonl` | [Beats, bits, sets](wiki/beats-bits-sets.md) |
-| S6 | `pipeline.validate` | planned | all of the above + hand labels | metrics report | [Segmentation evaluation](wiki/segmentation-evaluation.md) |
+| S6 | `pipeline.validate` | built | `bits.jsonl` + `data/labels/<set>.yaml` | Pk, WindowDiff, boundary F1 (±2 lines), callback P/R vs an even-spacing baseline → `data/processed/eval_bits.json` | [Segmentation evaluation](wiki/segmentation-evaluation.md) |
 | guard | *(planned)* | planned | `.clean.txt` | n-gram index | [Memorization guard](wiki/memorization-guard.md) |
 
 ## How to run
@@ -49,6 +49,9 @@ From the repo root, with the tooling env (see the [root README](../README.md#set
 # Hand labels (reference bit boundaries for S6): edit the work file, then import
 .venv/Scripts/python -m pipeline.labels template <set_id>   # data/labels/work/<set_id>.txt (local)
 .venv/Scripts/python -m pipeline.labels import   <set_id>   # data/labels/<set_id>.yaml (committed)
+
+# S6: score bits against hand labels (every set with data/labels/<set>.yaml)
+.venv/Scripts/python -m pipeline.validate
 
 # Tests: synthetic transcripts, never reads data/
 .venv/Scripts/python -m pytest tests -q

@@ -256,3 +256,24 @@ def test_to_bits_positions_skip_segues_and_map_callbacks():
     assert bits[3]["callback_to"] == 1  # mapped from start line 2 to bit index 1
     assert sum(b["n_lines"] for b in bits) == 12
     assert bits[1]["laugh_lines"] == 1 and bits[1]["max_level"] == 2
+
+
+# --- S6: segmentation metrics ---
+
+def test_segmentation_metrics_perfect_and_degraded():
+    from pipeline.validate import boundary_prf, callback_pr, even_baseline, pk, window_diff
+    n, ref = 100, [0, 20, 45, 70]
+    assert pk(ref, ref, n) == 0 and window_diff(ref, ref, n) == 0
+    assert boundary_prf(ref, ref) == (1.0, 1.0, 1.0)
+
+    near = [0, 21, 44, 71]  # every boundary off by one line
+    assert boundary_prf(near, ref)[2] == 1.0  # within ±2 tolerance
+    assert 0 < pk(ref, near, n) < pk(ref, [0], n)  # near misses cost little; no boundaries costs a lot
+    assert window_diff(ref, [0, 10, 20, 30, 45, 70], n) > 0  # extra boundaries are penalised
+
+    assert boundary_prf(ref, [0, 50])[1] == 0.0  # 50 is >2 from every reference boundary
+    assert even_baseline(4, 100) == [0, 25, 50, 75]
+
+    p, r = callback_pr([(70, 20)], [(71, 21), (45, 0)])
+    assert p == 0.5 and r == 1.0
+    assert callback_pr([], []) == (None, None)
