@@ -22,6 +22,7 @@ import time
 import httpx
 from dotenv import load_dotenv
 
+from pipeline.callbacks import candidates, corpus_df, render_hints
 from pipeline.common import INTERIM, PROCESSED, ROOT
 
 MODES = ["Neurotic", "Cynic", "Observer", "Wordsmith", "Optimist", "Absurdist"]
@@ -58,6 +59,21 @@ Output: ONLY a JSON object:
             "continues": <true if same topic as the previous bit, else false>,
             "callback_to": <start line of an earlier bit, or null>,
             "hook": "<memorable image a later callback could reuse, your own words, max 10 words, or null>"}}]}}
+
+Work in this order:
+1. Topic map: find every point where the subject changes, and every segue line that bridges
+   two subjects.
+2. Bits: within each subject, start a new bit wherever a new premise starts. Test each
+   candidate: could a comedian perform this stretch on its own, as a complete joke, without the
+   lines before it? Long stories usually hold several bits; split at each new premise even
+   inside one story. Tags and act-outs on the same premise stay in that bit.
+3. continues: true only when the bit stays on the previous bit's subject. A new subject is
+   false, even if a segue links the two.
+4. Callbacks: for EVERY bit after the second, ask whether it brings back a specific image,
+   character, phrase, or premise from a bit at least 2 bits earlier, after other material.
+   Callbacks can be lexical (the same object or name returns) or thematic (the same idea or
+   self-image returns). Use the candidate list below the transcript if present, but verify
+   each one; many are coincidences. A bit can both continue and call back.
 
 Rules:
 - The first bit starts at the first line number. Starts strictly increasing. Every line
@@ -172,7 +188,7 @@ def call_llm(base: str, key: str, model: str, messages: list[dict]) -> str:
     sys.exit("gave up after repeated rate limits / server errors")
 
 
-def annotate(set_id: str, lines: list[dict], force: bool) -> dict:
+def annotate(set_id: str, lines: list[dict], force: bool, hints: str = "") -> dict:
     cache = INTERIM / f"{set_id}.bits.raw.json"
     source = ngrams(" ".join(ln["text"] for ln in lines), VERBATIM_NGRAM)
     if cache.exists() and not force:
@@ -187,7 +203,7 @@ def annotate(set_id: str, lines: list[dict], force: bool) -> dict:
             print(f"{set_id}: cached")
             return cached
     base, key, model = load_env()
-    messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": render(lines)}]
+    messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": render(lines) + hints}]
     for attempt in range(1, MAX_ATTEMPTS + 1):
         t0 = time.time()
         content = call_llm(base, key, model, messages)
@@ -261,9 +277,10 @@ def main() -> None:
     if not targets:
         sys.exit("give set_ids or --all")
 
+    df, n_sets = corpus_df()
     for set_id in targets:
         dataset, lines = load_set_lines(set_id)
-        raw = annotate(set_id, lines, args.force)
+        raw = annotate(set_id, lines, args.force, render_hints(candidates(lines, df, n_sets)))
         bits = to_bits(set_id, lines, raw, labeled=dataset == "laugh_labeled")
         cbs = sum(b["callback_to"] is not None for b in bits)
         sizes = sorted(b["n_lines"] for b in bits)
