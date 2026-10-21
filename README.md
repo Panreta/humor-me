@@ -34,9 +34,10 @@ flowchart LR
     PROC --> SIM["simulated audience<br/>+ RL planner"]
     RM --> BE["backend/<br/>show loop"]
     SIM --> BE
-    BE <-->|websocket| FE["frontend/<br/>waveform + operator panel"]
+    BE -->|websocket| FE["frontend/<br/>waveform + operator panel"]
+    FE -->|operator events| BE
     LLM(["LLM provider"]) --> BE
-    PROBE["scripts/latency_probe.py"] -.picks.-> LLM
+    PROBE["scripts/latency_probe.py"] -. picks .-> LLM
 ```
 
 Build order: **setup → pipeline (offline data) → RL training in sim → backend + frontend
