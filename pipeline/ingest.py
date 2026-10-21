@@ -43,7 +43,7 @@ HEADINGS = {"transcript", "full transcript"}
 HEADING_WINDOW = 40
 DISCLAIMER = "Note for Students"
 SEPARATOR = "* * *"
-SEPARATOR_WINDOW = 15
+SEPARATOR_WINDOW = 25  # Birbiglia's synopsis + critics' quotes run to paragraph 16
 # Reaction markers only: the post title above a synopsis has "(2023)"-style parentheses too.
 REACTION_MARKER = re.compile(r"[\[\(][^\]\)\n]{0,30}(laugh|chuckl|applau|cheer|clap)[^\]\)\n]{0,30}[\]\)]", re.I)
 MORE_FOOTER = re.compile(r"^MORE\b.*Stand-Up Transcripts")  # both "MORE <name> S-U T" and "MORE S-U T <name>"

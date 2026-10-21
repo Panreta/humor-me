@@ -17,7 +17,9 @@ import yaml
 
 from pipeline.common import INTERIM, LEXICON
 
-BRACKET = re.compile(r"[\[\(]([^\[\]\(\)\n]{2,60})[\]\)]")
+# Group 1 = bracketed stage direction. A ♪...♪ span is walk-on/outro music: removed from the
+# clean text like any marker, and stored only as "♪" so lyrics never land in events.
+BRACKET = re.compile(r"[\[\(]([^\[\]\(\)\n]{2,60})[\]\)]|♪[^♪\n]{0,200}♪")
 REACTION = re.compile(
     r"laugh|chuckl|giggl|snicker|titter|applau|clap|cheer|whoop|whistl|ovation|roar|"
     r"groan|gasp|aww|boo\b|booing|scream|murmur|sigh",
@@ -117,8 +119,11 @@ def process(set_id: str, body: str, lexicon: dict, unknown: dict) -> tuple[str, 
         _append_clean(parts, body[pos:m.start()])
         length = sum(map(len, parts))
         pos = m.end()
-        raw = normalize(m.group(1))
-        fields = classify(raw, lexicon)
+        if m.group(1) is None:
+            raw, fields = "♪", {"category": "music"}
+        else:
+            raw = normalize(m.group(1))
+            fields = classify(raw, lexicon)
         if fields is None:
             unknown.setdefault(raw, set()).add(set_id)
             continue
