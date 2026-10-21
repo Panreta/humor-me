@@ -58,6 +58,24 @@ Format: **Symptom** → **Cause** → **Caught by** → **Fix** (commit / file).
 
 ---
 
+## Data pipeline: beats and lines (S3)
+
+### Beat length predicted the label
+- **Symptom:** 77% of beats labeled "laugh"; median 23 words for laugh beats vs 74 for no-laugh.
+- **Cause:** beats are cut *at* laughs, so negatives only come from chunking long quiet stretches.
+  A model would learn "short = funny".
+- **Caught by:** summary stats printed after the first S3 run.
+- **Fix:** line-level labels (`lines.jsonl`): punchline line gets the level, setup lines 0, each
+  with 150 words of preceding context. Laugh rate 0.15; median 7 vs 6 words.
+
+### Four failing tests were test bugs, not code bugs
+- Reactions placed 1 word apart merged (by design, < 3 words); a 2-word "punchline" was folded
+  into the setup (by design, < 3 words); a context assertion was wrong; the debug view had a
+  double space before tags (cosmetic, fixed). Lesson: when a new test fails, decide whether
+  the test or the code is wrong before changing either.
+
+---
+
 ## Data pipeline: markers and labels (S1–S2)
 
 ### Marker offsets drifted later and later through each set (**real bug**)

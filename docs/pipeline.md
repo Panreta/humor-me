@@ -125,6 +125,12 @@ Annotations are **abstract**: premises are paraphrased descriptions, not quoted 
  "level": 2, "flags": [], "interrupt": false, "source": "audience"}
 ```
 
+`lines.jsonl` (laugh predictor input)
+```json
+{"set_id": "...", "line_idx": 40, "beat_idx": 12, "span": [4301, 4388], "text": "...",
+ "words": 9, "label": 2, "flags": [], "interrupt": false, "context": "<150 words before>"}
+```
+
 `bits.jsonl`
 ```json
 {"set_id": "...", "bit_idx": 3, "beats": [10, 14], "position": "body",
