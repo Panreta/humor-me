@@ -59,3 +59,9 @@ Why: transcribers differ in vocabulary and density; most never write audience ch
 
 ## 2026-10-20 — Opener/closer are positions, not bit types
 Bit types: prepared, crowd_work, callback, segue. Position assigned by index in set.
+
+## 2026-10-20 — Density gate for laugh labels; Birbiglia replaces Bamford in held-out
+Only 11/20 sets are densely tagged (≤150 words per audience laugh). Sparse/unmarked sets
+are structure-only, since absent markers would be read as "no laugh". Bamford is sparse, so
+Birbiglia (also Neurotic) takes her held-out slot. 8 training sets remain for the laugh
+predictor: thin; more *densely tagged* transcripts are the highest-value data to add.

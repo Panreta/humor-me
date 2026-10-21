@@ -1,0 +1,509 @@
+# Reaction marker lexicon (S2). Committed: holds marker strings only, no transcript text.
+# kind: chuckle | laugh | laugh_applause | applause | groan | gasp | other
+# source: audience | performer (unattributed sounds = speaker, per subtitle convention) | person:<name>
+# intense: laugh with an intensity modifier -> level 3
+# Levels are derived in pipeline/markers.py; add new strings here, never guess at run time.
+# Reviewed 2026-10-20: performer first names (brian, jeff, tom, ...) mapped to performer.
+# "... continues" markers extend the preceding audience reaction -> audience.
+version: 1
+reactions:
+  a couple of people cheer:
+    kind: applause
+    source: audience
+  applauding, whistling:
+    kind: applause
+    source: audience
+  applause:
+    kind: applause
+    source: audience
+  applause and cheering:
+    kind: applause
+    source: audience
+  applause, laughter:
+    kind: laugh_applause
+    source: audience
+  applause, whooping:
+    kind: applause
+    source: audience
+  as self, chuckling:
+    kind: chuckle
+    source: performer
+  audience applauding:
+    kind: applause
+    source: audience
+  audience applauding and cheering:
+    kind: applause
+    source: audience
+  audience applauding, cheering:
+    kind: applause
+    source: audience
+  audience applauding, whooping:
+    kind: applause
+    source: audience
+  audience applauds:
+    kind: applause
+    source: audience
+  audience applauds and cheers:
+    kind: applause
+    source: audience
+  audience awws:
+    kind: other
+    source: audience
+  audience cheering:
+    kind: applause
+    source: audience
+  audience cheering and applauding:
+    kind: applause
+    source: audience
+  audience cheering and clapping:
+    kind: applause
+    source: audience
+  audience cheering and screaming:
+    kind: applause
+    source: audience
+  audience cheering and whistling:
+    kind: applause
+    source: audience
+  audience cheering, applauding:
+    kind: applause
+    source: audience
+  audience cheering, whistling:
+    kind: applause
+    source: audience
+  audience cheering, whistling and applauding:
+    kind: applause
+    source: audience
+  audience cheering, whooping:
+    kind: applause
+    source: audience
+  audience cheers:
+    kind: applause
+    source: audience
+  audience cheers and applauds:
+    kind: applause
+    source: audience
+  audience chuckles:
+    kind: chuckle
+    source: audience
+  audience chuckling:
+    kind: chuckle
+    source: audience
+  audience clapping:
+    kind: applause
+    source: audience
+  audience clapping and cheering:
+    kind: applause
+    source: audience
+  audience continues cheering:
+    kind: applause
+    source: audience
+    intense: true
+  audience continues cheering and clapping:
+    kind: applause
+    source: audience
+    intense: true
+  audience gasps:
+    kind: gasp
+    source: audience
+  audience groaning:
+    kind: groan
+    source: audience
+  audience groans:
+    kind: groan
+    source: audience
+  audience groans and laughs:
+    kind: groan
+    source: audience
+  audience laughing:
+    kind: laugh
+    source: audience
+  audience laughing and applauding:
+    kind: laugh_applause
+    source: audience
+  audience laughing and applauding, then cheering:
+    kind: laugh_applause
+    source: audience
+  audience laughing and cheering:
+    kind: laugh_applause
+    source: audience
+  audience laughing and clapping:
+    kind: laugh_applause
+    source: audience
+  audience laughing loudly:
+    kind: laugh
+    source: audience
+    intense: true
+  audience laughing wildly:
+    kind: laugh
+    source: audience
+    intense: true
+  audience laughing, cheering:
+    kind: laugh_applause
+    source: audience
+  audience laughing, whistling:
+    kind: laugh_applause
+    source: audience
+  audience laughs:
+    kind: laugh
+    source: audience
+  audience laughs and applauds:
+    kind: laugh_applause
+    source: audience
+  audience laughs and cheers:
+    kind: laugh_applause
+    source: audience
+  audience laughs and claps:
+    kind: laugh_applause
+    source: audience
+  audience laughs quietly:
+    kind: laugh
+    source: audience
+  audience laughs, cheers:
+    kind: laugh_applause
+    source: audience
+  audience member cheers:
+    kind: applause
+    source: audience
+  audience member whoops:
+    kind: applause
+    source: audience
+  audience members cheering:
+    kind: applause
+    source: audience
+  audience roaring with laughter, applauding:
+    kind: laugh_applause
+    source: audience
+    intense: true
+  audience roars in laughter:
+    kind: laugh
+    source: audience
+    intense: true
+  audience roars with laughter:
+    kind: laugh
+    source: audience
+    intense: true
+  audience screams:
+    kind: other
+    source: audience
+  audience sighing:
+    kind: other
+    source: audience
+  audience whooping:
+    kind: applause
+    source: audience
+  audience whooping and applauding:
+    kind: applause
+    source: audience
+  audience whooping, applauding:
+    kind: applause
+    source: audience
+  audience whooping, whistling:
+    kind: applause
+    source: audience
+  audience whoops:
+    kind: applause
+    source: audience
+  brian chuckles:
+    kind: chuckle
+    source: performer
+  cheering:
+    kind: applause
+    source: audience
+  cheering and applause:
+    kind: applause
+    source: audience
+  cheering and applause continues:
+    kind: applause
+    source: audience
+    intense: true
+  cheering continues:
+    kind: applause
+    source: audience
+    intense: true
+  cheers:
+    kind: applause
+    source: audience
+  cheers and applause:
+    kind: applause
+    source: audience
+  cheers and applause end:
+    kind: applause
+    source: audience
+  cheers, applause:
+    kind: applause
+    source: audience
+  cheers, applause continue:
+    kind: applause
+    source: audience
+  chuckles:
+    kind: chuckle
+    source: performer
+  chuckles haughtily:
+    kind: chuckle
+    source: performer
+  chuckles uneasily:
+    kind: chuckle
+    source: performer
+  chuckling:
+    kind: chuckle
+    source: performer
+  chuckling, whooping:
+    kind: chuckle
+    source: performer
+  clapping and cheering:
+    kind: applause
+    source: audience
+  couple of audience members cheering:
+    kind: applause
+    source: audience
+  crowd applauds:
+    kind: applause
+    source: audience
+  crowd cheering:
+    kind: applause
+    source: audience
+  crowd cheering and clapping:
+    kind: applause
+    source: audience
+  crowd cheering, applauding:
+    kind: applause
+    source: audience
+  crowd cheers:
+    kind: applause
+    source: audience
+  crowd chuckles:
+    kind: chuckle
+    source: audience
+  crowd continues cheering:
+    kind: applause
+    source: audience
+    intense: true
+  crowd laughing:
+    kind: laugh
+    source: audience
+  crowd laughs:
+    kind: laugh
+    source: audience
+  crowd laughs, applauds:
+    kind: laugh_applause
+    source: audience
+  crowd laughs, stops:
+    kind: laugh
+    source: audience
+  crowd whooping:
+    kind: applause
+    source: audience
+  demetri chuckles:
+    kind: chuckle
+    source: performer
+  demetri sighs:
+    kind: other
+    source: performer
+  dusty chuckling:
+    kind: chuckle
+    source: performer
+  enthusiastic cheering:
+    kind: applause
+    source: audience
+  gasping:
+    kind: gasp
+    source: performer
+  gasps:
+    kind: gasp
+    source: performer
+  giggling:
+    kind: chuckle
+    source: performer
+  groaning:
+    kind: groan
+    source: performer
+  groans:
+    kind: groan
+    source: performer
+  groans in confusion:
+    kind: groan
+    source: performer
+  groans softly:
+    kind: groan
+    source: performer
+  hearty laughter:
+    kind: laugh
+    source: audience
+  imitates goblin noise, chuckles:
+    kind: chuckle
+    source: performer
+  imitates laughing:
+    kind: laugh
+    source: performer
+  jeff chuckles:
+    kind: chuckle
+    source: performer
+  jeff laughs:
+    kind: laugh
+    source: performer
+  jim chuckles:
+    kind: chuckle
+    source: performer
+  laughing:
+    kind: laugh
+    source: performer
+  laughing and cheering:
+    kind: laugh_applause
+    source: audience
+  laughing continues:
+    kind: laugh
+    source: audience
+    intense: true
+  laughing nervously:
+    kind: laugh
+    source: performer
+  laughs:
+    kind: laugh
+    source: performer
+  laughs goofily:
+    kind: laugh
+    source: performer
+  laughs smugly:
+    kind: laugh
+    source: performer
+  laughs, applauds:
+    kind: laugh_applause
+    source: audience
+  laughter:
+    kind: laugh
+    source: audience
+  laughter and applause:
+    kind: laugh_applause
+    source: audience
+  laughter and scattered applause:
+    kind: laugh_applause
+    source: audience
+  laughter and scattered clapping:
+    kind: laugh_applause
+    source: audience
+  laughter continues:
+    kind: laugh
+    source: audience
+    intense: true
+  light laughter:
+    kind: laugh
+    source: audience
+  loud cheering:
+    kind: applause
+    source: audience
+    intense: true
+  loud laughter:
+    kind: laugh
+    source: audience
+    intense: true
+  man 1 laughing loudly:
+    kind: laugh
+    source: audience
+    intense: true
+  man 2 laughs loudly:
+    kind: laugh
+    source: audience
+    intense: true
+  man laughs:
+    kind: laugh
+    source: audience
+  maria laughs:
+    kind: laugh
+    source: performer
+  mixed audience sighs, groans, laughs:
+    kind: groan
+    source: audience
+  mock laughs:
+    kind: laugh
+    source: performer
+  overlapping cheers and shouts:
+    kind: applause
+    source: audience
+  people whooping:
+    kind: applause
+    source: audience
+  raucous laughter:
+    kind: laugh
+    source: audience
+  ryan laughs:
+    kind: laugh
+    source: performer
+  sam chuckles:
+    kind: chuckle
+    source: performer
+  scattered applause:
+    kind: applause
+    source: audience
+  scattered clapping:
+    kind: applause
+    source: audience
+  scattered groans:
+    kind: groan
+    source: performer
+  scattered laughter:
+    kind: laugh
+    source: audience
+  scattered whooping:
+    kind: applause
+    source: audience
+  scattered whooping and applause:
+    kind: applause
+    source: audience
+  scattered whoops:
+    kind: applause
+    source: audience
+  screaming:
+    kind: other
+    source: performer
+  screams:
+    kind: other
+    source: performer
+  sighs:
+    kind: other
+    source: performer
+  snickers:
+    kind: chuckle
+    source: performer
+  tom chuckles:
+    kind: chuckle
+    source: performer
+  tom chuckling:
+    kind: chuckle
+    source: performer
+  whistling:
+    kind: applause
+    source: audience
+  whistling and cheering:
+    kind: applause
+    source: audience
+  whooping:
+    kind: applause
+    source: audience
+  whooping and applause:
+    kind: applause
+    source: audience
+  whooping and cheering:
+    kind: applause
+    source: audience
+  whooping, applause:
+    kind: applause
+    source: audience
+  woman cheers:
+    kind: applause
+    source: audience
+  woman in audience whoops:
+    kind: applause
+    source: audience
+  woman laughing loudly:
+    kind: laugh
+    source: audience
+    intense: true
+  woman screams:
+    kind: other
+    source: audience
+  woman whooping:
+    kind: applause
+    source: audience
+  woman whoops:
+    kind: applause
+    source: audience
