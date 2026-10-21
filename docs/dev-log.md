@@ -76,6 +76,18 @@ Format: **Symptom** → **Cause** → **Caught by** → **Fix** (commit / file).
 
 ---
 
+## Hand labeling
+
+### Label template had lines split in two
+- **Symptom:** 18 fragments without a `[NNNN]` number in the Bargatze work file; import would fail.
+- **Cause:** folding a short final line ("So…") into the previous one can cross a paragraph
+  break, so the line text kept a newline.
+- **Caught by:** structural check while reviewing the user's labels.
+- **Fix:** line text is whitespace-normalized in `pipeline/beats.py`; the user's file was repaired
+  by rejoining fragments (all marks kept, backup taken). Line indices unchanged.
+
+---
+
 ## Data pipeline: bits (S4–S5, Gemini)
 
 ### First LLM pass invented a callback and called the goodnight the closer

@@ -67,7 +67,7 @@ def build_beats(set_id: str, clean: str, events: list[dict], labeled: bool) -> l
             beats.append({
                 "set_id": set_id,
                 "span": [s, e],
-                "text": clean[s:e].strip(),
+                "text": " ".join(clean[s:e].split()),
                 "words": len(clean[s:e].split()),
                 "label": level,
                 "flags": (r["flags"] if closes else []),
@@ -110,7 +110,7 @@ def build_lines(clean: str, beats: list[dict]) -> list[dict]:
                 "set_id": b["set_id"],
                 "beat_idx": b["beat_idx"],
                 "span": [s, e],
-                "text": clean[s:e].strip(),
+                "text": " ".join(clean[s:e].split()),
                 "words": len(clean[s:e].split()),
                 "label": label,
                 "flags": b["flags"] if last else [],
