@@ -102,3 +102,10 @@ One Gemini call per set returns bit starts (as line_idx) plus annotations (premi
 mode, type, callback_to, hook) in one pass, halving calls against free-tier limits. Output
 references lines by index only, never quotes. TextTiling deferred: add later only as a report
 baseline. Hand labels for Bargatze + Birbiglia via `pipeline.labels` (indices committed, text local).
+
+## 2026-10-21 — Bit = smallest standalone unit; same-topic bits form a thread
+From hand-labeling Bargatze: a bit is the smallest stretch that works on its own without earlier
+setup. Consecutive bits on one topic are marked `continues` and form a thread. A callback must
+return to an earlier bit after other material (≥ 2 bits back); a "callback" to the previous bit
+is converted to `continues`. Gemini is prompted with the same definitions; S6 scores both levels.
+Bargatze: 52 bits, 38 threads, 3 callbacks.

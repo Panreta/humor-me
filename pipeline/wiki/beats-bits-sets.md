@@ -41,8 +41,9 @@ density, so evaluate per set or on held-out comedians.
 ## Bits (S4 boundaries, S5 annotation)
 
 - Boundaries come from [TextTiling](texttiling.md), refined by an LLM.
-- Rules: a bit is **one premise**; tags stay inside the bit; a callback is a *new* bit with
-  `callback_to`; crowd work is its own bit type.
+- Rules: a bit is the **smallest unit that works on its own** without earlier setup (one
+  premise + its tags); consecutive same-topic bits are marked `continues` and form a **thread**;
+  a callback is a *new* bit with `callback_to` at least 2 bits back; crowd work is its own type.
 - Annotation (LLM): paraphrased `premise`, persona `mode` (Neurotic, Observer, Absurdist,
   Cynic, Optimist, Wordsmith), `techniques`, `type`, `callback_to`, `segue_from_prev`.
 - `position` (opener / body / closer) comes from the bit's index, not from the LLM.

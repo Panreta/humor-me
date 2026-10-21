@@ -12,6 +12,7 @@ The model sees numbered lines and answers with line numbers plus *paraphrased* p
 hooks, so nothing it returns quotes the transcript; a verbatim-overlap check enforces that.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -34,8 +35,10 @@ HTTP_RETRIES = 6
 SYSTEM = f"""You segment stand-up comedy transcripts into bits and annotate each bit.
 
 Definitions:
-- A bit is one premise explored with its setup, punchlines, tags and act-outs. A new premise
-  starts a new bit. Tags on the same premise stay in the same bit.
+- A bit is the SMALLEST unit that works on its own without earlier setup: one premise with its
+  setup, punchlines, tags and act-outs. If a stretch could be performed alone, it is its own bit.
+- Consecutive bits on the same topic form a thread: set "continues": true on each bit that
+  stays on the previous bit's topic (a new angle on it). The first bit of a topic has false.
 - A callback bit returns to an earlier bit's premise or image after OTHER material in between.
   It is a NEW bit with callback_to = the start line of the earlier bit, which must be at least
   2 bits back. Continuing the immediately previous topic is the same bit or a new bit, never a
@@ -52,6 +55,7 @@ Output: ONLY a JSON object:
             "mode": one of {MODES},
             "type": one of {TYPES},
             "techniques": subset of {TECHNIQUES},
+            "continues": <true if same topic as the previous bit, else false>,
             "callback_to": <start line of an earlier bit, or null>,
             "hook": "<memorable image a later callback could reuse, your own words, max 10 words, or null>"}}]}}
 
@@ -63,6 +67,9 @@ Rules:
   Cynic (sarcasm, social critique), Observer (mundane details, social norms),
   Wordsmith (puns, language play), Optimist (wholesome reframing), Absurdist (surreal logic).
 """
+
+
+PROMPT_SHA = hashlib.sha256(SYSTEM.encode("utf-8")).hexdigest()[:12]
 
 
 def load_env() -> tuple[str, str, str]:
@@ -124,6 +131,10 @@ def validate(data: object, lines: list[dict], source_ngrams: set) -> list[str]:
                         f"earlier; returning to the previous bit is a continuation, not a callback")
         if b.get("type") == "callback" and cb is None:
             errs.append(f"bit {i}: type 'callback' needs callback_to")
+        if not isinstance(b.get("continues", False), bool):
+            errs.append(f"bit {i}: continues must be true or false")
+        elif i == 0 and b.get("continues"):
+            errs.append("bit 0 cannot continue a previous bit")
         for field, limit in (("premise", 15), ("hook", 10)):
             v = b.get(field)
             if field == "premise" and not (isinstance(v, str) and v.strip()):
@@ -166,11 +177,15 @@ def annotate(set_id: str, lines: list[dict], force: bool) -> dict:
     source = ngrams(" ".join(ln["text"] for ln in lines), VERBATIM_NGRAM)
     if cache.exists() and not force:
         cached = json.loads(cache.read_text(encoding="utf-8"))
-        # Rules tighten over time; a cache that no longer validates is re-requested, not trusted.
-        if not validate(cached, lines, source):
+        # Rules and definitions change; a cache from another prompt or failing current rules is
+        # re-requested, not trusted.
+        if cached.get("prompt_sha") != PROMPT_SHA:
+            print(f"{set_id}: cached output is from an older prompt; re-requesting")
+        elif validate(cached, lines, source):
+            print(f"{set_id}: cached output fails current rules; re-requesting")
+        else:
             print(f"{set_id}: cached")
             return cached
-        print(f"{set_id}: cached output fails current rules; re-requesting")
     base, key, model = load_env()
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": render(lines)}]
     for attempt in range(1, MAX_ATTEMPTS + 1):
@@ -185,6 +200,7 @@ def annotate(set_id: str, lines: list[dict], force: bool) -> dict:
               + ("valid" if not errs else f"{len(errs)} problems"))
         if not errs:
             data["model"] = model
+            data["prompt_sha"] = PROMPT_SHA
             cache.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
             return data
         # Feed problems back; the conversation keeps the model's own answer, not transcript copies.
@@ -202,15 +218,19 @@ def to_bits(set_id: str, lines: list[dict], raw: dict, labeled: bool) -> list[di
     bit_of_start = {s: i for i, s in enumerate(starts)}
     # Opener/closer are the first/last bits with a premise; hellos and goodnights are segues.
     content = [i for i, b in enumerate(raw["bits"]) if b["type"] != "segue"] or list(range(len(starts)))
-    out = []
+    out, thread = [], -1
     for i, b in enumerate(raw["bits"]):
         lo = pos[b["start"]]
         hi = pos[starts[i + 1]] if i + 1 < len(starts) else len(order)
         members = [by_idx[li] for li in order[lo:hi]]
         levels = [m["label"] for m in members]
+        continues = bool(b.get("continues")) and i > 0
+        thread += not continues
         out.append({
             "set_id": set_id,
             "bit_idx": i,
+            "thread_idx": thread,
+            "continues": continues,
             "start_line": order[lo],
             "end_line": order[hi - 1],
             "n_lines": hi - lo,

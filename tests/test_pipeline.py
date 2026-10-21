@@ -279,3 +279,45 @@ def test_segmentation_metrics_perfect_and_degraded():
     p, r = callback_pr([(70, 20)], [(71, 21), (45, 0)])
     assert p == 0.5 and r == 1.0
     assert callback_pr([], []) == (None, None)
+
+
+# --- threads (`continues`) ---
+
+def test_label_import_turns_adjacent_callback_into_continues(tmp_path, monkeypatch):
+    import yaml
+    import pipeline.labels as L
+
+    fake = [{"line_idx": i, "text": f"Line {i} text.", "label": 0} for i in range(8)]
+    monkeypatch.setattr(L, "WORK", tmp_path / "work")
+    monkeypatch.setattr(L, "LABELS", tmp_path)
+    monkeypatch.setattr(L, "load_lines", lambda set_id: fake)
+    L.template("s")
+    work = tmp_path / "work" / "s.txt"
+    text = (work.read_text(encoding="utf-8")
+            .replace("[0002]", ">>>\n[0002]")
+            .replace("[0004]", ">>> callback 0002: same topic\n[0004]")   # adjacent -> continues
+            .replace("[0005]", ">>> continues\n[0005]")                    # explicit
+            .replace("[0007]", ">>> callback 0002: real one\n[0007]"))     # 3 bits back -> callback
+    work.write_text(text, encoding="utf-8")
+    L.import_labels("s")
+    starts = yaml.safe_load((tmp_path / "s.yaml").read_text(encoding="utf-8"))["bit_starts"]
+    assert starts == [{"line": 0}, {"line": 2}, {"line": 4, "continues": True, "note": "same topic"},
+                      {"line": 5, "continues": True}, {"line": 7, "callback_to": 2, "note": "real one"}]
+
+
+def test_to_bits_numbers_threads_and_validate_rejects_first_continue():
+    from pipeline.bits import ngrams, to_bits, validate
+    lines = _lines(12)
+    raw = {"bits": [_bit(0), _bit(3, continues=True), _bit(6), _bit(9, continues=True)]}
+    bits = to_bits("s", lines, raw, labeled=True)
+    assert [b["thread_idx"] for b in bits] == [0, 0, 1, 1]
+    src = ngrams(" ".join(ln["text"] for ln in lines), 6)
+    assert any("cannot continue" in e for e in validate({"bits": [_bit(0, continues=True)]}, lines, src))
+
+
+def test_thread_level_is_coarser_than_bit_level():
+    from pipeline.validate import boundary_prf
+    bits_ref, threads_ref = [0, 10, 20, 30], [0, 20]
+    hyp_threads = [0, 21]
+    assert boundary_prf(threads_ref, hyp_threads)[2] == 1.0
+    assert boundary_prf(bits_ref, hyp_threads)[1] < 1.0  # coarse prediction misses fine bits
