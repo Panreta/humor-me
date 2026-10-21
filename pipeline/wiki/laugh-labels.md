@@ -23,6 +23,10 @@ Across 20 transcripts there are ~4,500 bracketed strings and ~425 distinct ones:
 
 ## How we label
 
+0. **Songs first.** Paragraphs containing ♪ are handled before marker extraction. Walk-on and
+   outro music (before the first or after the last spoken line) is dropped entirely; singing
+   mid-set becomes one `[sings]` marker (category `song`) per run of song paragraphs. If a
+   paragraph mixes speech and singing, the speech is kept. Lyrics are never stored.
 1. **Extract** every `[...]` / `(...)` (2–60 chars), remember its offset, remove it from the
    text → `clean.txt` + `events.jsonl`. Whitespace is collapsed segment by segment as the
    clean text is built, so each offset is exact in the final file. Collapsing once at the end
