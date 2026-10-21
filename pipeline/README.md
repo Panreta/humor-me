@@ -37,11 +37,11 @@ From the repo root, with the tooling env (see the [root README](../README.md#set
 
 # S1+S2: markers -> events + clean text + dataset membership
 .venv/Scripts/python -m pipeline.markers
+# if it stops on unmapped reaction strings:
+.venv/Scripts/python -m pipeline.markers --draft   # copy reviewed entries into data/markers.yaml
 
 # S3: beats per dataset (+ data/interim/<set>.labeled.txt to eyeball)
 .venv/Scripts/python -m pipeline.beats
-# if it stops on unmapped reaction strings:
-.venv/Scripts/python -m pipeline.markers --draft   # copy reviewed entries into data/markers.yaml
 ```
 
 Order matters: `markers` reads what `ingest` wrote. After changing either YAML file, rerun
