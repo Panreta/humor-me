@@ -4,6 +4,7 @@ Research project: a live, voice-only stand-up comedy agent that reads the room v
 adapts its material, and learns from audience feedback across sessions.
 
 Read before working:
+- [docs/status.md](docs/status.md): **current state, models in use, next steps. Read first; keep it updated.**
 - [README.md](README.md): repo map, setup, run order per phase
 - [pipeline/wiki/](pipeline/wiki/README.md): concepts behind each pipeline stage
 - [docs/design.md](docs/design.md) — architecture, reward design, research hypothesis
