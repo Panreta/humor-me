@@ -76,6 +76,18 @@ Format: **Symptom** → **Cause** → **Caught by** → **Fix** (commit / file).
 
 ---
 
+## Data pipeline: bits (S4–S5, Gemini)
+
+### First LLM pass invented a callback and called the goodnight the closer
+- **Symptom:** a bit "called back" to the bit right before it; the thank-you segue was the closer.
+- **Cause:** prompt allowed any earlier bit; position was assigned by raw order.
+- **Caught by:** reading the paraphrased premise list for Maniscalco.
+- **Fix:** validator requires callbacks ≥ 2 bits back (errors fed back to the model, which
+  self-corrected on attempt 2); opener/closer skip segues. Cached outputs are re-validated on
+  load so tightened rules can't be bypassed by an old cache.
+
+---
+
 ## Data pipeline: markers and labels (S1–S2)
 
 ### Marker offsets drifted later and later through each set (**real bug**)

@@ -207,3 +207,52 @@ def test_label_import_reads_marks_and_rejects_edits(tmp_path, monkeypatch):
     work.write_text(text.replace("[0003] Line 3 text.  ⟨L2⟩\n", ""), encoding="utf-8")
     with pytest.raises(SystemExit):
         L.import_labels("s")  # a deleted line is caught
+
+
+# --- S4: bit validation and assembly (no LLM call) ---
+
+def _lines(n):
+    return [{"line_idx": i, "text": f"Line {i} about topic {i // 3}.", "words": 5, "label": 2 if i % 3 == 2 else 0}
+            for i in range(n)]
+
+
+def _bit(start, **kw):
+    return {"start": start, "premise": f"premise {start}", "mode": "Observer", "type": "prepared",
+            "techniques": [], "callback_to": None, "hook": None, **kw}
+
+
+def test_validate_accepts_good_and_flags_bad_bits():
+    from pipeline.bits import validate, ngrams
+    lines = _lines(12)
+    src = ngrams(" ".join(ln["text"] for ln in lines), 6)
+    good = {"bits": [_bit(0), _bit(3), _bit(6), _bit(9, type="callback", callback_to=0)]}
+    assert validate(good, lines, src) == []
+
+    bad = {"bits": [_bit(1), _bit(3), _bit(3), _bit(9, type="callback", callback_to=3),
+                    _bit(11, mode="Silly", premise="Line 4 about topic 1. Line 5")]}
+    errs = " ".join(validate(bad, lines, src))
+    assert "first bit must start at line 0" in errs
+    assert "not after previous start" in errs
+    assert "at least 2 bits" in errs or "EARLIER" in errs
+    assert "mode 'Silly'" in errs
+    assert "copies" in errs  # verbatim transcript words in the premise
+
+
+def test_adjacent_callback_rejected():
+    from pipeline.bits import validate, ngrams
+    lines = _lines(9)
+    src = ngrams(" ".join(ln["text"] for ln in lines), 6)
+    adjacent = {"bits": [_bit(0), _bit(3), _bit(6, type="callback", callback_to=3)]}
+    assert any("at least 2 bits" in e for e in validate(adjacent, lines, src))
+
+
+def test_to_bits_positions_skip_segues_and_map_callbacks():
+    from pipeline.bits import to_bits
+    lines = _lines(12)
+    raw = {"bits": [_bit(0, type="segue"), _bit(2), _bit(5), _bit(8, type="callback", callback_to=2),
+                    _bit(11, type="segue")]}
+    bits = to_bits("s", lines, raw, labeled=True)
+    assert [b["position"] for b in bits] == ["edge", "opener", "body", "closer", "edge"]
+    assert bits[3]["callback_to"] == 1  # mapped from start line 2 to bit index 1
+    assert sum(b["n_lines"] for b in bits) == 12
+    assert bits[1]["laugh_lines"] == 1 and bits[1]["max_level"] == 2
