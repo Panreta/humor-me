@@ -70,3 +70,10 @@ predictor: thin; more *densely tagged* transcripts are the highest-value data to
 Applause/cheer markers without a laugh get level 0 + `applause` flag; level 4 requires a laugh
 (same marker or merged with adjacent applause). Why: eyeball check found mid-set cheers for
 hometown mentions labeled as applause breaks. Level-4 counts dropped (e.g. Notaro 23 → 0).
+
+## 2026-10-21 — Two datasets, split logically at the output
+`laugh_labeled` vs `structure_only`, decided by the density gate (overridable per set via
+`dataset:` in body_overrides.yaml) and written to `data/processed/datasets.json`. Stages 3+
+write each to its own folder. Why: lets each grow independently and makes it impossible for
+the laugh predictor to train on sparse sets. Rejected: separate raw/ folders, since density
+is only known after markers run.

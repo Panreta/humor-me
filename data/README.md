@@ -10,7 +10,23 @@ files are committed, and they hold counts and marker strings, no transcript text
 | `body_overrides.yaml` | **yes** | `ingest --suggest` + human review | Per-set `skip_leading` / `skip_trailing` paragraph counts |
 | `markers.yaml` | **yes** | `markers --draft` + human review | Reaction string → `kind`, `source`, `intense` |
 | `interim/` | no | `pipeline.ingest`, `pipeline.markers` | `<set>.body.txt`, `.clean.txt`, `.events.jsonl`, `.meta.json` |
-| `processed/` | no | S3+ (planned) | `beats.jsonl`, `bits.jsonl`, `sets.jsonl`, n-gram index |
+| `processed/datasets.json` | no | `pipeline.markers` | Which sets belong to which dataset (see below) |
+| `processed/laugh_labeled/` | no | S3+ (planned) | `beats.jsonl`, `bits.jsonl`, `sets.jsonl` with laugh labels |
+| `processed/structure_only/` | no | S3+ (planned) | `bits.jsonl`, `sets.jsonl`, no laugh labels |
+
+## Two datasets that grow independently
+
+All PDFs go through one pipeline; membership is decided at the end of `pipeline.markers`:
+
+| Dataset | Rule | Used for |
+|---|---|---|
+| `laugh_labeled` | ≤ 150 words per tagged audience laugh | laugh predictor (reward model), sim timing priors, plus everything below |
+| `structure_only` | sparse or no reaction tags | bit structure, set arcs, skeletons only, **never** laugh labels |
+
+A missing marker in a sparse transcript doesn't mean "no laugh", so the laugh predictor reads
+only `processed/laugh_labeled/`. To override the gate for one set, add `dataset:` to its entry
+in `body_overrides.yaml`. Each set's `meta.json` records `dataset` and `dataset_source`
+(`density_gate` or `override`).
 
 ## Adding a transcript
 
