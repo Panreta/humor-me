@@ -1,6 +1,9 @@
 # Segmentation evaluation (S6)
 
-Code: *planned* (`pipeline/validate.py`)
+Code: [`pipeline/validate.py`](../validate.py) · run `python -m pipeline.validate` after importing hand labels.
+
+Baseline in place of TextTiling (deferred): the same number of bits spaced evenly. The LLM
+should clearly beat it; if it doesn't, boundaries are no better than chance-shaped guesses.
 
 ## Why not plain precision/recall?
 

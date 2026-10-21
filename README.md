@@ -83,7 +83,7 @@ Run from the repo root with the tooling env. Each stage reads the previous stage
 | 3 | `.venv/Scripts/python -m pipeline.markers` | `*.body.txt` + `data/markers.yaml` | `*.clean.txt`, `*.events.jsonl`, updates `*.meta.json` | Stops on unmapped reaction strings → run with `--draft`, review, add to lexicon. |
 | 4 | `.venv/Scripts/python -m pipeline.beats` | clean text + events + `datasets.json` | `data/processed/<dataset>/beats.jsonl`, `*.labeled.txt` | S3. Check `labeled.txt` by eye. |
 | 5 | `.venv/Scripts/python -m pipeline.bits <set_id>` (or `--all`) | `lines.jsonl` + `backend/.env` | `data/processed/<dataset>/bits.jsonl` | S4+S5 in one Gemini call per set; output validated, cached. Needs `PIPELINE_MODEL` + key. |
-| 6 | *(planned)* `pipeline.annotate` / `pipeline.validate` | bits | `sets.jsonl`, metrics | S5–S6 |
+| 6 | `.venv/Scripts/python -m pipeline.validate` | `bits.jsonl` + hand labels | `data/processed/eval_bits.json` | S6: needs `data/labels/<set>.yaml` from `pipeline.labels` |
 
 Tests (synthetic data only, never reads the corpus): `.venv/Scripts/python -m pytest tests -q`
 
