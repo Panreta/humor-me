@@ -143,6 +143,8 @@ Format: **Symptom** → **Cause** → **Caught by** → **Fix** (commit / file).
 | `sed` "unknown command" | MinGW sed on PATH | Use the Edit tool / Python for file edits |
 | `UnicodeEncodeError` printing ♪ | Windows console uses cp1252 | `PYTHONIOENCODING=utf-8` |
 | `venv/Scripts/python` not found | Folder is `.venv` (leading dot) | Use `.venv/...` or plain `python` when activated |
+| Gemini `gemini-2.5-flash` → 404 | Listed by `/models` but retired for generation | Use `-latest` aliases; check `/models` |
+| Gemini Flash TTFT 18–38 s | Thinking model; `reasoning_effort: none` didn't help on free tier | Live loop uses `gemini-flash-lite-latest` (~0.6 s); Flash only offline |
 | Mermaid diagrams blank in preview | Older third-party preview extension | Official `mermaidchart.vscode-mermaid-chart`; recommended in `.vscode/extensions.json`. All diagrams also validated with the Mermaid parser |
 
 ---
