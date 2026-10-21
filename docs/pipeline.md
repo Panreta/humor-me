@@ -101,7 +101,13 @@ Level rules:
   `callback_to`; crowd-work exchanges are their own bit (`type=crowd_work`).
 
 ### S5: Annotate bits (LLM)
-Per bit: `premise`, `mode` (HumorGen six), `techniques`, `type`
+Callback detection (two passes): (1) candidates without an LLM: rare n-grams/entities
+(low corpus frequency) reappearing in a bit ≥ 2 bits later; (2) LLM confirms → `callback_to`
+on the later bit, `hook` (paraphrased image) on the earlier one. Report stats: callback vs
+first-time laugh level, reach distance, closer payoffs, whether the hook had landed.
+These fit the sim audience's callback parameters (see design.md, Callbacks).
+
+Per bit: `hook`, `premise`, `mode` (HumorGen six), `techniques`, `type`
 (`prepared | crowd_work | callback | segue`), `callback_to`, `segue_from_prev`.
 `position` (`opener | body | closer`) is assigned by index in the set, not by the LLM.
 Annotations are **abstract**: premises are paraphrased descriptions, not quoted lines.

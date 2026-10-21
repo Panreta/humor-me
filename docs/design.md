@@ -69,6 +69,23 @@ Gym-style env, no LLM in the loop, so thousands of episodes run in seconds:
 - Policies: fixed best mode, random, ε-greedy, LinUCB, Thompson; ± switching penalty.
 - Optional: LLM-persona audiences for qualitative checks only.
 
+## Callbacks (cross-bit context)
+
+A callback is the one decision whose payoff is **delayed**: planting a hook in bit 2 earns
+nothing until a later bit calls it back. This is what makes the problem a true sequential
+decision problem rather than a bandit.
+
+- **Set memory**: each finished bit stores `{premise, mode, landed (max laugh level), hook, used}`.
+  `hook` = one memorable image/phrase from the bit (generated set only, never transcript text).
+- **Planner action** `callback(k)` alongside "next bit in mode X". Constraints in state: hook
+  must have landed (level ≥ 2), ≥ 2 bits since it was planted, ≤ 2 uses with diminishing returns,
+  optional closer bonus.
+- **Generator** gets the hook + original premise so the payoff references it explicitly.
+- **Sim audience** callback model, parameters fit from transcript callback statistics:
+  `P(laugh) = base(mode, room) + α·landed_k + β·f(distance) − γ·uses_k`.
+- **Key experiment**: greedy bandit (never invests in hooks) vs sequential policy (plants early,
+  pays off late). Compare regret and late-set laugh rate.
+
 ## Reward design
 
 | Signal | Granularity | Role |

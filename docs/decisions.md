@@ -77,3 +77,9 @@ hometown mentions labeled as applause breaks. Level-4 counts dropped (e.g. Notar
 write each to its own folder. Why: lets each grow independently and makes it impossible for
 the laugh predictor to train on sparse sets. Rejected: separate raw/ folders, since density
 is only known after markers run.
+
+## 2026-10-21 — Callbacks are first-class: hooks in set memory, callback(k) planner action
+Each bit stores a paraphrased `hook` and how hard it landed; the planner can call back a landed
+hook ≥ 2 bits later. Sim callback payoff parameters are fit from transcript callback stats
+(S4–S5). Why: callbacks are the delayed-reward decision that justifies sequential RL over a
+bandit, and the cross-bit context the user wants the agent to use.
