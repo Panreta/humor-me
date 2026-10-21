@@ -53,8 +53,8 @@ michael-mcintyre_showman_2020:  # heuristic, hit cap: verified by hand 2026-10-2
   skip_leading: 4
   skip_trailing: 1
 
-mike-birbiglia_the-old-man-and-the-pool_2023:  # heuristic
-  skip_leading: 3
+mike-birbiglia_the-old-man-and-the-pool_2023:  # separator at para 16 (synopsis + critics' quotes; hand-checked 2026-10-21)
+  skip_leading: 17
   skip_trailing: 1
 
 nate-bargatze_hello-world_2023:  # separator
