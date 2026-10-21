@@ -28,6 +28,7 @@ ACT_OUT = re.compile(
     r"stammer|stutter|scoff|growl|mock|squeal|howl|panting|gibberish",
     re.I,
 )
+ACT_OUT_END = re.compile(r"^(normal|regular|own|natural) voice$|^as (self|himself|herself)\b")
 MUSIC = re.compile(r"music|song|playing|band|♪", re.I)
 
 KIND_LEVEL = {"chuckle": 1, "laugh": 2, "applause": 4, "laugh_applause": 4}
@@ -53,6 +54,8 @@ def classify(raw: str, lexicon: dict) -> dict | None:
         if entry is None:
             return None
         return {"category": "reaction", **entry}
+    if ACT_OUT_END.match(raw):
+        return {"category": "act_out_end"}  # back in own voice: closes a character span
     if ACT_OUT.search(raw):
         return {"category": "act_out"}
     if MUSIC.search(raw):
