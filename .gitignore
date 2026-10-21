@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Transcript corpus: local only, never commit (site ToS + copyright)
+data/raw/
+data/interim/
+data/processed/
+!data/markers.yaml

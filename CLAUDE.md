@@ -6,6 +6,7 @@ adapts its material, and learns from audience feedback across sessions.
 Read before working:
 - [docs/design.md](docs/design.md) — architecture, reward design, research hypothesis
 - [docs/data-sources.md](docs/data-sources.md) — what data we use and for what role
+- [docs/pipeline.md](docs/pipeline.md) — transcript → beats/bits/sets pipeline, labels, schemas
 - [docs/roadmap.md](docs/roadmap.md) — stages, exit criteria, estimates
 - [docs/decisions.md](docs/decisions.md) — decision log; append, don't rewrite history
 - [references/md/](references/md/) — markdown versions of the reference papers
