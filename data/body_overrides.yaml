@@ -25,12 +25,12 @@ gary-gulman_the-great-depresh_2019:  # separator
   skip_leading: 10
   skip_trailing: 1
 
-ismo_hello_2026:  # heading
-  skip_leading: 14
+ismo_hello_2026:  # heading; +1 disclaimer tail (hand-checked 2026-10-21)
+  skip_leading: 15
   skip_trailing: 1
 
-jeff-arcuri_nice-to-meet-you_2026:  # heading
-  skip_leading: 8
+jeff-arcuri_nice-to-meet-you_2026:  # heading; +1 disclaimer tail (hand-checked 2026-10-21)
+  skip_leading: 9
   skip_trailing: 1
 
 jerry-seinfeld_23-hours-to-kill_2020:  # heuristic
@@ -69,8 +69,8 @@ ryan-hamilton_this-just-hit-me_2026:  # heading
   skip_leading: 8
   skip_trailing: 1
 
-sam-morril_incorrect_2026:  # heading
-  skip_leading: 7
+sam-morril_incorrect_2026:  # heading; +1 disclaimer tail (hand-checked 2026-10-21)
+  skip_leading: 8
   skip_trailing: 1
 
 sebastian-maniscalco_stay-hungry_2019:  # heuristic

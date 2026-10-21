@@ -92,8 +92,11 @@ def suggest_trim(region: list[str], meta: dict) -> tuple[int, int, str]:
     if heading is not None:
         # Newer posts put a "Transcript" heading (+ study disclaimer) right before the set.
         leading = heading + 1
-        while leading < len(region) and region[leading].startswith(DISCLAIMER):
+        if leading < len(region) and region[leading].startswith(DISCLAIMER):
             leading += 1
+            # The disclaimer can wrap across a page break; its tail starts lowercase.
+            while leading < len(region) and region[leading][:1].islower():
+                leading += 1
         return leading, trailing, "heading"
 
     # A "* * *" divider with no reactions above it separates the synopsis from the set; one
