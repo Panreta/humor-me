@@ -176,3 +176,31 @@ def test_merge_requires_adjacent_audience_reactions():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-q"])
+
+
+# --- hand labels ---
+
+def test_label_import_reads_marks_and_rejects_edits(tmp_path, monkeypatch):
+    import yaml
+    import pipeline.labels as L
+
+    fake = [{"line_idx": i, "text": f"Line {i} text.", "label": 2 if i % 3 == 0 else 0} for i in range(6)]
+    monkeypatch.setattr(L, "WORK", tmp_path / "work")
+    monkeypatch.setattr(L, "LABELS", tmp_path)
+    monkeypatch.setattr(L, "load_lines", lambda set_id: fake)
+
+    L.template("s")
+    with pytest.raises(SystemExit):
+        L.template("s")  # never overwrites the user's work
+
+    work = tmp_path / "work" / "s.txt"
+    text = work.read_text(encoding="utf-8")
+    text = text.replace("[0002]", ">>> second bit\n[0002]").replace("[0004]", ">>>\n[0004]")
+    work.write_text(text, encoding="utf-8")
+    L.import_labels("s")
+    starts = yaml.safe_load((tmp_path / "s.yaml").read_text(encoding="utf-8"))["bit_starts"]
+    assert starts == [{"line": 0}, {"line": 2, "note": "second bit"}, {"line": 4}]
+
+    work.write_text(text.replace("[0003] Line 3 text.  ⟨L2⟩\n", ""), encoding="utf-8")
+    with pytest.raises(SystemExit):
+        L.import_labels("s")  # a deleted line is caught

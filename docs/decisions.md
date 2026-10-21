@@ -96,3 +96,9 @@ paraphrase (premises, hooks), never quote; small batches with backoff for free-t
 Considered: paid Gemini / Claude API (no training on API data, ~$3–6 batched), local 8B via
 Ollama on the RTX 4060 (private, weaker annotation). Revisit local 8B as an offline fallback
 for the live demo.
+
+## 2026-10-21 — S4: Gemini directly on whole sets (supersedes "minimal excerpts" above)
+One Gemini call per set returns bit starts (as line_idx) plus annotations (premise paraphrase,
+mode, type, callback_to, hook) in one pass, halving calls against free-tier limits. Output
+references lines by index only, never quotes. TextTiling deferred: add later only as a report
+baseline. Hand labels for Bargatze + Birbiglia via `pipeline.labels` (indices committed, text local).

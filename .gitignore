@@ -230,3 +230,6 @@ references/*.pdf
 references/md/*.md
 !references/md/README.md
 !data/body_overrides.yaml
+
+# Hand-labeling work files contain transcript text; only data/labels/*.yaml is committed
+data/labels/work/

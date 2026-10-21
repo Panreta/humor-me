@@ -43,6 +43,10 @@ From the repo root, with the tooling env (see the [root README](../README.md#set
 # S3: beats per dataset (+ data/interim/<set>.labeled.txt to eyeball)
 .venv/Scripts/python -m pipeline.beats
 
+# Hand labels (reference bit boundaries for S6): edit the work file, then import
+.venv/Scripts/python -m pipeline.labels template <set_id>   # data/labels/work/<set_id>.txt (local)
+.venv/Scripts/python -m pipeline.labels import   <set_id>   # data/labels/<set_id>.yaml (committed)
+
 # Tests: synthetic transcripts, never reads data/
 .venv/Scripts/python -m pytest tests -q
 ```
