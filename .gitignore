@@ -229,3 +229,4 @@ data/processed/
 references/*.pdf
 references/md/*.md
 !references/md/README.md
+!data/body_overrides.yaml

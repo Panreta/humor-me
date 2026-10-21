@@ -7,8 +7,9 @@ import json
 import re
 
 import pymupdf
+import yaml
 
-from pipeline.common import INTERIM, RAW, parse_filename
+from pipeline.common import INTERIM, OVERRIDES, RAW, parse_filename
 
 # Browser print headers/footers repeated on every page.
 PAGE_CHROME = [
@@ -26,6 +27,10 @@ BLURB = re.compile(
     re.I,
 )
 LEADING_WINDOW = 4
+HEADINGS = {"transcript", "full transcript"}
+HEADING_WINDOW = 40
+DISCLAIMER = "Note for Students"
+MORE_FOOTER = re.compile(r"^MORE\b.*Stand-Up Transcripts")  # both "MORE <name> S-U T" and "MORE S-U T <name>"
 END_ANCHORS = ("Share this article", "Leave a Comment")
 
 
@@ -51,7 +56,13 @@ def page_paragraphs(page: pymupdf.Page) -> list[str]:
     return paras
 
 
-def extract_body(paras: list[str], meta: dict) -> list[str]:
+def load_overrides() -> dict:
+    if not OVERRIDES.exists():
+        return {}
+    return yaml.safe_load(OVERRIDES.read_text(encoding="utf-8")) or {}
+
+
+def extract_body(paras: list[str], meta: dict, overrides: dict) -> list[str]:
     # Site synopsis sits above the "ARCHIVE Stand-Up Transcripts" breadcrumb; body follows it.
     start = next((i + 1 for i, p in enumerate(paras) if SECTION_LABEL in p), None)
     if start is None:
@@ -60,27 +71,47 @@ def extract_body(paras: list[str], meta: dict) -> list[str]:
     if end is None:
         raise ValueError("end anchor not found; page layout changed?")
     body = paras[start:end]
-    # Post infobox, title heading and site blurb precede the performance; they name the
-    # special or comedian, which the opening lines of a set almost never do verbatim.
-    names = (meta["title"].lower(), meta["comedian"].lower())
-    dropped = 0
-    while body and dropped < LEADING_WINDOW and (
-        INFOBOX.match(body[0]) or BLURB.search(body[0]) or any(n in body[0].lower() for n in names)
-    ):
-        body.pop(0)
-        dropped += 1
+    while body and MORE_FOOTER.match(body[-1]):
+        body.pop()
+
+    override = overrides.get(meta["set_id"], {})
+    heading = next((i for i, p in enumerate(body[:HEADING_WINDOW]) if p.strip().lower() in HEADINGS), None)
+    if "skip_leading" in override:
+        dropped = override["skip_leading"]
+        body = body[dropped:]
+    elif heading is not None:
+        # Newer posts put a "Transcript" heading (+ study disclaimer) right before the set.
+        dropped = heading + 1
+        body = body[dropped:]
+        while body and body[0].startswith(DISCLAIMER):
+            body.pop(0)
+            dropped += 1
+    else:
+        # Older posts: infobox, title and blurb name the special or comedian, which the
+        # opening lines of a set almost never do verbatim.
+        names = (meta["title"].lower(), meta["comedian"].lower())
+        dropped = 0
+        while body and dropped < LEADING_WINDOW and (
+            INFOBOX.match(body[0]) or BLURB.search(body[0]) or any(n in body[0].lower() for n in names)
+        ):
+            body.pop(0)
+            dropped += 1
+    if override.get("skip_trailing"):
+        body = body[: -override["skip_trailing"]]
     meta["leading_dropped"] = dropped
+    meta["start_rule"] = "override" if "skip_leading" in override else "heading" if heading is not None else "heuristic"
     return body
 
 
 def main() -> None:
     INTERIM.mkdir(parents=True, exist_ok=True)
     pdfs = sorted(RAW.glob("*.pdf"))
+    overrides = load_overrides()
     for pdf in pdfs:
         meta = parse_filename(pdf.name)
         doc = pymupdf.open(pdf)
         paras = [p for page in doc for p in page_paragraphs(page)]
-        body = extract_body(paras, meta)
+        body = extract_body(paras, meta, overrides)
         text = "\n".join(body)
         (INTERIM / f"{meta['set_id']}.body.txt").write_text(text, encoding="utf-8")
         meta |= {"source_pdf": pdf.name, "pages": doc.page_count, "paragraphs": len(body),
