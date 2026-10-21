@@ -88,6 +88,19 @@ Format: **Symptom** → **Cause** → **Caught by** → **Fix** (commit / file).
   LLM. A first version found 0/3: 60-line gap too strict, and coverage was checked too narrowly
   (the return landed in the setup bit just before the callback bit).
 - **Protocol:** Bargatze = tuning set; Birbiglia = held-out test, labeled and scored once.
+- **Second run (new prompt + hints), 2026-10-21:**
+
+  | Bargatze | first run | new prompt |
+  |---|---|---|
+  | bits (ref 52) | 38 bits, F1 0.75, P 0.89, R 0.65, Pk 0.172 | 48 bits, **F1 0.80**, P 0.83, **R 0.77**, **Pk 0.146** |
+  | threads (ref 37) | 21, F1 0.61, Pk 0.277 | 22, F1 0.63, Pk 0.263 |
+  | callbacks (ref 3) | 0 found | **0 found** (even the hinted front-door one) |
+
+  Granularity now close to human (median 17 lines, same as labels). Still over-uses `continues`
+  (22 vs 37 threads). Callbacks unchanged: asking for them inside the segmentation call doesn't
+  work. The call took 1145 s with two network retries.
+- **Next idea (general):** a separate, smaller callback pass over the bit list (premises + hooks +
+  lexical candidates) instead of the full transcript, so the model focuses on that one judgement.
 
 ### Gemini free-tier quota exhausted mid-run
 - **Symptom:** repeated HTTP 429 with escalating backoff; probe says "exceeded your current quota".
