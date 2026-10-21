@@ -224,3 +224,8 @@ data/raw/
 data/interim/
 data/processed/
 !data/markers.yaml
+
+# Reference papers: local only (HumorGen is under anonymous review); README index is tracked
+references/*.pdf
+references/md/*.md
+!references/md/README.md
