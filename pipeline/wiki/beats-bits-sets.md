@@ -1,6 +1,6 @@
 # Beats, bits, sets (S3, S5)
 
-Code: *planned* (`pipeline/beats.py`, `pipeline/annotate.py`) · Schemas: [docs/pipeline.md](../../docs/pipeline.md#schemas)
+Code: [`pipeline/beats.py`](../beats.py) (S3, built) · `pipeline/annotate.py` (S5, planned) · Schemas: [docs/pipeline.md](../../docs/pipeline.md#schemas)
 
 ## The three units
 

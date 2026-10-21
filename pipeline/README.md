@@ -11,14 +11,14 @@ Concepts behind each stage: [wiki/](wiki/README.md).
 
 ```mermaid
 flowchart LR
-    A["S0 ingest<br/>✅"] --> B["S1+S2 markers<br/>✅"] --> C["S3 beats<br/>⏳"] --> D["S4 bits<br/>⏳ TextTiling+LLM"] --> E["S5 annotate<br/>⏳ LLM"] --> F["S6 validate<br/>⏳"]
+    A["S0 ingest<br/>✅"] --> B["S1+S2 markers<br/>✅"] --> C["S3 beats<br/>✅"] --> D["S4 bits<br/>⏳ TextTiling+LLM"] --> E["S5 annotate<br/>⏳ LLM"] --> F["S6 validate<br/>⏳"]
 ```
 
 | Stage | Module | Status | Input | Output | Concepts |
 |---|---|---|---|---|---|
 | S0 | `pipeline.ingest` | built | `data/raw/*.pdf`, `data/body_overrides.yaml` | `data/interim/<set>.body.txt`, `.meta.json` | [PDF extraction](wiki/pdf-extraction.md) |
 | S1+S2 | `pipeline.markers` | built | `.body.txt`, `data/markers.yaml` | `.clean.txt`, `.events.jsonl`, meta update | [Reaction markers & laugh labels](wiki/laugh-labels.md) |
-| S3 | `pipeline.beats` | planned | `.clean.txt`, `.events.jsonl` | `data/processed/beats.jsonl` | [Beats, bits, sets](wiki/beats-bits-sets.md) |
+| S3 | `pipeline.beats` | built | `.clean.txt`, `.events.jsonl`, `datasets.json` | `data/processed/<dataset>/beats.jsonl`, `.labeled.txt` (debug view) | [Beats, bits, sets](wiki/beats-bits-sets.md) |
 | S4 | `pipeline.bits` | planned | beats | `bits.jsonl` | [TextTiling](wiki/texttiling.md) |
 | S5 | `pipeline.annotate` | planned | bits | annotated `bits.jsonl`, `sets.jsonl` | [Beats, bits, sets](wiki/beats-bits-sets.md) |
 | S6 | `pipeline.validate` | planned | all of the above + hand labels | metrics report | [Segmentation evaluation](wiki/segmentation-evaluation.md) |
@@ -35,8 +35,11 @@ From the repo root, with the tooling env (see the [root README](../README.md#set
 # S0: PDF -> body text
 .venv/Scripts/python -m pipeline.ingest
 
-# S1+S2: markers -> events + clean text + laugh_labeled flag
+# S1+S2: markers -> events + clean text + dataset membership
 .venv/Scripts/python -m pipeline.markers
+
+# S3: beats per dataset (+ data/interim/<set>.labeled.txt to eyeball)
+.venv/Scripts/python -m pipeline.beats
 # if it stops on unmapped reaction strings:
 .venv/Scripts/python -m pipeline.markers --draft   # copy reviewed entries into data/markers.yaml
 ```

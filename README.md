@@ -81,7 +81,7 @@ Run from the repo root with the tooling env. Each stage reads the previous stage
 | 1 | `.venv/Scripts/python -m pipeline.ingest --suggest` | PDFs | appends to `data/body_overrides.yaml` | **Only when you add new PDFs.** Review the proposed counts. |
 | 2 | `.venv/Scripts/python -m pipeline.ingest` | PDFs + overrides | `data/interim/*.body.txt`, `*.meta.json` | Stops if a set has no override entry. |
 | 3 | `.venv/Scripts/python -m pipeline.markers` | `*.body.txt` + `data/markers.yaml` | `*.clean.txt`, `*.events.jsonl`, updates `*.meta.json` | Stops on unmapped reaction strings → run with `--draft`, review, add to lexicon. |
-| 4 | *(planned)* `pipeline.beats` | clean text + events | `data/processed/beats.jsonl` | S3 |
+| 4 | `.venv/Scripts/python -m pipeline.beats` | clean text + events + `datasets.json` | `data/processed/<dataset>/beats.jsonl`, `*.labeled.txt` | S3. Check `labeled.txt` by eye. |
 | 5 | *(planned)* `pipeline.bits` | beats | `bits.jsonl` | S4: TextTiling + LLM. Needs an LLM key. |
 | 6 | *(planned)* `pipeline.annotate` / `pipeline.validate` | bits | `sets.jsonl`, metrics | S5–S6 |
 
