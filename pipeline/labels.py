@@ -22,15 +22,19 @@ MARK = ">>>"
 LINE_MARK = "@callback"  # a single line inside a bit that refers back to an earlier line
 LINE = re.compile(r"^\[(\d{4,5})\] ")
 CALLBACK = re.compile(r"^callback\s+(\d{1,5})\s*:?(.*)$", re.I)
+CONTINUES = re.compile(r"^continues\b\s*:?(.*)$", re.I)
 
 HEADER = """\
 # Bit-boundary labeling: {set_id}
 #
-# A bit = one premise, explored with its tags and act-outs. A callback to an earlier bit
-# starts a NEW bit. Crowd-work exchanges are their own bit.
+# A bit = the smallest unit that works ON ITS OWN without earlier setup (premise + its tags).
+# Consecutive bits on the same topic form a THREAD: mark the later ones with {mark} continues.
+# A callback returns to an earlier bit AFTER other material; it starts a NEW bit.
+# Crowd-work exchanges are their own bit.
 #
 # HOW: put a line with only {mark} directly ABOVE the first line of each new bit.
 #      Optional note after it, e.g.  {mark} the dentist
+#      SAME TOPIC as the previous bit:  {mark} continues: the dentist
 #      CALLBACK: on the LATER bit, name the line where the earlier bit starts:
 #          {mark} callback 0042: the dentist
 #      (a callback bit starts where its SETUP starts, not at the payoff line)
@@ -101,9 +105,13 @@ def import_labels(set_id: str) -> None:
         if pending is not None or not starts and not seen[:-1]:
             entry = {"line": idx}
             cb = CALLBACK.match(pending or "")
+            cont = CONTINUES.match(pending or "")
             if cb:
                 entry["callback_to"] = int(cb.group(1))
                 pending = cb.group(2).strip() or None
+            elif cont:
+                entry["continues"] = True
+                pending = cont.group(1).strip() or None
             if pending:
                 entry["note"] = pending
             starts.append(entry)
@@ -112,6 +120,11 @@ def import_labels(set_id: str) -> None:
         sys.exit("line numbers were edited, removed or reordered; restore them and re-import")
     if starts and starts[0]["line"] != expected[0]:
         starts.insert(0, {"line": expected[0]})
+    # A "callback" to the immediately preceding bit is the same topic continuing, not a callback.
+    for prev, cur in zip(starts, starts[1:]):
+        if cur.get("callback_to") == prev["line"]:
+            del cur["callback_to"]
+            cur["continues"] = True
     LABELS.mkdir(parents=True, exist_ok=True)
     out = LABELS / f"{set_id}.yaml"
     valid = set(expected)
