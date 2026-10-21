@@ -297,12 +297,14 @@ def test_label_import_turns_adjacent_callback_into_continues(tmp_path, monkeypat
             .replace("[0002]", ">>>\n[0002]")
             .replace("[0004]", ">>> callback 0002: same topic\n[0004]")   # adjacent -> continues
             .replace("[0005]", ">>> continues\n[0005]")                    # explicit
-            .replace("[0007]", ">>> callback 0002: real one\n[0007]"))     # 3 bits back -> callback
+            .replace("[0006]", ">>>\n[0006]")
+            .replace("[0007]", ">>> continues callback 0002: both\n[0007]"))  # same topic + callback
     work.write_text(text, encoding="utf-8")
     L.import_labels("s")
     starts = yaml.safe_load((tmp_path / "s.yaml").read_text(encoding="utf-8"))["bit_starts"]
     assert starts == [{"line": 0}, {"line": 2}, {"line": 4, "continues": True, "note": "same topic"},
-                      {"line": 5, "continues": True}, {"line": 7, "callback_to": 2, "note": "real one"}]
+                      {"line": 5, "continues": True}, {"line": 6},
+                      {"line": 7, "continues": True, "callback_to": 2, "note": "both"}]
 
 
 def test_to_bits_numbers_threads_and_validate_rejects_first_continue():

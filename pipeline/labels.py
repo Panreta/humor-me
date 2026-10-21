@@ -35,6 +35,7 @@ HEADER = """\
 # HOW: put a line with only {mark} directly ABOVE the first line of each new bit.
 #      Optional note after it, e.g.  {mark} the dentist
 #      SAME TOPIC as the previous bit:  {mark} continues: the dentist
+#      BOTH (same topic + calls back):   {mark} continues callback 0042: the dentist
 #      CALLBACK: on the LATER bit, name the line where the earlier bit starts:
 #          {mark} callback 0042: the dentist
 #      (a callback bit starts where its SETUP starts, not at the payoff line)
@@ -104,14 +105,17 @@ def import_labels(set_id: str) -> None:
             pending_line_cb = None
         if pending is not None or not starts and not seen[:-1]:
             entry = {"line": idx}
-            cb = CALLBACK.match(pending or "")
+            # "continues" and "callback NNNN" can combine: same topic as the previous bit AND a
+            # return to an earlier one, e.g. ">>> continues callback 0189: front door".
             cont = CONTINUES.match(pending or "")
+            rest = cont.group(1).strip() if cont else (pending or "")
+            if cont:
+                entry["continues"] = True
+            cb = CALLBACK.match(rest)
             if cb:
                 entry["callback_to"] = int(cb.group(1))
-                pending = cb.group(2).strip() or None
-            elif cont:
-                entry["continues"] = True
-                pending = cont.group(1).strip() or None
+                rest = cb.group(2)
+            pending = rest.strip() or None
             if pending:
                 entry["note"] = pending
             starts.append(entry)
