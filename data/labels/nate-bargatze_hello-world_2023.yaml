@@ -1,0 +1,86 @@
+set_id: nate-bargatze_hello-world_2023
+unit: line_idx
+n_lines: 951
+bit_starts:
+- line: 0
+- line: 15
+  note: Gun access
+- line: 37
+- line: 46
+  note: Old Hickory
+- line: 60
+  note: Gulf War
+- line: 70
+  continues: true
+  note: Gulf War
+- line: 76
+- line: 79
+  continues: true
+  note: self deprecating
+- line: 82
+  note: hike
+- line: 90
+  note: hike
+- line: 101
+  continues: true
+  note: hike
+- line: 118
+  callback_to: 76
+- line: 136
+  callback_to: 76
+- line: 142
+- line: 171
+- line: 189
+- line: 212
+- line: 220
+- line: 244
+  continues: true
+- line: 251
+- line: 287
+  continues: true
+- line: 311
+- line: 328
+- line: 346
+- line: 356
+  continues: true
+- line: 360
+- line: 376
+  continues: true
+- line: 394
+- line: 420
+  note: koi pond
+- line: 439
+  continues: true
+- line: 459
+- line: 479
+  continues: true
+- line: 485
+  continues: true
+- line: 511
+- line: 525
+- line: 543
+- line: 558
+- line: 581
+  continues: true
+- line: 600
+- line: 611
+  continues: true
+- line: 628
+- line: 664
+- line: 729
+  continues: true
+- line: 741
+- line: 760
+- line: 770
+- line: 801
+- line: 811
+  continues: true
+- line: 877
+- line: 891
+  note: wife's home projects
+- line: 905
+  continues: true
+  callback_to: 189
+  note: front door
+- line: 948
+line_callbacks: []
