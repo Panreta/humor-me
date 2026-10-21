@@ -6,6 +6,7 @@ Standalone tools that aren't part of the pipeline or the server.
 |---|---|---|
 | `pdf_to_md.py` | root `.venv` | Converts reference paper PDFs to markdown in `references/md/` so agents can read them |
 | `latency_probe.py` | `backend/.venv` | Measures LLM time-to-first-token and total time against `backend/.env` |
+| `inspect_events.py` | root `.venv` | Eyeball checks on pipeline output: text before each laugh, act-out markers, set list. Prints transcript text locally; don't commit or share its output. |
 
 ## pdf_to_md.py
 
