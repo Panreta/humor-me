@@ -11,6 +11,8 @@ Read before working:
 - [docs/pipeline.md](docs/pipeline.md) — transcript → beats/bits/sets pipeline, labels, schemas
 - [docs/roadmap.md](docs/roadmap.md) — stages, exit criteria, estimates
 - [docs/decisions.md](docs/decisions.md) — decision log; append, don't rewrite history
+- [docs/dev-log.md](docs/dev-log.md) — problems hit (symptom → cause → caught by → fix).
+  **Add an entry whenever a bug, data quirk or tooling issue costs real time.**
 - [references/md/](references/md/) — markdown versions of the reference papers
 
 ## Invariants (do not violate without a new entry in decisions.md)

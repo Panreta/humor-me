@@ -1,0 +1,137 @@
+# Development Log: Problems Hit
+
+Every non-trivial problem met while building this project: what happened, why, how it was
+caught, and the fix. Useful for the report's "challenges" section and for not repeating
+mistakes. **Append new entries at the top of each section; never delete old ones.**
+
+Format: **Symptom** → **Cause** → **Caught by** → **Fix** (commit / file).
+
+---
+
+## Data pipeline: extraction (S0)
+
+### PDF has no paragraphs; every visual line is its own block
+- **Symptom:** exact-match anchors ("Stand-Up Transcripts") never matched; text came out one line per block.
+- **Cause:** browser "Save as PDF" emits one text block per printed line.
+- **Caught by:** masked inspection of the first paragraphs.
+- **Fix:** rebuild paragraphs from vertical gaps (> ½ line height = new paragraph); match anchors by substring. `pipeline/ingest.py:page_paragraphs`.
+
+### Print header/footer leaked into the transcript
+- **Symptom:** the URL and the title line repeated every ~12–15 paragraphs inside the body.
+- **Cause:** the footer URL wraps over two lines, so a full-line URL regex missed it; the title shares a block with the timestamp.
+- **Caught by:** counting URL/"SPECIAL…YEAR" matches per body.
+- **Fix:** drop blocks by **position** (outer 3.5% of the page) instead of by regex.
+
+### Site synopsis left at the top of a set: four different layouts
+- **Symptom:** sets opened with the site's description, release info, critics' quotes.
+- **Cause:** the site's post layout changed over the years:
+  1. Newer posts: "Transcript" heading + study disclaimer (ISMO, Arcuri, Hamilton, Morril).
+  2. Older posts: synopsis ending in a `* * *` divider (Gulman, Morgan, Bargatze, Notaro, Birbiglia).
+  3. Oldest: infobox + title + blurb only.
+- **Caught by:** user eyeballing `body.txt` files.
+- **Fix:** rules in priority order (heading → divider → keyword fallback), then made **explicit
+  per-set counts** in `data/body_overrides.yaml` the source of truth; heuristics only *propose*
+  them via `ingest --suggest`. Output verified byte-identical across the refactor.
+
+### `* * *` divider: two traps
+- **Symptom 1:** the divider rule never fired.
+- **Cause 1:** "is there a stage marker above the divider?" matched the post title's "(2023)".
+- **Fix 1:** only *reaction* markers (laugh/applause/cheer) count.
+- **Symptom 2:** Birbiglia's synopsis survived.
+- **Cause 2:** his synopsis + critics' quotes ran to paragraph 16; search window was 15.
+- **Fix 2:** window widened to 25; Birbiglia trim set to 17 by hand.
+- **Also:** a divider *with* reactions above it is a section break inside the set and must be kept.
+
+### Disclaimer tail survived as the "first line"
+- **Symptom:** ISMO, Arcuri and Morril opened with a sentence fragment about rights belonging to the creators.
+- **Cause:** the study disclaimer wraps across a page break → two paragraphs; only the first was skipped.
+- **Caught by:** user, then an automated "body starts lowercase" check across all sets.
+- **Fix:** +1 to those trims; `--suggest` now skips lowercase continuations after the disclaimer.
+
+### "MORE … Stand-Up Transcripts" footer kept at the end
+- **Cause:** two word orders ("MORE <name> Stand-Up Transcripts" and "MORE Stand-Up Transcripts <name>").
+- **Fix:** looser regex; footer handled via `skip_trailing`.
+
+### Lowercase-start check gave false positives
+- **Cause:** bodies start with markers like `[audience cheering]`, whose text is lowercase.
+- **Fix:** strip leading markers before testing. Lesson: test the check, not just the data.
+
+---
+
+## Data pipeline: markers and labels (S1–S2)
+
+### Marker offsets drifted later and later through each set (**real bug**)
+- **Symptom:** text before each laugh ran into the next sentence by 1, 2, 3… characters.
+- **Cause:** removing a marker leaves a double space; spaces were collapsed *after* offsets were computed, so each removed marker shifted all later offsets by one.
+- **Caught by:** user running `scripts/inspect_events.py laughs` on Bargatze.
+- **Fix:** collapse whitespace per segment while building the clean text; verification that compares text before every marker → **0 mismatches across ~3,500 markers**. Lesson: build an automated alignment check, don't trust offsets by construction.
+
+### Inconsistent reaction vocabulary (~425 distinct bracket strings)
+- **Cause:** every transcriber writes reactions differently ("laughter", "audience laughing", "crowd laughs").
+- **Fix:** versioned lexicon `data/markers.yaml`; unknown *reaction* strings stop the run; `--draft` proposes entries for review. Non-reaction directions are bucketed by keyword instead of listed (would be ~300 entries).
+
+### Performer sounds mistaken for audience reactions
+- **Symptom:** "jeff laughs", "tom chuckles" proposed as crowd-work people.
+- **Cause:** subtitle convention: unattributed or named-performer sounds are the *speaker*. The names were the comedians' own first names.
+- **Fix:** mapped to `performer` in the lexicon; documented in the wiki.
+
+### "laughing continues" attributed to the performer
+- **Cause:** draft heuristic saw no "audience" word.
+- **Effect:** Leanne Morgan's big-laugh count was 1 instead of 33.
+- **Fix:** any "… continues" marker extends the preceding audience reaction.
+
+### Half the transcripts barely tag laughs
+- **Symptom:** Bamford, Notaro, Papa, Martin, Hamilton showed ~0 audience laughs.
+- **Cause:** sparse transcribers (480+ words per tagged laugh vs 26–80 for dense ones), not misattribution.
+- **Fix:** density gate (`laugh_labeled` only if ≤ 150 words/laugh). Only **11/20** sets carry laugh labels; Bamford had to be swapped out of the held-out set for Birbiglia. **8 training sets** remain: a data bottleneck.
+
+### Applause counted as a laugh
+- **Symptom:** a cheer for the comic's hometown labeled as an applause-break laugh.
+- **Caught by:** user's alignment check.
+- **Fix:** applause/cheers alone → level 0 + `applause` flag; level 4 requires a laugh. Level-4 counts dropped sharply (e.g. Notaro 23 → 0).
+
+### Songs treated as spoken material
+- **Symptom:** walk-on music lyrics (♪ lines) at the start/end of sets; Bamford sings mid-set.
+- **Cause:** lyric lines aren't bracketed and often lack a closing ♪.
+- **Fix:** paragraph-level song handling before marker extraction: edge songs dropped, mid-set singing → one `[sings]` event, speech in mixed paragraphs kept. No lyrics stored.
+- **Note:** `body.txt` still shows songs by design (raw cut); `clean.txt` doesn't.
+
+### "normal voice" isn't an act-out
+- **Cause:** it marks the *end* of a character voice (Bamford 37×, Martin 8×).
+- **Fix:** new category `act_out_end` so character spans can be measured.
+
+---
+
+## Data sourcing and legal
+
+### Scraping the transcript site
+- **Issue:** robots.txt allows crawling, but the site's Terms of Use prohibit saving or reformatting material by electronic means; transcripts are fan transcriptions of copyrighted specials.
+- **Decision:** no bulk scraper. Transcripts were downloaded manually for local study; corpus stays gitignored; never used as imitation text; memorization guard planned.
+
+### Reference papers in a public repo
+- **Issue:** one paper (HumorGen) is an anonymous submission under review.
+- **Fix:** `references/*.pdf` and converted markdown gitignored; README index tracked.
+
+---
+
+## Tooling and environment
+
+| Problem | Cause | Fix |
+|---|---|---|
+| Python 3.13 venv creation failed | 3.13 registered with `py` launcher but its exe was missing | Use 3.14; revisit for audio/ML wheels in week 5 |
+| `pymupdf4llm` 2.x installed nothing | Empty wheel on Python 3.14 | Pinned 0.3.4 |
+| `create-next-app` installed Next 15.5.4 | Version had CVE-2025-66478 | Upgraded to patched 15.5.x |
+| `python -I -m pipeline.ingest` → module not found | `-I` removes the repo root from `sys.path` | Run as plain `python -m` (our own code; PDFs are only read as data) |
+| `sed` "unknown command" | MinGW sed on PATH | Use the Edit tool / Python for file edits |
+| `UnicodeEncodeError` printing ♪ | Windows console uses cp1252 | `PYTHONIOENCODING=utf-8` |
+| `venv/Scripts/python` not found | Folder is `.venv` (leading dot) | Use `.venv/...` or plain `python` when activated |
+| Mermaid diagrams blank in preview | Older third-party preview extension | Official `mermaidchart.vscode-mermaid-chart`; recommended in `.vscode/extensions.json`. All diagrams also validated with the Mermaid parser |
+
+---
+
+## Process lessons
+
+- **Eyeball checks found every real bug.** Counts looked plausible each time; reading 10 aligned lines exposed the offset drift. Keep `scripts/inspect_events.py` in the loop for every stage.
+- **Fail loud > guess.** Lexicon and trim files stop the run on anything unseen; a human approves once.
+- **Determinism checks** (`md5sum` of outputs) made refactors safe.
+- **Don't print transcript text in tooling output**: masked shapes and counts were enough to debug most issues.
