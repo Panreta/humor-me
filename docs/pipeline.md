@@ -61,7 +61,13 @@ flowchart LR
 
 ### S2: Classify markers
 Lookup in `data/markers.yaml` (lexicon is committed; it holds no transcript text).
-**Unknown string → pipeline stops** and lists unmapped strings. Mapping is never guessed.
+Only **reaction-like** strings (laugh, chuckle, applause, cheer, groan, gasp…) need an entry;
+an **unknown reaction string stops the pipeline** and lists what's unmapped. A laugh level is
+never guessed. `python -m pipeline.markers --draft` proposes entries for human review.
+The other ~300 stage directions are bucketed by keyword: `act_out` · `music` · `direction`.
+
+Review notes: performer first names ("jeff laughs", "tom chuckles") are the **performer**,
+not crowd-work people; "… continues" extends the preceding **audience** reaction.
 
 | Field | Values |
 |---|---|
@@ -127,10 +133,18 @@ Annotations are **abstract**: premises are paraphrased descriptions, not quoted 
 - **Binary laugh** (level ≥ 2): primary target; robust across transcribers.
 - **Ordinal level**: trusted **within a set only**; used as a ranking target.
 - **Groan**: separate flag; mode-dependent reward (positive for Wordsmith puns).
-- Unmarked sets (Gulman, Seinfeld, McIntyre, Meyers): structure + skeletons only, no labels.
-- Laugh predictor split: **hold out whole comedians**. Proposed: Maria Bamford (Neurotic),
-  Jim Gaffigan (Observer), Nate Bargatze (Optimist). Learning curve at 5/10/12 train
-  comedians decides whether more transcripts are worth collecting.
+- **Density gate**: a set is `laugh_labeled` only if words per audience laugh ≤ 150. Sparse
+  transcribers leave most laughs untagged, so missing markers would read as "no laugh".
+  Observed: dense sets 26–80 words/laugh; sparse 480+.
+  - Labeled (11): Regan, Slay, ISMO, Arcuri, Gaffigan, Morgan, Birbiglia, Bargatze, Chieng,
+    Morril, Maniscalco.
+  - Structure-only (9): Martin, Bamford, Hamilton, Notaro, Papa (sparse) + Gulman, Seinfeld,
+    McIntyre, Meyers (unmarked).
+- Levels 1 and 3 are rare (most transcribers tag neither), so the ordinal signal is thin;
+  binary stays primary.
+- Laugh predictor split: **hold out whole comedians**: Mike Birbiglia (Neurotic, replaces
+  Bamford, who is sparse), Jim Gaffigan (Observer), Nate Bargatze (Optimist). That leaves
+  **8 training sets**; learning curve at 4/6/8 decides whether more dense transcripts are needed.
 
 ## Layout
 
