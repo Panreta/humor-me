@@ -109,3 +109,30 @@ setup. Consecutive bits on one topic are marked `continues` and form a thread. A
 return to an earlier bit after other material (≥ 2 bits back); a "callback" to the previous bit
 is converted to `continues`. Gemini is prompted with the same definitions; S6 scores both levels.
 Bargatze: 52 bits, 38 threads, 3 callbacks.
+
+## 2026-10-26 — Pause the transcript pipeline; rJokes + simulator first
+S0–S6 are frozen as they stand (bits F1 0.80 vs 0.21 baseline on Bargatze, callbacks 0/3).
+They stay as a report appendix and as a source of **aggregate** set-structure stats (bits per
+set, words per bit, tags, callback rate), which feed the long-form set planner and the sim's
+timing priors. No more Gemini quota goes to S4 on new sets; the Birbiglia held-out run waits
+until labels exist and there is spare time. Why: transcripts were never on the M1 critical
+path (data-sources.md), the week-2 sim + bandit deliverable is behind, and the legal exposure
+of copyrighted specials is the weakest part of the project. rJokes becomes the working joke
+dataset: per-joke scores, 432k rows, local use under Reddit's terms. HumorGen's
+`africa_headlines.tsv` is prompts only (no jokes, no ratings): at most a source of topic seeds.
+Judge-as-audience (idea B) is a stretch goal after the sim + bandits ship.
+
+## 2026-10-26 — Long-form sets are planned hierarchically, not generated in one pass
+A 10–15 min set is a plan of bits, not a 1,500-word completion. Set planner → bit writer →
+live director (details in design.md, "Long-form set generation"). Length is controlled by the
+number and size of bits, not by tokens. We imitate stand-up *structure* (setup–punch–tags,
+rule of three, act-outs, callbacks, closer), never a comedian's voice; the voice is the fixed
+core identity. Why: one-pass long generation drifts, repeats and loses callbacks, and a plan is
+what lets the director reorder, cut or extend bits from live laughs.
+
+## 2026-10-26 — Northeastern Explorer for GPU work; laptop for everything else
+Explorer (OOD JupyterLab, course GPU partition) runs batch jobs: local-LLM mode/safety labeling
+of rJokes (vLLM + a 7–8B instruct model) and a small learned joke scorer (encoder regressor on
+rJokes scores). Sim, bandits, pipeline and the live loop stay on the laptop and must not depend
+on Explorer. Why: removes the Gemini free-tier bottleneck for bulk labeling. Jobs are written as
+scripts first and notebooks second, so they also run on the 4060 at smaller scale.

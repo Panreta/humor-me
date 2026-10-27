@@ -233,3 +233,5 @@ references/md/*.md
 
 # Hand-labeling work files contain transcript text; only data/labels/*.yaml is committed
 data/labels/work/
+# Third-party datasets (cloned/downloaded, never committed)
+data/external/
