@@ -178,6 +178,19 @@ Format: **Symptom** → **Cause** → **Caught by** → **Fix** (commit / file).
 
 ---
 
+## rJokes prep (R1)
+
+| Problem | Cause | Fix |
+|---|---|---|
+| Split files have no dates | Only `preprocessed.csv` (raw upvotes) has timestamps | Join on whitespace-normalized text: 99.6% of rows match; 1,081 jokes left without a year |
+| Same text, very different scores | Reposts: 6,971 texts posted more than once, median spread 2 on the ln scale (~7x upvotes) | Dedupe keeps the max score + `n_posts` + `score_spread`. The spread is the **noise ceiling** for any joke scorer: don't expect high correlation |
+| Repost in train and test | Splits were random over posts, not texts | The first split in train→dev→test order owns a text |
+| r/Jokes grew ~1000x 2008→2019 | Raw scores aren't comparable across years | `pct` = score percentile within the post's year; use `pct`, not `score`, for priors |
+| `pytest` missing | System Python has no pytest | Run tests with `.venv/Scripts/python -m pytest tests -q` |
+
+Result: 432,457 rows → 402,981 after dedupe + 4–200 word filter (train 323,573 / dev 39,764 /
+test 39,644). 75% carry no topic flag; scores are heavy at 0 (35%).
+
 ## Data sourcing and legal
 
 ### Scraping the transcript site
