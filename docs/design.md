@@ -69,6 +69,55 @@ Gym-style env, no LLM in the loop, so thousands of episodes run in seconds:
 - Policies: fixed best mode, random, ε-greedy, LinUCB, Thompson; ± switching penalty.
 - Optional: LLM-persona audiences for qualitative checks only.
 
+## Data and model map
+
+Which data feeds which component, and where it runs. L = laptop (RTX 4060), E = Explorer GPU,
+API = Gemini (or Claude) API.
+
+```
+rJokes (432k, score 0–11) ──► rjokes prep (L): dedupe, length filter, blocklist, per-year score percentile
+        │
+        ├──► mode + safety labeling (E: vLLM, 7–8B instruct) on a stratified subset
+        │         └──► per-mode score distributions ──► SIM audience priors (with venue assumptions)
+        │
+        └──► joke scorer (E: encoder regressor, dev/test splits) ──► cheap reranker for K candidates
+                                                                    └──► judge calibration (sim idea B)
+transcripts (local only) ──► S0–S6 (frozen) ──► aggregate structure stats ──► SET PLANNER targets
+HumorGen paper ──► mode definitions + candidate-gen recipe ──► GENERATOR prompts
+own session logs ──► (post-M1) reward model, DPO
+```
+
+| Component | Model | Runs on | Data in | Data out |
+|---|---|---|---|---|
+| rJokes prep | none | L | rJokes splits | `data/processed/rjokes/*.jsonl` |
+| Mode/safety labeler | 7–8B instruct (vLLM) | E | rJokes subset | mode, safety flags per joke |
+| Joke scorer | small encoder regressor | E (train), L (infer) | rJokes train/dev | score in [0, 1] |
+| Simulated audience + bandits | none (numpy) | L | per-mode priors, structure stats | regret curves, logs |
+| Set planner | Gemini flash / local 8B | API or L | context, structure targets | set plan (bits) |
+| Bit writer (generator) | Gemini flash-lite / local 8B | API or L | bit spec, mode, set memory | K candidate lines |
+| Reranker | joke scorer, later LLM judge | L | K candidates | chosen line |
+| Safety filter | blocklist + classifier | L | candidate | pass / reject |
+
+## Long-form set generation
+
+Comedians don't write 10–15 min in one pass either: they build bits and order them into a set.
+The generator copies that structure.
+
+1. **Set planner** (once per show, before or at the start): given context (venue, energy, age)
+   and structure targets, output 6–10 bit specs: `{premise, mode, target_len, planted_hooks,
+   callback_to, role: opener|body|closer}`. Targets come from aggregate transcript stats
+   (e.g. words per bit, bits per 10 min, callback rate), never from transcript text.
+2. **Bit writer** (per bit, just in time): expands one spec into beats: setup, punch, 1–3 tags,
+   optional act-out. K candidates per beat, reranked. Gets set memory (prior premises, landed
+   hooks) so callbacks reference what was actually said.
+3. **Director** (live): after each beat reads the laugh signal and chooses: tag again, move on,
+   cut the bit short, switch mode for the next bit (bandit), or spend a callback.
+
+Length is controlled by the plan: about 130–150 spoken words/min minus laugh time, so a
+10 min set is roughly 1,100–1,400 words across 6–10 bits. Each bit is a short generation an
+LLM handles well. Quality checks per stage: plan coherence (no duplicate premises, a closer
+exists), bit score from the reranker, and whole-set judge review offline.
+
 ## Callbacks (cross-bit context)
 
 A callback is the one decision whose payoff is **delayed**: planting a hook in bit 2 earns

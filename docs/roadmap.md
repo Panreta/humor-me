@@ -26,6 +26,25 @@ so the grade isn't hostage to audio/latency problems.
 | 7 | Dec 1–7 | Pilot sessions (friends/classmates), fix top issues, report draft | ≥ 3 logged live sessions |
 | 8 | Dec 8–15 | **Feature freeze.** Rehearse demo in noisy room, finalize report | Demo runs 3× in a row without intervention |
 
+### Sprint Oct 26 – Nov 2: reach ~40% of M1 "Must"
+
+40% means: the RL result exists end to end in simulation, on priors grounded in real joke data,
+and a long-form set can be generated as text. Voice, laughter and live wiring are the other 60%.
+
+| # | Step | Where | Est. | Exit criterion |
+|---|---|---|---|---|
+| 1 | rJokes prep: dedupe, length filter, blocklist, per-year score percentile; stats report | L | 3 h | `data/processed/rjokes/` + stats in dev-log; tests pass |
+| 2 | Explorer setup: JupyterLab on GPU partition, venv, vLLM smoke test | E | 2 h | 7–8B model answers a prompt; throughput noted |
+| 3 | Mode + safety labeling of ~30k stratified jokes; 100 spot-checked by hand | E | 4 h | Per-mode score distributions; labeler agreement with hand checks reported |
+| 4 | Sim env (gym-style): contexts, hidden mode payoffs, noise, fatigue, novelty, mid-set shift | L | 4 h | Unit tests; seeded episodes reproducible |
+| 5 | Policies: fixed, random, ε-greedy, LinUCB, Thompson, ± switching penalty; regret plots | L | 4 h | Regret curves for all policies × 3 venues |
+| 6 | Set planner + bit writer prototype (text only); one 10 min set per venue logged | L/API | 4 h | 3 sets, each in the word budget, each with a closer and ≥ 1 planned callback |
+| 7 | Docs: status, dev-log, figures into `reports/` | L | 1 h | status.md says where we are |
+
+Order: 1 → (2, 4 in parallel) → 3 → 5 → 6 → 7. Steps 4–5 only need rJokes priors as an input
+file; they start on placeholder priors so Explorer delays don't block them.
+Stretch, only after this sprint: joke scorer on Explorer; judge-as-audience (idea B).
+
 Fallbacks: detector unreliable → operator button is the reward. Bandit live-wiring slips →
 live demo uses operator-chosen mode; RL results stand on sim.
 
