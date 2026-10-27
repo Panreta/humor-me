@@ -3,29 +3,45 @@
 GPU batch work only. Nothing on the laptop may depend on these jobs having run: the sim and
 bandits start on placeholder priors.
 
-## One-time setup
+Access is through the CS5180 course (Fall 2026). Course-only accounts and the student dir
+are **deleted after final grades**: copy results back to the laptop after every run.
 
-1. OOD dashboard → Courses → JupyterLab (ml-courses). Partition: the GPU one (`courses-gpu`),
-   1 GPU, 8 CPUs, 32 GB RAM, 2 h. Note which GPU you get (`nvidia-smi`): A100/H100/L40 run
-   a 7B model easily; on a 16 GB card (T4/P100/V100-16) use `--model Qwen/Qwen2.5-3B-Instruct`.
-2. In a JupyterLab terminal:
-   ```bash
-   cd /scratch/$USER                      # home quota is small; models are ~15 GB
-   git clone <repo url> humor-me && cd humor-me
-   python -m venv .venv && source .venv/bin/activate
-   pip install vllm                       # brings a matching torch
-   export HF_HOME=/scratch/$USER/hf       # keep model downloads off home
-   ```
-   If `python` is too old for vLLM, load a newer one first (`module avail python`).
-3. Copy `data/processed/rjokes/train.jsonl` up (OOD Files → Upload, or `scp`) into the same
-   path. It's gitignored on purpose: joke text never goes into git.
+## Limits that shape how we use it (NURC course guide)
 
-## Jobs
+| Partition | Time default / max | Running jobs | RAM |
+|---|---|---|---|
+| `courses` (CPU) | 4 h / 24 h | 50 | 256 GB |
+| `courses-gpu` | 4 h / 8 h | **1** | **12 GB** |
 
-| Job | Command | Output |
+- A `courses-gpu` session idle for ~1 h gets an email, then is killed. Long runs go through
+  `sbatch`, not an open notebook.
+- 12 GB system RAM: fine for vLLM on a 7B model (weights stream to the GPU), not for loading
+  all 400k jokes into pandas next to it. The script reads only the sample.
+- One GPU job at a time: don't keep a JupyterLab GPU session open while a GPU batch job runs.
+- GPU type varies by node: `sinfo -p courses-gpu --Format=nodes,cpus,gres,statecompact`.
+  On a 16 GB card (T4/P100/V100-16) use `MODEL=Qwen/Qwen2.5-3B-Instruct`.
+
+## One-time setup (CPU is enough)
+
+OOD → Courses → JupyterLab, partition `courses`, then in its terminal:
+```bash
+ls -d /courses/CS5180.*/students/$USER       # find your dir; the folder suffix is the term code
+COURSE_DIR=/courses/CS5180.<term>/students/$USER
+cd $COURSE_DIR && git clone <repo url> humor-me
+module avail python                          # pick a 3.10–3.12 if the default is older
+python3 -m venv $COURSE_DIR/venv && source $COURSE_DIR/venv/bin/activate
+pip install vllm                             # pulls a matching torch; ~10 min
+```
+Copy `data/processed/rjokes/train.jsonl` (gitignored; joke text never goes into git) to the
+same path inside the clone: OOD Files → Upload, or `scp`.
+
+## Runs
+
+| Step | How | Output |
 |---|---|---|
-| Smoke test | `python explorer/label_modes.py --input data/processed/rjokes/train.jsonl --n 50 --out /tmp/smoke.jsonl` | Throughput + parse failures |
-| Mode + safety labels | `python explorer/label_modes.py --input data/processed/rjokes/train.jsonl --n 30000` | `data/processed/rjokes/modes.jsonl` (ids + labels, no text) |
+| Smoke test (interactive) | OOD JupyterLab on `courses-gpu`, terminal: `source explorer/env.sh && python explorer/label_modes.py --input data/processed/rjokes/train.jsonl --n 50 --out /tmp/smoke.jsonl`. **Then stop the session.** | Throughput, parse failures |
+| Full labeling (batch) | `mkdir -p logs && sbatch explorer/label_modes.sbatch` (override: `N=5000 MODEL=... sbatch ...`) | `data/processed/rjokes/modes.jsonl` (ids + labels, no text) |
+| Monitor / cancel | `squeue -u $USER`, `tail -f logs/humor-label-<id>.out`, `scancel <id>` | |
 
 After the run, copy `modes.jsonl` back to the laptop, then spot-check 100 labels by hand
 before the sim uses them (record agreement in dev-log.md).
