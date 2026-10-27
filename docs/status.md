@@ -12,10 +12,10 @@ Last updated: 2026-10-26. Update this file whenever the state below changes.
 | Transcript pipeline | **Paused 2026-10-26** (decisions.md). Kept for aggregate structure stats + report appendix |
 | Pipeline S4+S5 (`pipeline.bits`) | Built (Gemini, one call/set). Revised prompt run on Bargatze: bits F1 0.80, threads 0.63, callbacks 0/3. Callback pass needs its own step |
 | Pipeline S6 (`pipeline.validate`) | Built. Scores bits + threads + callbacks vs hand labels and an even-spacing baseline |
-| Tests | `python -m pytest tests -q`, 24 passing, synthetic data only |
+| Tests | `.venv/Scripts/python -m pytest tests -q`, 34 passing, synthetic data only |
 | Backend / frontend | Scaffold only (FastAPI echo websocket, default Next.js page) |
-| rJokes | Cloned to `data/external/rJokesData` (gitignored). Prep not started |
-| Explorer (NEU HPC) | Access granted; not set up yet |
+| rJokes | R1 prep done (`python -m pipeline.rjokes`): 403k jokes, era-normalized `pct`. R2 labeling job ready in `explorer/`, not run |
+| Explorer (NEU HPC) | Access granted; setup steps in `explorer/README.md`, not done yet |
 | RL simulator | Not started (current sprint, roadmap.md) |
 
 ## Models and providers
@@ -45,8 +45,8 @@ First S4 result on Bargatze (old prompt): bits F1 0.75 (P 0.89, R 0.65, Pk 0.172
 ## Next steps
 
 Current sprint (Oct 26 – Nov 2, target ~40% of M1 Must): see roadmap.md "Sprint" table.
-1. rJokes prep (local).
-2. Explorer setup + vLLM smoke test; then mode/safety labeling.
+1. ~~rJokes prep~~ done.
+2. **User:** Explorer setup + smoke test (`explorer/README.md`), then the 30k labeling run.
 3. Sim env + bandit policies + regret curves (can start on placeholder priors).
 4. Set planner + bit writer prototype (long-form, text only).
 
