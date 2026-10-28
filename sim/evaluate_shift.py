@@ -35,7 +35,14 @@ def policies(modes) -> dict:
         "LinUCB + react": lambda env, s: LinUCB(uni(env, s), seed=s, react=True),
         "LinTS": lambda env, s: LinTS(uni(env, s), seed=s),
         "LinTS + react": lambda env, s: LinTS(uni(env, s), seed=s, react=True),
+        "LinUCB + show state": lambda env, s: LinUCB(uni(env, s), seed=s, show_state=True),
+        "LinTS + show state": lambda env, s: LinTS(uni(env, s), seed=s, show_state=True),
     }
+
+
+# Exp 5's policy set, pinned so registering new policies can't change its results on re-run.
+SHIFT_POLICIES = ("oracle", "fixed neurotic", "random", "LinUCB", "LinUCB + react", "LinTS", "LinTS + react")
+SHOW_STATE_POLICIES = ("oracle", "random", "LinUCB", "LinUCB + show state", "LinTS", "LinTS + show state")
 
 
 def career(make, n_shows: int, seed: int, shift_at: int, n_bits: int = 8) -> list[dict]:
@@ -90,7 +97,7 @@ def summarize(careers: list[list[dict]], shift_at: int, eval_last: int = EVAL) -
 
 def run(shows: int = 400, seeds: int = 10, shift_at: int = 4) -> dict:
     return {name: summarize([career(make, shows, s, shift_at) for s in range(seeds)], shift_at)
-            for name, make in policies(AudienceEnv().modes).items()}
+            for name, make in policies(AudienceEnv().modes).items() if name in SHIFT_POLICIES}
 
 
 def table(results: dict) -> str:
@@ -108,7 +115,8 @@ def table(results: dict) -> str:
 LENGTH_POLICIES = ("oracle", "random", "LinUCB", "LinTS")
 
 
-def run_lengths(lengths: tuple = (8, 16, 32, 52), total_bits: int = 3200, seeds: int = 10) -> dict:
+def run_lengths(lengths: tuple = (8, 16, 32, 52), total_bits: int = 3200, seeds: int = 10,
+                names: tuple = LENGTH_POLICIES) -> dict:
     """Does a longer set let the director recover from a mid-set shift?
 
     Shift at the midpoint of each set length. Every career has the same total experience
@@ -116,7 +124,7 @@ def run_lengths(lengths: tuple = (8, 16, 32, 52), total_bits: int = 3200, seeds:
     of each career. Returns, per length: summary per policy, and the mean choice quality at each
     bit position in shifted vs steady shows (the recovery curve).
     """
-    makers = {k: v for k, v in policies(AudienceEnv().modes).items() if k in LENGTH_POLICIES}
+    makers = {k: v for k, v in policies(AudienceEnv().modes).items() if k in names}
     out = {}
     for n_bits in lengths:
         shift_at, shows = n_bits // 2, max(4, total_bits // n_bits)
@@ -140,7 +148,7 @@ def table_lengths(res: dict) -> str:
     for n, r in res.items():
         n_int, s = int(n), r["shift_at"]
         last_q = slice(n_int - max(1, n_int // 4), n_int)
-        for name in LENGTH_POLICIES:
+        for name in r["summary"]:
             if name == "oracle":
                 continue
             sm, osm = r["summary"][name]["shifted"], r["summary"]["oracle"]["shifted"]
@@ -157,7 +165,7 @@ def plot_lengths(res: dict):
 
     ramp = ("#6da7ec", "#3987e5", "#256abf", "#104281")  # dataviz blue ramp: longer set = darker
     ink, muted, grid = "#2b2a27", "#8a8880", "#e6e4dd"
-    names = [p for p in LENGTH_POLICIES if p != "oracle"]
+    names = [p for p in next(iter(res.values()))["summary"] if p != "oracle"]
     fig, axes = plt.subplots(1, len(names), figsize=(12, 3.8), sharey=True)
     for ax, name in zip(axes, names):
         for color, (n, r) in zip(ramp, res.items()):
@@ -178,6 +186,68 @@ def plot_lengths(res: dict):
     axes[1].legend(frameon=False, fontsize=8, loc="lower left", title="solid: shifted · dotted: steady",
                    title_fontsize=7)
     fig.suptitle("Does a longer set let the director recover after the room turns?", color=ink, x=0.01, ha="left")
+    fig.set_facecolor("#fcfcfb")
+    fig.tight_layout()
+    return fig
+
+
+def show_state_deltas(res: dict) -> list[dict]:
+    """Per set length and algorithm: + show state vs without, on both pass criteria (step A).
+
+    shifted_gain: mean choice quality after the shift, with minus without (want ≥ 0.05).
+    steady_change: mean choice quality over the same bits in steady shows (want ≥ −0.01).
+    """
+    rows = []
+    for n, r in res.items():
+        s = r["shift_at"]
+        for base in ("LinUCB", "LinTS"):
+            new = f"{base} + show state"
+            if new not in r["curve"]:
+                continue
+            q = lambda name, key: float(np.mean(r[key][name][s:]))  # noqa: E731
+            rows.append({"bits": int(n), "algo": base,
+                         "shifted_base": q(base, "curve"), "shifted_new": q(new, "curve"),
+                         "steady_base": q(base, "steady_curve"), "steady_new": q(new, "steady_curve"),
+                         "shifted_gain": q(new, "curve") - q(base, "curve"),
+                         "steady_change": q(new, "steady_curve") - q(base, "steady_curve")})
+    return rows
+
+
+def table_show_state(res: dict) -> str:
+    lines = ["| Set (bits) | Algorithm | Shifted: quality after shift (without → with show state) | Gain (want ≥ 0.05) | "
+             "Steady: same bits (without → with) | Change (want ≥ −0.01) |", "|---|---|---|---|---|---|"]
+    for d in show_state_deltas(res):
+        lines.append(f"| {d['bits']} | {d['algo']} | {d['shifted_base']:.3f} → {d['shifted_new']:.3f} | "
+                     f"{d['shifted_gain']:+.3f} | {d['steady_base']:.3f} → {d['steady_new']:.3f} | {d['steady_change']:+.3f} |")
+    return "\n".join(lines)
+
+
+def plot_show_state(res: dict):
+    """Recovery curves in shifted shows, with vs without show state; one panel per set length."""
+    import matplotlib.pyplot as plt
+
+    colors = {"LinUCB": "#eb6834", "LinTS": "#1baf7a"}  # same hues as the Exp 4 figure
+    ink, muted, grid = "#2b2a27", "#8a8880", "#e6e4dd"
+    fig, axes = plt.subplots(1, len(res), figsize=(5.5 * len(res), 3.8), sharey=True, squeeze=False)
+    for ax, (n, r) in zip(axes[0], res.items()):
+        x = np.arange(int(n)) - r["shift_at"]
+        ax.axhline(float(np.mean(r["steady_curve"]["LinUCB"])), color=muted, lw=1, ls=":")
+        ax.annotate("steady shows (LinUCB)", (x[0], float(np.mean(r["steady_curve"]["LinUCB"]))),
+                    xytext=(0, 3), textcoords="offset points", color=muted, fontsize=7)
+        for base, c in colors.items():
+            ax.plot(x, r["curve"][base], color=c, lw=1.5, ls="--", label=f"{base}")
+            ax.plot(x, r["curve"][f"{base} + show state"], color=c, lw=2.2, label=f"{base} + show state")
+        ax.axvline(0, color=muted, lw=1)
+        ax.set_title(f"{n}-bit sets: shifted shows", color=ink, fontsize=10, loc="left")
+        ax.set_xlabel("bits since the shift", color=ink)
+        ax.grid(color=grid, lw=0.8)
+        ax.set_axisbelow(True)
+        for sp in ("top", "right"):
+            ax.spines[sp].set_visible(False)
+        ax.tick_params(colors=muted)
+    axes[0][0].set_ylabel("choice quality (1 = best mode)", color=ink)
+    axes[0][0].legend(frameon=False, fontsize=8, loc="lower left")  # pre-shift bits sit high; lower-left is empty
+    fig.suptitle("Step A: does remembering tonight help the director recover?", color=ink, x=0.01, ha="left")
     fig.set_facecolor("#fcfcfb")
     fig.tight_layout()
     return fig
