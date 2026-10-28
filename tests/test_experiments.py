@@ -51,3 +51,12 @@ def test_shift_run_and_table():
     res = evaluate_shift.run(shows=4, seeds=2, shift_at=2)
     assert set(res["oracle"]) == {"shifted", "steady"}
     assert "LinUCB + react" in evaluate_shift.table(res)
+
+
+def test_set_length_experiment_holds_total_bits_and_records_curves():
+    res = evaluate_shift.run_lengths(lengths=(8, 16), total_bits=64, seeds=2)
+    assert res["8"]["shows"] == 8 and res["16"]["shows"] == 4      # same experience, fewer shows
+    assert res["16"]["shift_at"] == 8                               # shift at the midpoint
+    assert len(res["16"]["curve"]["LinUCB"]) == 16
+    assert all(abs(q - 1) < 1e-9 for q in res["8"]["steady_curve"]["oracle"])  # oracle always picks best
+    assert "| 16 |" in evaluate_shift.table_lengths(res)
