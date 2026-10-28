@@ -3,7 +3,8 @@
 Status: **outline, partly backed** (results from #1 and #4 are in). Each section lists the claim
 it must support and where the evidence comes from: a row in [metrics.md](metrics.md), a decision,
 or a wiki page. Terms (bit, mode, prior, regret, …) are used as defined in the
-[glossary](wiki/glossary.md). A section is "done" when
+[glossary](wiki/glossary.md); the background behind each section is in the
+[project wiki](wiki/README.md), whose pages follow the same order as this story. A section is "done" when
 every claim cites a number from a merged PR. Sections marked *(user)* are written by the
 author in their own voice; the rest are drafted by the AI (Claude) and edited by the author.
 
@@ -45,7 +46,8 @@ any good, and how bad it gets in front of real people, is what the live sessions
 
 - Claim: one-shot LLM humor is generic, deaf to the room, untimed and unstructured.
 - Evidence: HumorGen mode collapse and persona win rates; rJokes noise ceiling (repost spread).
-- Wiki: [LLM humor vs stand-up](wiki/llm-humor-vs-standup.md).
+- Wiki: [LLM humor vs stand-up](wiki/llm-humor-vs-standup.md) (the five gaps, HumorGen, LoL);
+  [rJokes dataset](wiki/rjokes-dataset.md) (why upvotes cap how well any joke scorer can do).
 
 ## 3. How a comedian writes, and how that maps onto an agent
 
@@ -54,7 +56,9 @@ any good, and how bad it gets in front of real people, is what the live sessions
   show-to-show rewriting ↔ learning across episodes.
 - Evidence: transcript pipeline (bits F1 0.80 vs 0.21 baseline on the tuning set; held-out
   Birbiglia score if run).
-- Wiki: [Stand-up structure](wiki/standup-structure.md).
+- Wiki: [Stand-up structure](wiki/standup-structure.md) (comedian's decisions ↔ agent's decisions);
+  [Glossary: comedy units](wiki/glossary.md#comedy-units-of-material-smallest-to-largest) (line → joke → bit → set,
+  with Bargatze bit sizes); pipeline background in [beats, bits, sets](../pipeline/wiki/beats-bits-sets.md).
 
 ## 4. From bits to a contextual bandit (and where it stops being one)
 
@@ -64,34 +68,45 @@ any good, and how bad it gets in front of real people, is what the live sessions
 - Arms = 6 modes; context = venue/energy/age + last bit's mode and reward; reward = mean laugh
   level of the bit's jokes ÷ 3.
 - Why a bandit first; why fatigue and callbacks push toward an MDP.
-- Wiki: [Contextual bandits](wiki/contextual-bandits.md).
+- Wiki: [Contextual bandits](wiki/contextual-bandits.md) ("where the bandit view breaks" is this
+  section's argument); [Glossary: learning](wiki/glossary.md#learning-how-the-director-chooses).
 
 ## 5. Method
 
 5.1 Simulated audience: the room's hidden truth (`sim/audience.yaml`, made up except `base`,
     stated plainly), 8 bits × 5 jokes, fatigue, novelty, exact oracle.
+    Wiki: [Simulated audience](wiki/simulated-audience.md).
 5.2 Policies: fixed, random, ε-greedy, LinUCB, Thompson (LinTS). Director's prior: HumorGen,
     uniform, or wrong (shuffled). No switching penalty: per-bit decisions keep the voice coherent.
+    Wiki: [Contextual bandits](wiki/contextual-bandits.md); [Glossary: prior](wiki/glossary.md#learning-how-the-director-chooses).
 5.3 Long-form generation: set planner → bit writer → director.
+    Wiki: [Stand-up structure](wiki/standup-structure.md); design: [long-form set generation](design.md#long-form-set-generation).
 5.4 Data: rJokes prep and mode labels; what transcripts were (and weren't) used for.
+    Wiki: [rJokes dataset](wiki/rjokes-dataset.md); [Explorer HPC](wiki/explorer-hpc.md) (where labeling runs);
+    pipeline: [pipeline wiki](../pipeline/wiki/README.md).
 5.5 Live system: voice loop, laugh detection, operator fallback, safety filter.
+    Wiki: not yet (pages added when built, weeks 3–5).
 
 ## 6. Key decisions and trade-offs
 
 One row per decision that changed the result (to become D-xx entries: options, trade-off, choice).
 
-| Decision | Status | Evidence |
-|---|---|---|
-| Pause transcripts; rJokes + simulator first | Decided 2026-10-26 | decisions.md |
-| Long-form sets planned hierarchically (planner → bit writer → director) | Decided 2026-10-26 | decisions.md |
-| Reward = laugh level 0–3, scaled to [0, 1] | Decided 2026-10-27 | sim/README.md |
-| Director decides per bit, not per joke | Decided 2026-10-27 | metrics.md #1 v1 vs v2 |
-| Director policy: LinUCB + uniform prior | Decided 2026-10-27 | metrics.md #4 |
-| Learn across shows (one show is too short) | Decided 2026-10-27 | metrics.md #1: 14–177 shows to separate top modes |
-| Explorer for GPU jobs only | Decided 2026-10-26 | decisions.md |
-| Human mode preference: rJokes upvotes vs HumorGen judge | Open | explore-next.md #1 |
+| Decision | Status | Evidence | Background |
+|---|---|---|---|
+| Pause transcripts; rJokes + simulator first | Decided 2026-10-26 | decisions.md | [rJokes](wiki/rjokes-dataset.md) |
+| Long-form sets planned hierarchically (planner → bit writer → director) | Decided 2026-10-26 | decisions.md | [Stand-up structure](wiki/standup-structure.md) |
+| Reward = laugh level 0–3, scaled to [0, 1] | Decided 2026-10-27 | sim/README.md | [Glossary: laugh level](wiki/glossary.md#comedy-units-of-material-smallest-to-largest) |
+| Director decides per bit, not per joke | Decided 2026-10-27 | metrics.md #1 v1 vs v2 | [Simulated audience](wiki/simulated-audience.md) |
+| Director policy: LinUCB + uniform prior | Decided 2026-10-27 | metrics.md #4 | [Contextual bandits](wiki/contextual-bandits.md) |
+| Learn across shows (one show is too short) | Decided 2026-10-27 | metrics.md #1: 14–177 shows to separate top modes | [Contextual bandits](wiki/contextual-bandits.md) |
+| Explorer for GPU jobs only | Decided 2026-10-26 | decisions.md | [Explorer HPC](wiki/explorer-hpc.md) |
+| Human mode preference: rJokes upvotes vs HumorGen judge | Open | explore-next.md #1 | [rJokes](wiki/rjokes-dataset.md) |
 
 ## 7. Results
+
+How to read the numbers (laughs per show, laughs lost vs oracle, cold start, CI):
+[Glossary: evaluation](wiki/glossary.md#evaluation-how-we-measure). Career figure:
+[laughs lost across shows](../reports/figures/laughs_lost_across_shows.png).
 
 | Experiment | Metric | Status | Headline so far |
 |---|---|---|---|
@@ -111,6 +126,8 @@ Dropped: switching-penalty ablation (per-bit decisions made it unnecessary).
 
 Made-up audience preferences; Reddit taste ≠ a room; laugh level as a noisy proxy; tiny live
 sample; LLM judge ≠ humans (HumorGen: 58.3% judge–human agreement).
+Background: [Simulated audience](wiki/simulated-audience.md) (what the sim can't answer);
+[rJokes](wiki/rjokes-dataset.md) ("what it can and can't tell us").
 
 ## 9. Future work
 
