@@ -9,7 +9,37 @@ author in their own voice; the rest are drafted by the AI (Claude) and edited by
 
 ## 1. Overview *(user)*
 
-LLM can do almost anything. Models are intelligent enough to reason, implement, plan a trip and many more. What's something that's still relevant and what us as humans prefer a human touch is art. Writing, Illustration, Design anything that has a "taste". You can argue that LLM does generate joke, what's different? Give it a list of jokes, or add a RAG and it will fetch a similar joke. But that restricts humor to known set of stale one liner jokes. This is also one of the reasons that though LLM can write stories, they don't sell. We can easily make out the monotonous language and no depth. I think humor is something very close to this. 
+LLM can do almost anything. Models are intelligent enough to reason, implement, plan a trip, write code and many more. There's something that's still relevant and where as we humans prefer a human touch. Writing, Illustration, Design anything that has a "taste". You can argue that LLM does generate joke, what's different? Give it a list of jokes, or add a RAG and it will fetch a similar joke. But that restricts humor to known set of stale one liner jokes. This is also one of the reasons that though LLM can write stories. Readers notice. In 2026 two novels were pulled by their publishers after readers flagged the prose as machine-like ([1](https://www.nytimes.com/2026/03/19/books/shy-girl-book-ai.html), [2](https://www.chroniclejournal.com/news/national/quebec/publisher-cuts-ties-with-quebec-author-after-saying-it-found-evidence-of-ai-use/article_41f60777-6d02-5670-8ce7-aee3546f7bee.html)). Both authors deny it and AI detectors are unreliable, but people sensed something was off before anyone proved anything. We can easily make out the monotonous language and the lack of depth. I think humor is something very close to this.
+
+LLM lacks taste, Humor needs it. If we observe, the way LLMs generate jokes is sometimes just retrieval. Same list of dad jokes, that fall flat. But, how does a comedian acquire this taste? What sets them apart from a generic one-liner punchlines? How can they come up with "new bits/jokes" spontaneously? That's the million dollar question this project is trying to find.
+
+This repo contains tries to relate comic generation with RL topics and see if we can mimic a stand-up comedian on a set. The goal is ambitious and this is just an exploratory interest. I believe LLMs can't do stand up. At least, not any good ones. I'm just trying to find evidence how bad it can get.
+
+A new stand-up comedian is not a writer telling a lengthy story. They write [bits](wiki/glossary.md) - short relevant scenes that are funny. They collect these, perform at couple of venues, measure which bits did well, and which ones fell flat. It's an iterative process.
+
+That loop is reinforcement learning. A comedian tries a bit (an action), the room laughs or
+doesn't (a reward), and next time they choose differently. They don't learn it in one night
+either: it takes many shows, in many rooms, to know that the cynical stuff kills at a bar and
+dies at a company party. Taste, at least part of it, is what that loop leaves behind.
+
+So that's what this project builds: a voice-only stand-up agent, a slightly anxious robot,
+that performs a set one bit at a time. Before each bit a **director** picks one of six comedic
+**modes** (Neurotic, Cynic, Observer, Wordsmith, Optimist, Absurdist, from
+[HumorGen](wiki/llm-humor-vs-standup.md)) based on the room (venue, energy, age) and how the
+last bit landed, and it carries what it learned into the next show
+([glossary](wiki/glossary.md)). The question: **does adapting to the room beat performing one
+fixed persona?**
+
+In [simulation](wiki/simulated-audience.md), it does. After a few hundred shows the adaptive
+director ([LinUCB](wiki/contextual-bandits.md)) gets 97% of the laughs of a director that knows
+exactly what the room likes, and 18% more than always performing as Neurotic, the persona an
+LLM judge rates funniest. What made the difference wasn't the starting guess; it was carrying
+lessons from one room to similar rooms ([results](metrics.md)).
+
+That's not proof an LLM can do stand-up. The simulated room's tastes are made up, and the
+director only picks the attitude; it doesn't make a joke any funnier. What it shows is that the
+comedian's loop, the part that builds taste, can be learned. Whether the jokes underneath are
+any good, and how bad it gets in front of real people, is what the live sessions are for.
 
 ## 2. Why LLM jokes differ from a stand-up comedian
 
@@ -89,6 +119,8 @@ H1 live experiment with enough sessions for confidence intervals.
 
 ## 10. Acknowledgements and AI use
 
+Overview: paragraphs 1–4 written by the author; paragraphs 5–8 (RL loop → what was built →
+result → limits) drafted by the AI (Claude) at the author's request, then edited by the author.
 State exactly what the AI (Claude) wrote: code (by module), docs, wiki pages, report sections,
 and what the author wrote or decided. Cite datasets (rJokes), papers (HumorGen, LoL,
 Christiano et al. 2017, LinUCB, Thompson tutorial) and the Explorer cluster (NURC).
