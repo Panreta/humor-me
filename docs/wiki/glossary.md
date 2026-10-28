@@ -1,0 +1,88 @@
+# Glossary
+
+**Where it fits:** the shared vocabulary for code, docs, PRs and the report. When a word is
+used in this repo, it means what this page says. Add a term the first time a PR introduces it.
+**Used in:** everywhere; PR descriptions link here instead of re-defining terms.
+
+Terms are grouped by the layer they belong to: comedy (what a comedian does), learning (how the
+agent decides), and evaluation (how we measure it).
+
+## Comedy: units of material, smallest to largest
+
+```text
+line      one transcript line (median 7 words)
+joke      setup + punch, then optional tags; gets (or misses) one laugh   ← the sim's unit of reward
+beat      the text between two audience reactions (pipeline unit; ≈ one joke or one tag)
+bit       one premise worked through: several jokes, tags, act-outs       ← the director's unit of decision
+thread    consecutive bits on the same topic
+set       the whole performance, opener → body → closer
+show      one performance of a set in front of one audience (= episode in the sim)
+```
+
+How big is a bit? Hand labels for Nate Bargatze, *Hello World*: **52 bits; median 118 words
+(~17 lines) and 4 laughs per bit (middle half: 2–7 laughs)**. So a bit is *not* one joke and
+*not* a two-line question/answer: it's a stretch of material on one premise that earns several
+laughs. A crowd-work exchange (banter with the audience) counts as its own bit.
+
+| Term | Meaning here | Example / where |
+|---|---|---|
+| **Premise** | The idea a bit is about, plus the attitude toward it | "airport security is theater" |
+| **Setup** | Lines that create an expectation | |
+| **Punch(line)** | The line that breaks the expectation and gets the laugh | |
+| **Tag** | Another punchline on the same setup, no new setup | 3 tags = 3 more laughs off one setup |
+| **Act-out** | Performing a character or moment instead of describing it | |
+| **Bit** | Smallest stretch of material that works on its own without earlier setup; one premise (decisions.md 2026-10-21) | Sim: 5 jokes; Bargatze: median 4 laughs |
+| **Callback** | A later bit (≥ 2 bits on) that returns to an earlier bit's image | Planted early, pays off late |
+| **Hook** | The memorable image or phrase in a bit that a callback can return to | Stored paraphrased, never quoted |
+| **Crowd work / banter** | Talking with the audience; its own bit type | Roasts aimed at the bot: concede and escalate (invariant 4) |
+| **Laugh level** | 0 none · 1 chuckle · 2 laugh · 3 big laugh/applause | Transcript labels, sim, live detector |
+
+## The agent: who decides what
+
+| Term | Meaning here |
+|---|---|
+| **Core identity** | The fixed character: a self-aware, slightly anxious robot (invariant 3) |
+| **Mode (persona)** | One of six comedic attitudes from HumorGen: Neurotic, Cynic, Observer, Wordsmith, Optimist, Absurdist. Modes of the one identity, not separate characters |
+| **Set planner** | Before the show: outlines 6–10 bit specs (premise, mode, length, hooks) |
+| **Bit writer (generator)** | Writes the jokes for one bit spec, K candidates per beat |
+| **Director** | During the show: picks the mode for the next bit (and later: tag again or move on, when to call back) |
+| **Reranker / judge** | Scores the K candidates and keeps the best |
+
+## Learning: how the director chooses
+
+| Term | Meaning here | In code |
+|---|---|---|
+| **Context** | What the director knows about the room before choosing: venue, energy, age, plus the last bit's mode and how it landed | `obs["context"]`, `features()` |
+| **Arm / action** | One choice the director can make: a mode for the next bit (6 arms) | `env.step(mode_index)` |
+| **Reward** | How well the bit landed: mean laugh level of its jokes ÷ 3, in [0, 1] | `reward` from `env.step` |
+| **Policy** | The rule that turns context into an action | `sim/policies.py` |
+| **Bandit / contextual bandit** | Choose an arm, see only that arm's reward, learn; "contextual" = the best arm depends on the context | [Contextual bandits](contextual-bandits.md) |
+| **Explore / exploit** | Try a mode to learn about it vs use the mode believed best | |
+| **Prior** | What the director believes about each mode *before its first show*: a starting guess of each mode's reward, and how firmly it holds that guess (prior strength) | `prior_means()`, `prior_strength` |
+| **Posterior** | The belief after updating the prior with observed rewards | LinUCB/LinTS `A`, `b` |
+| **Prior strength** | How many observations' worth of weight the prior carries. Weight 1 = about one bit's worth of evidence, so data overrides it within a few shows | `prior_strength=1.0` |
+| **HumorGen prior** | Starting guess = HumorGen's LLM-judge win rate per persona (Neurotic best). Knows nothing about venues | `prior_means(env, "humorgen")` |
+| **Uniform prior** | Every mode starts equal: "no opinion" | `prior_means(env, "uniform")` |
+| **Wrong prior** | HumorGen's values shuffled across modes: a confident but wrong starting guess, to measure what a bad prior costs | `prior_means(env, "wrong")` |
+| **Pooling** | Sharing what was learned in one context with similar ones (a lesson from one bar helps at every bar) | LinUCB/LinTS features; ε-greedy doesn't pool |
+| **ε-greedy / LinUCB / Thompson (LinTS)** | The three learning policies compared | [Contextual bandits](contextual-bandits.md) |
+| **Fatigue** | The room tires of a mode used in the last 2 bits | `priors.yaml: fatigue` |
+| **Novelty** | Early-set bonus ("a robot is talking!") that fades | `priors.yaml: novelty` |
+| **Shift** | The room's preferences change mid-set | `AudienceEnv(shift_at=...)` |
+
+Note: **"priors" means two things in this repo.** `sim/priors.yaml` is the *simulated room's
+hidden truth* (what the audience actually likes). A policy's *prior* is the *director's starting
+guess* about that truth. They're deliberately separate: a good director must do well even when
+its guess is wrong.
+
+## Evaluation: how we measure
+
+| Term | Meaning here |
+|---|---|
+| **Episode** | One simulated show: 8 bits × 5 jokes = 40 jokes |
+| **Career** | A run of consecutive shows (300) where the policy keeps learning; one seed = one career |
+| **Oracle** | A policy that knows the room's hidden truth and always picks the best mode. The ceiling, not achievable |
+| **Regret / laughs lost** | How many laughs a policy missed compared with the oracle. We report it in laughs (sum of levels) so it reads in audience terms |
+| **Cold start** | The first 10 shows: performance on the prior alone, before much learning |
+| **Experienced** | The last 50 shows of a career: performance after learning |
+| **95% CI** | `mean ± 1.96·sd/√n` over careers; two numbers whose CIs overlap aren't reliably different |

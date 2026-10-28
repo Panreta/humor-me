@@ -8,6 +8,7 @@ Read before working:
 - [README.md](README.md): repo map, setup, run order per phase
 - [docs/wiki/](docs/wiki/README.md): project concepts (stand-up structure, bandits, sim, rJokes, HPC).
   **Add or update a page whenever a new topic is explored**; each opens with where it fits and is used.
+  New terms go in [docs/wiki/glossary.md](docs/wiki/glossary.md) in the same PR; use them as defined there.
 - [pipeline/wiki/](pipeline/wiki/README.md): concepts behind each pipeline stage
 - [docs/design.md](docs/design.md) — architecture, reward design, research hypothesis
 - [docs/data-sources.md](docs/data-sources.md) — what data we use and for what role
