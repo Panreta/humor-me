@@ -1,9 +1,12 @@
-"""Simulated audience: a gym-style env where each step the policy picks a persona mode and the
-room answers with a laugh level 0-3.
+"""Simulated audience: a gym-style env where each step the policy picks the persona mode for the
+next **bit** and the room answers every joke in it with a laugh level 0-3.
 
-Latent per joke: mu(mode, context, t, history) + N(0, noise); level = thresholds cleared.
-Reward = level / 3, so samplers work on [0, 1] while logs keep the 0-3 level that live laugh
-detection and transcript labels use.
+Decisions are per bit, not per joke: a comedian commits to one premise and attitude for a bit
+and varies between bits (decisions.md 2026-10-27). Within a bit the mode is fixed.
+
+Latent per joke: mu(mode, context, joke time, bit history) + N(0, noise); level = thresholds
+cleared. Bit reward = mean level / 3, so samplers work on [0, 1] while logs keep the 0-3 levels
+that live laugh detection and transcript labels use.
 
 No gymnasium dependency: the API mirrors it (reset/step) but stays plain numpy so thousands
 of episodes run in seconds.
@@ -38,25 +41,31 @@ def _phi(x: float) -> float:
 
 
 class AudienceEnv:
-    def __init__(self, priors: dict | None = None, n_jokes: int | None = None,
-                 shift_at: int | None = None, shift: dict | None = None):
+    def __init__(self, priors: dict | None = None, n_bits: int | None = None,
+                 jokes_per_bit: int | None = None, shift_at: int | None = None,
+                 shift: dict | None = None):
         p = priors or load_priors()
         self.modes: tuple[str, ...] = tuple(p["modes"])
         self.p = p
         d = p["dynamics"]
         self.thresholds = np.array(d["thresholds"], dtype=float)
         self.noise = float(d["noise"])
-        self.n_jokes = n_jokes or int(d["n_jokes"])
-        self.shift_at = shift_at
+        self.n_bits = n_bits or int(d["n_bits"])
+        self.jokes_per_bit = jokes_per_bit or int(d["jokes_per_bit"])
+        self.shift_at = shift_at  # in bits
         self._shift = self._vec(shift if shift is not None else p.get("shift", {}))
         self.rng = np.random.default_rng()
         self.context: Context | None = None
-        self.t = 0
+        self.t = 0  # bits played
         self.history: list[int] = []
 
     @property
     def n_modes(self) -> int:
         return len(self.modes)
+
+    @property
+    def n_jokes(self) -> int:
+        return self.n_bits * self.jokes_per_bit
 
     def _vec(self, offsets: dict) -> np.ndarray:
         unknown = set(offsets) - set(self.modes)
@@ -70,17 +79,18 @@ class AudienceEnv:
         self.context = context or Context(
             str(self.rng.choice(VENUES)), str(self.rng.choice(ENERGIES)), str(self.rng.choice(AGES)))
         c, p = self.context, self.p
-        # Context part of mu is fixed for the episode; time/history parts are added per step.
+        # Context part of mu is fixed for the episode; time/history parts are added per joke.
         self._static = (self._vec(p["base"]) + self._vec(p["venue"][c.venue])
                         + self._vec(p["age"][c.age]) + p["energy"][c.energy])
         self.t = 0
         self.history = []
         return self._obs(None, None)
 
-    def mu(self) -> np.ndarray:
-        """Latent mean per mode for the next joke, given the current time and history."""
+    def mu(self, joke_offset: int = 0) -> np.ndarray:
+        """Latent mean per mode for joke `joke_offset` of the next bit."""
         d = self.p["dynamics"]
-        mu = self._static + d["novelty"] * math.exp(-self.t / d["novelty_tau"])
+        joke_t = self.t * self.jokes_per_bit + joke_offset
+        mu = self._static + d["novelty"] * math.exp(-joke_t / d["novelty_tau"])
         recent = self.history[-d["fatigue_window"]:]
         mu = mu - d["fatigue"] * np.bincount(recent, minlength=self.n_modes)
         if self.shift_at is not None and self.t >= self.shift_at:
@@ -88,26 +98,30 @@ class AudienceEnv:
         return mu
 
     def expected_rewards(self) -> np.ndarray:
-        """E[level]/3 per mode for the next joke: the oracle that regret is measured against."""
+        """E[mean level]/3 per mode for the next bit: the oracle that regret is measured against."""
         z = self.noise
-        return np.array([sum(_phi((m - th) / z) for th in self.thresholds) for m in self.mu()]) / MAX_LEVEL
+        total = np.zeros(self.n_modes)
+        for j in range(self.jokes_per_bit):
+            total += [sum(_phi((m - th) / z) for th in self.thresholds) for m in self.mu(j)]
+        return total / self.jokes_per_bit / MAX_LEVEL
 
     def step(self, action: int) -> tuple[dict, float, bool, dict]:
         if self.context is None:
             raise RuntimeError("call reset() first")
-        if self.t >= self.n_jokes:
+        if self.t >= self.n_bits:
             raise RuntimeError("episode is over; call reset()")
         if not 0 <= action < self.n_modes:
             raise ValueError(f"action {action} not in [0, {self.n_modes})")
         expected = self.expected_rewards()
-        latent = self.mu()[action] + self.rng.normal(0, self.noise)
-        level = int((latent > self.thresholds).sum())
-        reward = level / MAX_LEVEL
-        info = {"level": level, "expected": expected, "regret": float(expected.max() - expected[action])}
+        mus = np.array([self.mu(j)[action] for j in range(self.jokes_per_bit)])
+        latent = mus + self.rng.normal(0, self.noise, self.jokes_per_bit)
+        levels = (latent[:, None] > self.thresholds).sum(1).astype(int).tolist()
+        reward = sum(levels) / len(levels) / MAX_LEVEL
+        info = {"levels": levels, "expected": expected, "regret": float(expected.max() - expected[action])}
         self.history.append(action)
         self.t += 1
-        return self._obs(action, level), reward, self.t >= self.n_jokes, info
+        return self._obs(action, reward), reward, self.t >= self.n_bits, info
 
-    def _obs(self, last_mode: int | None, last_level: int | None) -> dict:
-        return {"t": self.t, "n_jokes": self.n_jokes, "context": self.context,
-                "last_mode": last_mode, "last_level": last_level}
+    def _obs(self, last_mode: int | None, last_reward: float | None) -> dict:
+        return {"t": self.t, "n_bits": self.n_bits, "context": self.context,
+                "last_mode": last_mode, "last_reward": last_reward}
