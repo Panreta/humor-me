@@ -216,6 +216,7 @@ test 39,644). 75% carry no topic flag; scores are heavy at 0 (35%).
 | `venv/Scripts/python` not found | Folder is `.venv` (leading dot) | Use `.venv/...` or plain `python` when activated |
 | Gemini `gemini-2.5-flash` → 404 | Listed by `/models` but retired for generation | Use `-latest` aliases; check `/models` |
 | Gemini Flash TTFT 18–38 s | Thinking model; `reasoning_effort: none` didn't help on free tier | Live loop uses `gemini-flash-lite-latest` (~0.6 s); Flash only offline |
+| Merged PR #4 never reached `main` | #4 was stacked on `feat/sim-env` and merged there after #1 had already merged that branch into `main`; same for a commit pushed to `docs/wiki` after #2 merged | Landing PRs #5, #6. Rule: **no stacked PRs**; branch from `main` and wait for the base to merge, or retarget the child to `main` before merging the parent |
 | Mermaid diagrams blank in preview | Older third-party preview extension | Official `mermaidchart.vscode-mermaid-chart`; recommended in `.vscode/extensions.json`. All diagrams also validated with the Mermaid parser |
 
 ---

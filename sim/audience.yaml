@@ -1,4 +1,6 @@
-# Hidden audience preferences for the simulated audience.
+# The simulated room's hidden truth: what this audience actually likes, and how it reacts.
+# Not to be confused with the director's *prior* (its starting guess about this truth,
+# sim/policies.py prior_means); see docs/wiki/glossary.md.
 # THESE ARE MADE UP (except `base`), and the report must say so: the sim tests whether a policy
 # *adapts*, not whether jokes are funny. PR 3 replaces `base` with rJokes-derived values.
 # Units are the latent "funniness" scale: laugh level = how many `thresholds` the latent clears.
