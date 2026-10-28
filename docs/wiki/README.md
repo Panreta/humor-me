@@ -37,5 +37,9 @@ flowchart LR
 
 New term in a PR → add it to the [Glossary](glossary.md) in the same PR.
 
+**Published copy:** these pages are mirrored to the repo's
+[GitHub wiki](https://github.com/supriya-kotturu/humor-me/wiki) by `scripts/sync_wiki.py`
+after each merged wiki change. Edit here, never on the GitHub wiki (it gets overwritten).
+
 Template: `# Title` → `**Where it fits / Used in**` → concept sections → `## In this project`
 → `## Further reading` (links checked to be live when added; say what each link is good for).
