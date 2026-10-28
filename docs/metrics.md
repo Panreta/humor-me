@@ -5,6 +5,8 @@ is assembled from here, so every number names the command that produced it.
 
 ## PR #1: simulated audience env (2026-10-27)
 
+### v1: one decision per joke (superseded)
+
 `python -m sim.evaluate_env` (1,000 episodes per cell, 40 jokes per set, context
 `<venue>/normal/mixed`). Raw output: `reports/metrics/sim_env.json`.
 
@@ -27,5 +29,25 @@ Best mode over all 27 contexts: absurdist, cynic, neurotic or observer (4 distin
 3. Telling the top two modes apart takes 551–7,063 jokes against a 40-joke set. Learning
    within one set can't find the venue's best mode; only learning across sets can.
 
-**Open (decides PR 2's setup):** retune fatigue vs venue offsets, or keep them and require
-policies that see recent history. See PR #1 discussion.
+### v2: one decision per bit (merged version)
+
+Decision (decisions.md 2026-10-27): the policy picks the mode once per bit (8 bits × 5 jokes),
+like a comedian committing to one premise and attitude; fatigue counts uses in the last 2 bits
+(fixed mode at steady state: −0.3, below the largest venue offset of +0.4).
+
+| Venue | Oracle | Best fixed (mode) | Fixed neurotic | Random | Best vs runner-up gap | Bits (shows) to separate |
+|---|---|---|---|---|---|---|
+| bar | 50.4 | 46.7 (cynic) | 39.0 | 38.1 | cynic − absurdist = 0.052 | 111 (13.9) |
+| company_event | 46.9 | 42.6 (observer) | 39.0 | 37.7 | observer − neurotic = 0.031 | 296 (37.0) |
+| showcase | 49.1 | 43.9 (absurdist) | 42.3 | 40.8 | absurdist − neurotic = 0.014 | 1,414 (176.8) |
+
+**Findings (v2 vs v1)**
+1. **Fit to the room now matters:** the best fixed mode beats random by 3–9 laughs per set
+   (v1: random won everywhere). The venue's mode is worth learning.
+2. **Variety still matters, but less:** the oracle beats the best fixed mode by 4–5 laughs, so
+   a policy that both fits the room *and* rotates should beat any single persona.
+3. **"Always Neurotic"** (HumorGen's best judge-rated persona) trails the venue's best mode by
+   1.6–7.7 laughs: a fixed persona chosen by an LLM judge is not the best choice for every room.
+4. **Learning must span shows:** separating the top two modes takes ~14 shows (bar) to ~177
+   (showcase). Per-bit rewards average 5 jokes, which cut the samples needed 5× vs v1, but one
+   show is still far too short. Priors and pooling across contexts carry the live case.

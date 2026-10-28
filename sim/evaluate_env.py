@@ -4,7 +4,8 @@ Usage:
     python -m sim.evaluate_env [--episodes 1000]
 
 Answers: is there anything to learn (oracle vs best fixed mode vs random), does the best
-mode differ by venue, and how many jokes a learner needs to tell the top two modes apart.
+mode differ by venue, and how many bits (and 8-bit shows) a learner needs to tell the top two
+modes apart.
 Writes reports/metrics/sim_env.json and prints a markdown table for docs/metrics.md.
 """
 import argparse
@@ -28,7 +29,7 @@ def run(env: AudienceEnv, ctx: Context, policy, episodes: int, seed: int) -> dic
         done = False
         while not done:
             _, _, done, info = env.step(policy(env))
-            lv += info["level"]
+            lv += sum(info["levels"])
             rg += info["regret"]
         levels.append(lv)
         regret.append(rg)
@@ -43,7 +44,7 @@ def fixed(i):
     return lambda env: i
 
 
-def jokes_to_separate(gap: float, sd: float) -> int:
+def bits_to_separate(gap: float, sd: float) -> int:
     # Two-arm z-test at 95% with equal pulls: each arm needs 2(z·sd/gap)^2, so total doubles that.
     return math.ceil(4 * (Z95 * sd / gap) ** 2) if gap > 0 else -1
 
@@ -76,8 +77,10 @@ def main() -> None:
         rows.append({"venue": venue, **{k: v["laughs"] for k, v in res.items()},
                      "best_fixed_mode": best_fixed, "best_fixed": fixed_res[best_fixed]["laughs"],
                      "fixed_neurotic": fixed_res["neurotic"]["laughs"],
-                     "best_mode": best, "runner_up": second, "gap": gap,
-                     "jokes_to_separate": jokes_to_separate(gap, env_reward_sd(env, ctx))})
+                     "best_mode": best, "runner_up": second, "gap": gap})
+        sd = env_reward_sd(env, ctx)
+        rows[-1]["bits_to_separate"] = bits_to_separate(gap, sd)
+        rows[-1]["shows_to_separate"] = round(rows[-1]["bits_to_separate"] / env.n_bits, 1)
 
     # Across all 27 contexts: how often is the best mode something other than the global favorite?
     best_by_ctx = {}
@@ -86,29 +89,30 @@ def main() -> None:
             for a in AGES:
                 best_by_ctx[f"{v}/{e}/{a}"] = static_gap(env, Context(v, e, a))[0]
 
-    out = {"episodes": args.episodes, "n_jokes": env.n_jokes, "venues": rows,
+    out = {"episodes": args.episodes, "n_bits": env.n_bits, "jokes_per_bit": env.jokes_per_bit, "venues": rows,
            "best_mode_by_context": best_by_ctx,
            "distinct_best_modes": sorted(set(best_by_ctx.values()))}
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(out, indent=2))
 
-    print(f"Laughs per {env.n_jokes}-joke set (sum of 0-3 levels), mean of {args.episodes} episodes\n")
-    print("| Venue | Oracle | Best fixed (mode) | Fixed neurotic | Random | Best vs runner-up gap | Jokes to separate |")
+    print(f"Laughs per set ({env.n_bits} bits x {env.jokes_per_bit} jokes, sum of 0-3 levels), "
+          f"mean of {args.episodes} episodes\n")
+    print("| Venue | Oracle | Best fixed (mode) | Fixed neurotic | Random | Best vs runner-up gap | Bits (shows) to separate |")
     print("|---|---|---|---|---|---|---|")
     for r in rows:
         print(f"| {r['venue']} | {r['oracle']:.1f} | {r['best_fixed']:.1f} ({r['best_fixed_mode']}) | "
               f"{r['fixed_neurotic']:.1f} | {r['random']:.1f} | {r['best_mode']} - {r['runner_up']} = "
-              f"{r['gap']:.3f} | {r['jokes_to_separate']} |")
+              f"{r['gap']:.3f} | {r['bits_to_separate']} ({r['shows_to_separate']}) |")
     print(f"\nDistinct best modes over 27 contexts: {out['distinct_best_modes']}")
 
 
 def env_reward_sd(env: AudienceEnv, ctx: Context, n: int = 20000) -> float:
-    """Per-joke reward sd for the best mode, by sampling the latent directly."""
+    """Per-bit reward sd (mean of jokes_per_bit levels / 3) for the best mode, sampled directly."""
     env.reset(ctx, seed=0)
     env.t = 10**6
     mu = env.mu().max()
-    lat = mu + np.random.default_rng(0).normal(0, env.noise, n)
-    return float(((lat[:, None] > env.thresholds).sum(1) / 3).std())
+    lat = mu + np.random.default_rng(0).normal(0, env.noise, (n, env.jokes_per_bit))
+    return float(((lat[..., None] > env.thresholds).sum(-1).mean(1) / 3).std())
 
 
 if __name__ == "__main__":
