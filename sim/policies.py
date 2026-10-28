@@ -1,0 +1,148 @@
+"""Mode-choice policies for the per-bit director.
+
+All share one interface: `act(obs) -> mode index`, `update(obs, action, reward)`, where `obs`
+is the observation the action was chosen on. Policies persist across shows, so learning about
+a venue carries from one show to the next (a comedian's experience).
+
+Linear policies use one ridge model per mode (LinUCB "disjoint", Li et al. 2010) on context
+features. The prior enters as the starting value of each mode's bias weight, with weight
+`prior_strength`; that's how HumorGen / uniform / wrong priors are compared.
+"""
+import math
+
+import numpy as np
+
+from sim.env import AGES, ENERGIES, MAX_LEVEL, VENUES, AudienceEnv, Context, _phi
+
+BIT_REWARD_SD = 0.15  # per-bit reward noise in [0, 1] units; measured 0.14 (evaluate_env.env_reward_sd)
+
+
+def features(obs: dict, arm: int) -> np.ndarray:
+    """bias, venue/energy/age one-hots, 'same mode as last bit' (fatigue), last bit's reward."""
+    c: Context = obs["context"]
+    x = [1.0]
+    x += [float(c.venue == v) for v in VENUES]
+    x += [float(c.energy == e) for e in ENERGIES]
+    x += [float(c.age == a) for a in AGES]
+    x.append(float(obs["last_mode"] == arm))
+    x.append(obs["last_reward"] or 0.0)
+    return np.array(x)
+
+
+N_FEATURES = 1 + len(VENUES) + len(ENERGIES) + len(AGES) + 2
+
+
+def prior_means(env: AudienceEnv, kind: str, seed: int = 0) -> np.ndarray:
+    """Expected bit reward per mode from `base` alone (what a source like HumorGen tells you,
+    with no knowledge of the venue).
+
+    kind: 'humorgen' = base as in priors.yaml; 'uniform' = all modes equal (same overall mean);
+    'wrong' = humorgen values shuffled across modes (a confidently wrong prior).
+    """
+    base = np.array([env.p["base"][m] for m in env.modes])
+    means = np.array([sum(_phi((b - th) / env.noise) for th in env.thresholds) for b in base]) / MAX_LEVEL
+    if kind == "humorgen":
+        return means
+    if kind == "uniform":
+        return np.full_like(means, means.mean())
+    if kind == "wrong":
+        rng = np.random.default_rng(seed)
+        while True:
+            perm = rng.permutation(len(means))
+            if perm[0] != 0 and (perm != np.arange(len(means))).all():
+                return means[perm]
+    raise ValueError(kind)
+
+
+class Fixed:
+    def __init__(self, arm: int):
+        self.arm = arm
+
+    def act(self, obs):
+        return self.arm
+
+    def update(self, obs, action, reward):
+        pass
+
+
+class Random:
+    def __init__(self, n_arms: int, seed: int = 0):
+        self.n, self.rng = n_arms, np.random.default_rng(seed)
+
+    def act(self, obs):
+        return int(self.rng.integers(self.n))
+
+    def update(self, obs, action, reward):
+        pass
+
+
+class EpsilonGreedy:
+    """Tabular mean per (venue, energy, age, mode); no pooling across contexts, no history."""
+
+    def __init__(self, prior: np.ndarray, eps: float = 0.1, seed: int = 0):
+        self.prior, self.eps, self.rng = prior, eps, np.random.default_rng(seed)
+        self.sums: dict = {}
+        self.counts: dict = {}
+
+    def _key(self, obs):
+        return obs["context"]
+
+    def act(self, obs):
+        if self.rng.random() < self.eps:
+            return int(self.rng.integers(len(self.prior)))
+        k = self._key(obs)
+        # The prior counts as one pseudo-observation per mode.
+        s = self.sums.get(k, self.prior.copy())
+        n = self.counts.get(k, np.ones(len(self.prior)))
+        means = s / n
+        return int(self.rng.choice(np.flatnonzero(means == means.max())))
+
+    def update(self, obs, action, reward):
+        k = self._key(obs)
+        self.sums.setdefault(k, self.prior.copy())[action] += reward
+        self.counts.setdefault(k, np.ones(len(self.prior)))[action] += 1
+
+
+class _Linear:
+    def __init__(self, prior: np.ndarray, prior_strength: float = 1.0, seed: int = 0):
+        d, k = N_FEATURES, len(prior)
+        self.A = np.stack([prior_strength * np.eye(d) for _ in range(k)])
+        theta0 = np.zeros((k, d))
+        theta0[:, 0] = prior
+        self.b = np.einsum("kij,kj->ki", self.A, theta0)
+        self.rng = np.random.default_rng(seed)
+
+    def update(self, obs, action, reward):
+        x = features(obs, action)
+        self.A[action] += np.outer(x, x)
+        self.b[action] += reward * x
+
+
+class LinUCB(_Linear):
+    def __init__(self, prior, alpha: float = BIT_REWARD_SD, **kw):
+        super().__init__(prior, **kw)
+        self.alpha = alpha
+
+    def act(self, obs):
+        scores = []
+        for a in range(len(self.A)):
+            x = features(obs, a)
+            A_inv = np.linalg.inv(self.A[a])
+            scores.append(A_inv @ self.b[a] @ x + self.alpha * math.sqrt(x @ A_inv @ x))
+        return int(np.argmax(scores))
+
+
+class LinTS(_Linear):
+    """Thompson sampling on the same Bayesian ridge model (Agrawal & Goyal 2013)."""
+
+    def __init__(self, prior, v: float = BIT_REWARD_SD, **kw):
+        super().__init__(prior, **kw)
+        self.v = v
+
+    def act(self, obs):
+        scores = []
+        for a in range(len(self.A)):
+            A_inv = np.linalg.inv(self.A[a])
+            theta = self.rng.multivariate_normal(A_inv @ self.b[a], self.v**2 * A_inv)
+            scores.append(theta @ features(obs, a))
+        return int(np.argmax(scores))
