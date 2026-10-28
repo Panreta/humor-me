@@ -28,3 +28,10 @@ Not modeled yet: callbacks (delayed reward), tag-or-move-on within a bit. No swi
 per-bit decisions already keep the voice coherent (decisions.md 2026-10-27).
 
 Metrics: `python -m sim.evaluate_env` → [docs/metrics.md](../docs/metrics.md).
+
+## Policies
+
+[policies.py](policies.py): `Fixed`, `Random`, `EpsilonGreedy` (per-context table), `LinUCB` and
+`LinTS` (one ridge model per mode over context + last-bit features; prior = starting bias weight).
+Chosen director: **LinUCB + uniform prior** (decisions.md 2026-10-27).
+Compare all policies × priors: `python -m sim.evaluate_policies` → docs/metrics.md.

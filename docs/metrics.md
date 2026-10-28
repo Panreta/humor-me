@@ -51,3 +51,40 @@ like a comedian committing to one premise and attitude; fatigue counts uses in t
 4. **Learning must span shows:** separating the top two modes takes ~14 shows (bar) to ~177
    (showcase). Per-bit rewards average 5 jokes, which cut the samples needed 5× vs v1, but one
    show is still far too short. Priors and pooling across contexts carry the live case.
+
+## PR #4: mode-choice policies × priors (2026-10-27)
+
+`python -m sim.evaluate_policies` (10 careers × 300 shows, random context per show, the same
+context sequence for every policy; ~3 min). Raw: `reports/metrics/policies.json`.
+Figure: `reports/figures/laughs_lost_across_shows.png`.
+
+Laughs per show (40 jokes, sum of 0–3 levels), mean ± 95% CI over careers.
+
+| Policy | Prior | First 10 shows | Last 50 shows | Laughs lost vs oracle (300 shows) |
+|---|---|---|---|---|
+| oracle | – | 50.8 ± 1.9 | 49.4 ± 1.0 | 0 |
+| fixed neurotic | – | 41.7 ± 2.1 | 40.8 ± 0.9 | 4,026 ± 52 |
+| random | – | 40.5 ± 2.1 | 39.2 ± 1.0 | 4,264 ± 59 |
+| ε-greedy | HumorGen | 43.0 ± 2.0 | 44.6 ± 1.1 | 2,457 ± 151 |
+| LinUCB | HumorGen | 45.2 ± 2.0 | 47.9 ± 1.1 | 868 ± 111 |
+| Thompson (LinTS) | HumorGen | 44.2 ± 1.9 | 48.1 ± 1.1 | 926 ± 59 |
+| ε-greedy | uniform | 40.3 ± 2.2 | 44.6 ± 1.1 | 2,493 ± 143 |
+| **LinUCB** | **uniform** | 44.7 ± 1.8 | 48.0 ± 1.1 | **728 ± 64** |
+| Thompson (LinTS) | uniform | 43.5 ± 2.4 | 48.2 ± 1.0 | 907 ± 58 |
+| ε-greedy | wrong | 41.0 ± 2.4 | 44.3 ± 1.0 | 2,624 ± 192 |
+| LinUCB | wrong | 43.8 ± 2.2 | 47.9 ± 1.0 | 832 ± 116 |
+| Thompson (LinTS) | wrong | 43.4 ± 2.4 | 48.2 ± 1.0 | 902 ± 55 |
+
+**Findings**
+1. **Adapting beats any fixed persona.** Experienced LinUCB/LinTS reach ~48 laughs/show, 97% of
+   the oracle (49.4), vs 40.8 for "always Neurotic" (+18%). Even in the first 10 shows they beat
+   it by ~3 laughs.
+2. **Pooling across contexts is the biggest lever.** ε-greedy keeps a separate table per context
+   (27 of them) and loses 3.4× more laughs than LinUCB, which shares what it learns at one bar
+   with every bar, and every low-energy room with every other.
+3. **The prior barely matters at this strength.** HumorGen, uniform and wrong priors land within
+   each other's CIs for LinUCB/LinTS; cold-start gaps are ≤ 1.4 laughs. A prior of weight 1 is
+   overwhelmed within a few shows. Even the HumorGen prior that matches the sim's `base` didn't
+   help, because the venue offsets it knows nothing about decide the best mode.
+4. **Chosen: LinUCB + uniform prior**: lowest total loss with the tightest CI, and no LLM-judge
+   taste built in. Prior strength sweep logged as explore-next #7.
