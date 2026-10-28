@@ -88,10 +88,16 @@ def main() -> None:
             "cold": ci(laughs[:, :COLD].mean(1)),
             "warm": ci(laughs[:, -WARM:].mean(1)),
             "lost_total": ci(lost.sum(1)),
-            "lost_curve": lost.cumsum(1).mean(0).tolist(),
+            "lost_curve": [round(v, 1) for v in lost.cumsum(1).mean(0)],
         }
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps({"shows": args.shows, "seeds": args.seeds, "results": results}, indent=1))
+    # One line per policy keeps the file diffable (curves are 300 numbers each).
+    lines = ",
+".join(f"  {json.dumps(k)}: {json.dumps(v)}" for k, v in results.items())
+    OUT.write_text(f'{{"shows": {args.shows}, "seeds": {args.seeds}, "results": {{
+{lines}
+}}}}
+')
     plot(results, args.shows)
 
     print(f"{args.seeds} careers x {args.shows} shows, {time.time() - t0:.0f}s. Laughs/show (40 jokes), mean ± 95% CI\n")
