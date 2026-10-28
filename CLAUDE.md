@@ -15,6 +15,10 @@ Read before working:
 - [docs/pipeline.md](docs/pipeline.md) — transcript → beats/bits/sets pipeline, labels, schemas
 - [docs/roadmap.md](docs/roadmap.md) — stages, exit criteria, estimates
 - [docs/decisions.md](docs/decisions.md) — decision log; append, don't rewrite history
+- [notebooks/decisions.ipynb](notebooks/decisions.ipynb) — **evidence for every decision**: one section
+  per experiment-backed decision, re-runnable, with ✅/❌ claim checks. **Every experiment is a
+  `run(**params)` function called via `sim.cache.run_or_load`, and gets a notebook section in the
+  same PR.** Run `python scripts/run_notebook.py` before committing the notebook.
 - [docs/dev-log.md](docs/dev-log.md) — problems hit (symptom → cause → caught by → fix).
   **Add an entry whenever a bug, data quirk or tooling issue costs real time.**
 - [references/md/](references/md/) — markdown versions of the reference papers
