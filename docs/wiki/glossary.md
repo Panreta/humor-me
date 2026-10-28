@@ -68,7 +68,8 @@ laughs. A crowd-work exchange (banter with the audience) counts as its own bit.
 | **ε-greedy / LinUCB / Thompson (LinTS)** | The three learning policies compared | [Contextual bandits](contextual-bandits.md) |
 | **Fatigue** | The room tires of a mode used in the last 2 bits | `audience.yaml: fatigue` |
 | **Novelty** | Early-set bonus ("a robot is talking!") that fades | `audience.yaml: novelty` |
-| **Shift** | The room's preferences change mid-set | `AudienceEnv(shift_at=...)` |
+| **Shift** | The room's taste changes mid-set (after bit 4 of 8): the modes that were working drop, others rise. The director isn't told | `AudienceEnv(shift_at=4)`, `audience.yaml: shift` |
+| **Reaction feature** | Extra context input "same mode as last bit × last bit's reward": how *this* mode just landed, so the director can say "this just bombed, don't repeat it" | `features(..., react=True)` |
 
 Note: **the room's truth vs the director's prior.** `sim/audience.yaml` is the *simulated
 room's hidden truth* (what the audience actually likes; it was called `priors.yaml` before
@@ -85,4 +86,5 @@ deliberately separate: a good director must do well even when its guess is wrong
 | **Regret / laughs lost** | How many laughs a policy missed compared with the oracle. We report it in laughs (sum of levels) so it reads in audience terms |
 | **Cold start** | The first 10 shows: performance on the prior alone, before much learning |
 | **Experienced** | The last 50 shows of a career: performance after learning |
+| **Bits to recover** | After a shift, how many bits pass before the director first picks a (near-)best mode again (per-bit regret < 0.02 ≈ 0.3 laughs). Capped at 4, the bits left in the show |
 | **95% CI** | `mean ± 1.96·sd/√n` over careers; two numbers whose CIs overlap aren't reliably different |
