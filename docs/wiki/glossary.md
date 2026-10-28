@@ -66,14 +66,14 @@ laughs. A crowd-work exchange (banter with the audience) counts as its own bit.
 | **Wrong prior** | HumorGen's values shuffled across modes: a confident but wrong starting guess, to measure what a bad prior costs | `prior_means(env, "wrong")` |
 | **Pooling** | Sharing what was learned in one context with similar ones (a lesson from one bar helps at every bar) | LinUCB/LinTS features; ε-greedy doesn't pool |
 | **ε-greedy / LinUCB / Thompson (LinTS)** | The three learning policies compared | [Contextual bandits](contextual-bandits.md) |
-| **Fatigue** | The room tires of a mode used in the last 2 bits | `priors.yaml: fatigue` |
-| **Novelty** | Early-set bonus ("a robot is talking!") that fades | `priors.yaml: novelty` |
+| **Fatigue** | The room tires of a mode used in the last 2 bits | `audience.yaml: fatigue` |
+| **Novelty** | Early-set bonus ("a robot is talking!") that fades | `audience.yaml: novelty` |
 | **Shift** | The room's preferences change mid-set | `AudienceEnv(shift_at=...)` |
 
-Note: **"priors" means two things in this repo.** `sim/priors.yaml` is the *simulated room's
-hidden truth* (what the audience actually likes). A policy's *prior* is the *director's starting
-guess* about that truth. They're deliberately separate: a good director must do well even when
-its guess is wrong.
+Note: **the room's truth vs the director's prior.** `sim/audience.yaml` is the *simulated
+room's hidden truth* (what the audience actually likes; it was called `priors.yaml` before
+2026-10-28). A *prior* is only ever the *director's starting guess* about that truth. They're
+deliberately separate: a good director must do well even when its guess is wrong.
 
 ## Evaluation: how we measure
 
