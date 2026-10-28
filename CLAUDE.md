@@ -6,6 +6,8 @@ adapts its material, and learns from audience feedback across sessions.
 Read before working:
 - [docs/status.md](docs/status.md): **current state, models in use, next steps. Read first; keep it updated.**
 - [README.md](README.md): repo map, setup, run order per phase
+- [docs/wiki/](docs/wiki/README.md): project concepts (stand-up structure, bandits, sim, rJokes, HPC).
+  **Add or update a page whenever a new topic is explored**; each opens with where it fits and is used.
 - [pipeline/wiki/](pipeline/wiki/README.md): concepts behind each pipeline stage
 - [docs/design.md](docs/design.md) — architecture, reward design, research hypothesis
 - [docs/data-sources.md](docs/data-sources.md) — what data we use and for what role
