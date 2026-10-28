@@ -146,3 +146,12 @@ Per bit, coherence is built in (no switching penalty needed), each decision's re
 5 jokes (less noise), and the last bit's mode and reward go in the context. Cost: only 8
 decisions per show. Evidence: metrics.md PR #1 v2 (best fixed mode now beats random by 3–9
 laughs per set; oracle beats best fixed by 4–5).
+
+## 2026-10-27 — Director policy: LinUCB with a uniform prior
+Options: ε-greedy (tabular per context), LinUCB, Thompson (LinTS), each with a HumorGen,
+uniform, or wrong (shuffled) prior. Chose LinUCB + uniform: lowest laughs lost over 300 shows
+(728 ± 64 vs 868–926 for the others with linear models, 2,457+ for ε-greedy), 97% of the oracle
+once experienced. The prior made no significant difference at weight 1, so the uniform prior
+wins on keeping the LLM judge's taste out. Rejected ε-greedy: no pooling across contexts, 3.4×
+the loss. Thompson stays as the comparison in the report (near-identical once experienced).
+Evidence: metrics.md PR #4.
