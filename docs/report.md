@@ -9,9 +9,7 @@ author in their own voice; the rest are drafted by the AI (Claude) and edited by
 
 ## 1. Overview *(user)*
 
-One paragraph: what was built (a voice-only stand-up agent that adapts its comedic mode to
-laughter), the RL question (does adapting to the room beat a fixed persona?), the headline
-result, and the demo.
+LLM can do almost anything. Models are intelligent enough to reason, implement, plan a trip and many more. What's something that's still relevant and what us as humans prefer a human touch is art. Writing, Illustration, Design anything that has a "taste". You can argue that LLM does generate joke, what's different? Give it a list of jokes, or add a RAG and it will fetch a similar joke. But that restricts humor to known set of stale one liner jokes. This is also one of the reasons that though LLM can write stories, they don't sell. We can easily make out the monotonous language and no depth. I think humor is something very close to this. 
 
 ## 2. Why LLM jokes differ from a stand-up comedian
 
@@ -94,3 +92,22 @@ H1 live experiment with enough sessions for confidence intervals.
 State exactly what the AI (Claude) wrote: code (by module), docs, wiki pages, report sections,
 and what the author wrote or decided. Cite datasets (rJokes), papers (HumorGen, LoL,
 Christiano et al. 2017, LinUCB, Thompson tutorial) and the Explorer cluster (NURC).
+
+## References
+
+Numbered in order of first use. Notes say what each source does and doesn't support.
+
+1. Alter, A. (2026, March 19). Horror novel "Shy Girl" canceled over suspected A.I. use.
+   *The New York Times*. https://www.nytimes.com/2026/03/19/books/shy-girl-book-ai.html
+   Note: readers flagged the prose first (Reddit, Jan 2026; a YouTube essay with 1.2M views);
+   Hachette cancelled the US edition and discontinued the UK one. The author denies using AI
+   (blames a freelance editor); the AI-detector evidence was later disputed. Article not read
+   directly (paywall); details cross-checked with Wikipedia ("Shy Girl") and Publishers
+   Marketplace (2026-03).
+2. Glorieux-Stryckman, M. (2026, October 21). Publisher cuts ties with Quebec author after
+   saying it found evidence of AI use. *The Canadian Press* (via The Chronicle-Journal).
+   https://www.chroniclejournal.com/news/national/quebec/publisher-cuts-ties-with-quebec-author-after-saying-it-found-evidence-of-ai-use/article_41f60777-6d02-5670-8ce7-aee3546f7bee.html
+   Note: suspicion began on social media; Boréal cited document metadata and an external
+   manuscript analysis, won't reprint. The author denies it; the publisher says it "will likely
+   never have a definitive answer."
+
