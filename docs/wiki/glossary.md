@@ -86,5 +86,7 @@ deliberately separate: a good director must do well even when its guess is wrong
 | **Regret / laughs lost** | How many laughs a policy missed compared with the oracle. We report it in laughs (sum of levels) so it reads in audience terms |
 | **Cold start** | The first 10 shows: performance on the prior alone, before much learning |
 | **Experienced** | The last 50 shows of a career: performance after learning |
+| **Choice quality** | Expected reward of the mode the director picked ÷ that of the best mode, for one bit. 1.0 = picked the best mode. Noise-free (unlike laughs), so it shows *decisions* directly |
+| **Recovery curve** | Mean choice quality at each bit position relative to a shift. Climbing back after the shift = the director noticed; flat = it didn't |
 | **Bits to recover** | After a shift, how many bits pass before the director first picks a (near-)best mode again (per-bit regret < 0.02 ≈ 0.3 laughs). Capped at 4, the bits left in the show |
 | **95% CI** | `mean ± 1.96·sd/√n` over careers; two numbers whose CIs overlap aren't reliably different |

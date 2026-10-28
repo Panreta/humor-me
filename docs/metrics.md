@@ -120,3 +120,35 @@ first picks a (near-)best mode again (regret < 0.02/bit), capped at 4.
    Reacting within a show needs **state about the show so far**, which is a sequential (MDP)
    problem, the same step callbacks require.
 4. LinTS edges LinUCB after a shift (19.7 vs 19.1), but the CIs overlap: no reason to switch.
+
+## PR: set length vs mid-set shift (2026-10-28)
+
+`evaluate_shift.run_lengths(lengths=[8, 16, 32, 52], total_bits=3200, seeds=10)` (notebook §6;
+~4.5 min). Shift at the midpoint; same 3,200 bits of experience per career, so longer sets =
+fewer shows; last quarter of each career. Raw: `reports/metrics/shift_set_length.json`.
+Figure: `reports/figures/shift_recovery_by_set_length.png`.
+
+*Choice quality* = expected reward of the chosen mode ÷ best mode's (1.0 = best pick).
+
+| Set (bits) | Shows | Policy | After shift: % of oracle | Quality, 2 bits after shift | Quality, last quarter | Same, steady shows | Bits to recover (max) |
+|---|---|---|---|---|---|---|---|
+| 8 | 400 | random | 73% | 0.691 | 0.694 | 0.723 | 2.3 (4) |
+| 8 | 400 | LinUCB | 80% | 0.771 | 0.768 | 0.930 | 2.5 (4) |
+| 8 | 400 | LinTS | 82% | 0.788 | 0.787 | 0.939 | 2.1 (4) |
+| 16 | 200 | LinUCB | 81% | 0.762 | 0.778 | 0.936 | 4.6 (8) |
+| 16 | 200 | LinTS | 82% | 0.772 | 0.786 | 0.943 | 4.1 (8) |
+| 32 | 100 | LinUCB | 80% | 0.720 | 0.767 | 0.936 | 10.1 (16) |
+| 32 | 100 | LinTS | 84% | 0.777 | 0.785 | 0.939 | 6.0 (16) |
+| 52 | 61 | random | 77% | 0.723 | 0.707 | 0.721 | 4.4 (26) |
+| 52 | 61 | LinUCB | 82% | 0.731 | 0.812 | 0.931 | 14.1 (26) |
+| 52 | 61 | LinTS | 85% | 0.777 | 0.809 | 0.939 | 7.8 (26) |
+
+**Findings**
+1. **Longer sets don't let the director read a turn.** Last-quarter choice quality after a
+   shift stays 0.12–0.17 below steady shows at every length; after-shift laughs are 80–85% of the
+   oracle whether 4 or 26 bits remain.
+2. **There is a slow drift back** (52 bits: 0.73 → 0.81 over 26 bits), because every bit still
+   updates the model, but it's ~10× too slow to matter in a show.
+3. **"Bits to recover" is misleading:** random "recovers" in ~4 bits by luck while LinUCB, which
+   sticks with its old favorite, takes 14. Choice-quality curves are the honest measure.
+4. Same root cause as the shift experiment: no memory of *this* show → needs show state.

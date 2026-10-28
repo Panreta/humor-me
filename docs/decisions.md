@@ -163,3 +163,14 @@ recover no faster than random (2.1–2.5 of 4 bits) because they carry no memory
 show beyond the last bit. Consequence: the next step is a stateful director (show-so-far
 features / MDP), built together with callbacks, not more per-bit features.
 Evidence: metrics.md "mid-set preference shift".
+
+## 2026-10-28 — Keep 8-bit sets; longer sets don't let the director read a turn
+Question (from the user): would more bits per set let the director recover after a mid-set
+shift? Tested 8/16/32/52-bit sets with the shift at the midpoint and the same total experience
+(3,200 bits per career). After the shift, LinUCB's choice quality drops from ~0.93 to ~0.73 and
+climbs only to ~0.81 even 26 bits later (52-bit set); after-shift laughs stay at 80–82% of the
+oracle at every length. Cause: the director's estimates pool thousands of bits across hundreds
+of shows; it has no notion of "this room, tonight". Keep 8-bit (10-minute) sets, the demo
+length. Also learned: "bits to recover" rewards luck (random scores well, a sticky deterministic
+policy scores badly), so recovery is judged by choice-quality curves from now on.
+Evidence: notebooks/decisions.ipynb §6; metrics.md "set length vs shift".

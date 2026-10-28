@@ -22,3 +22,4 @@ row to "Done" with its PR. Add a row whenever something is deferred so it isn't 
 | Per-joke vs per-bit decisions | #1 | Per bit (decisions.md 2026-10-27) |
 | Priors: HumorGen vs uniform vs wrong | #4 | No significant difference at weight 1; LinUCB + uniform chosen |
 | Mid-set preference shift | (this PR) | Learners drop 95% → 80–83% of oracle; recover no faster than random; reaction feature doesn't help → needs show state |
+| Set length vs shift (user question) | (this PR) | No: 8–52-bit sets all stay at 80–85% of oracle after a turn; keep 8-bit sets |
