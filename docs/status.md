@@ -1,13 +1,13 @@
 # Status (read this first in a new session)
 
-Last updated: 2026-10-26. Update this file whenever the state below changes.
+Last updated: 2026-10-27. Update this file whenever the state below changes.
 
 ## Where we are
 
 | Area | State |
 |---|---|
 | Milestone | M1 = Dec 15, 2026 (RL course final project, school demo). Plan: [roadmap.md](roadmap.md) |
-| Branch | `m1/scaffold` (not pushed) |
+| Branch | Work up to 2026-10-27 merged to `main` (fast-forward); keep working on short-lived branches off `main` |
 | Pipeline S0–S3 | Built, tested, eyeball-checked on 20 sets. `lines.jsonl` is the laugh-predictor input |
 | Transcript pipeline | **Paused 2026-10-26** (decisions.md). Kept for aggregate structure stats + report appendix |
 | Pipeline S4+S5 (`pipeline.bits`) | Built (Gemini, one call/set). Revised prompt run on Bargatze: bits F1 0.80, threads 0.63, callbacks 0/3. Callback pass needs its own step |
