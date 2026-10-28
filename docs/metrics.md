@@ -123,7 +123,7 @@ first picks a (near-)best mode again (regret < 0.02/bit), capped at 4.
 
 ## PR: set length vs mid-set shift (2026-10-28)
 
-`evaluate_shift.run_lengths(lengths=[8, 16, 32, 52], total_bits=3200, seeds=10)` (notebook §6;
+`evaluate_shift.run_lengths(lengths=[8, 16, 32, 52], total_bits=3200, seeds=10)` (notebook Exp 6;
 ~4.5 min). Shift at the midpoint; same 3,200 bits of experience per career, so longer sets =
 fewer shows; last quarter of each career. Raw: `reports/metrics/shift_set_length.json`.
 Figure: `reports/figures/shift_recovery_by_set_length.png`.
