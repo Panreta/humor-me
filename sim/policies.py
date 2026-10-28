@@ -36,7 +36,7 @@ def prior_means(env: AudienceEnv, kind: str, seed: int = 0) -> np.ndarray:
     """Expected bit reward per mode from `base` alone (what a source like HumorGen tells you,
     with no knowledge of the venue).
 
-    kind: 'humorgen' = base as in priors.yaml; 'uniform' = all modes equal (same overall mean);
+    kind: 'humorgen' = base as in audience.yaml; 'uniform' = all modes equal (same overall mean);
     'wrong' = humorgen values shuffled across modes (a confidently wrong prior).
     """
     base = np.array([env.p["base"][m] for m in env.modes])

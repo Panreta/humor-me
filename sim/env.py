@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import numpy as np
 import yaml
 
-PRIORS = pathlib.Path(__file__).with_name("priors.yaml")
+AUDIENCE = pathlib.Path(__file__).with_name("audience.yaml")
 VENUES = ("bar", "company_event", "showcase")
 ENERGIES = ("low", "normal", "high")
 AGES = ("teens", "young_adults", "mixed")
@@ -32,7 +32,7 @@ class Context:
     age: str
 
 
-def load_priors(path: pathlib.Path = PRIORS) -> dict:
+def load_audience(path: pathlib.Path = AUDIENCE) -> dict:
     return yaml.safe_load(path.read_text())
 
 
@@ -41,10 +41,10 @@ def _phi(x: float) -> float:
 
 
 class AudienceEnv:
-    def __init__(self, priors: dict | None = None, n_bits: int | None = None,
+    def __init__(self, audience: dict | None = None, n_bits: int | None = None,
                  jokes_per_bit: int | None = None, shift_at: int | None = None,
                  shift: dict | None = None):
-        p = priors or load_priors()
+        p = audience or load_audience()
         self.modes: tuple[str, ...] = tuple(p["modes"])
         self.p = p
         d = p["dynamics"]
@@ -70,7 +70,7 @@ class AudienceEnv:
     def _vec(self, offsets: dict) -> np.ndarray:
         unknown = set(offsets) - set(self.modes)
         if unknown:
-            raise ValueError(f"unknown modes in priors: {sorted(unknown)}")
+            raise ValueError(f"unknown modes in audience config: {sorted(unknown)}")
         return np.array([offsets.get(m, 0.0) for m in self.modes], dtype=float)
 
     def reset(self, context: Context | None = None, seed: int | None = None) -> dict:
