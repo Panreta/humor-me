@@ -16,12 +16,12 @@ the reranker, and the reason a [bandit](contextual-bandits.md) picks modes at al
 
 ## What the papers we build on add
 
-- **HumorGen** ([notes](../../references/md/humorgen-cognitive-synergy-persona-distillation.md)):
+- **HumorGen** ([anonymous review repo](https://anonymous.4open.science/r/HumorGen-2697)):
   six *cognitive personas* (Neurotic, Cynic, Observer, Wordsmith, Optimist, Absurdist), each tied
   to a humor theory, push generation away from the generic middle. An LLM judge ranks candidates
   (Elo), and the winners are distilled into a small model. Their per-persona win rates seed our
   sim's `base` values. In our project the personas become **modes** of one identity (invariant 3).
-- **LoL** ([notes](../../references/md/structured-thought-leaps-humor-iclr2025.md)):
+- **LoL** ([arXiv 2410.10370](https://arxiv.org/abs/2410.10370)):
   "thought-leap" prompting (connect distant ideas on purpose) plus a frozen pairwise judge for
   online DPO. It does *not* classify personas.
 
@@ -36,8 +36,8 @@ Neither paper has an audience, timing, or set structure. That gap is this projec
 
 ## Further reading
 
-- [HumorGen](../../references/md/humorgen-cognitive-synergy-persona-distillation.md) and
-  [LoL](../../references/md/structured-thought-leaps-humor-iclr2025.md): local notes; read
-  Table 1 and Table 4 of HumorGen for the personas and win rates.
+- [HumorGen (anonymous ACL submission; code and data)](https://anonymous.4open.science/r/HumorGen-2697) and
+  [LoL, Wang et al., ICLR 2025](https://arxiv.org/abs/2410.10370): read Table 1 and Table 4 of HumorGen for the personas
+  and win rates. Markdown conversions live in `references/md/` (local only, not committed).
 - [The rJokes Dataset (LREC 2020)](https://aclanthology.org/2020.lrec-1.753/): shows that
   predicting how funny a joke is from text alone is hard; useful for setting expectations.
