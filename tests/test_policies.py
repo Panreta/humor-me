@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from sim.env import AudienceEnv, Context
-from sim.policies import N_FEATURES, EpsilonGreedy, LinTS, LinUCB, Random, features, prior_means
+from sim.policies import N_FEATURES, EpsilonGreedy, LinTS, LinUCB, Random, features, n_features, prior_means
 
 BAR = Context("bar", "normal", "mixed")
 
@@ -84,3 +84,23 @@ def test_react_policies_act_and_learn(cls):
     a = p.act(obs(last_mode=1, last_reward=0.0))
     p.update(obs(last_mode=1, last_reward=0.0), a, 0.5)
     assert p.A.shape[-1] == N_FEATURES + 1
+
+
+def test_show_state_features_are_tonights_record_for_this_mode():
+    o = obs(last_mode=1, last_reward=0.2)
+    o["tonight"] = ((1, 0.6), (3, 0.1), (1, 0.2))
+    x = features(o, arm=1, show_state=True)
+    assert len(x) == n_features(show_state=True)
+    assert x[-2] == 1.0 and x[-1] == pytest.approx(0.4)     # tried tonight, mean of 0.6 and 0.2
+    assert list(features(o, arm=5, show_state=True)[-2:]) == [0.0, 0.0]  # untried tonight
+    assert len(features(o, arm=1)) == N_FEATURES             # default unchanged
+
+
+@pytest.mark.parametrize("cls", [LinUCB, LinTS])
+def test_show_state_policies_act_and_learn(cls):
+    p = cls(np.full(6, 0.3), seed=0, show_state=True)
+    o = obs()
+    o["tonight"] = ((0, 0.5),)
+    a = p.act(o)
+    p.update(o, a, 0.4)
+    assert p.A.shape[-1] == n_features(show_state=True)
