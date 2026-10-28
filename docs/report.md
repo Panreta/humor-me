@@ -1,7 +1,9 @@
 # humor-me: a stand-up agent that reads the room (report)
 
-Status: **outline**. Each section lists the claim it must support and where the evidence comes
-from: a row in [metrics.md](metrics.md), a decision, or a wiki page. A section is "done" when
+Status: **outline, partly backed** (results from #1 and #4 are in). Each section lists the claim
+it must support and where the evidence comes from: a row in [metrics.md](metrics.md), a decision,
+or a wiki page. Terms (bit, mode, prior, regret, …) are used as defined in the
+[glossary](wiki/glossary.md). A section is "done" when
 every claim cites a number from a merged PR. Sections marked *(user)* are written by the
 author in their own voice; the rest are drafted by the AI (Claude) and edited by the author.
 
@@ -28,37 +30,54 @@ result, and the demo.
 
 ## 4. From bits to a contextual bandit (and where it stops being one)
 
-- Arms = modes, context = venue/energy/age (+ recent history), reward = laugh level / 3.
+- The director picks a **mode once per bit** (not per joke): a comedian commits to an attitude
+  for a whole bit and varies between bits. Per joke, the sim rewarded rotation over fit
+  (decisions.md 2026-10-27; metrics.md #1 v1 vs v2).
+- Arms = 6 modes; context = venue/energy/age + last bit's mode and reward; reward = mean laugh
+  level of the bit's jokes ÷ 3.
 - Why a bandit first; why fatigue and callbacks push toward an MDP.
 - Wiki: [Contextual bandits](wiki/contextual-bandits.md).
 
 ## 5. Method
 
-5.1 Simulated audience: model, made-up priors (stated plainly), exact oracle.
-5.2 Policies: fixed, random, ε-greedy, LinUCB, Thompson; ± switching penalty.
+5.1 Simulated audience: the room's hidden truth (`sim/audience.yaml`, made up except `base`,
+    stated plainly), 8 bits × 5 jokes, fatigue, novelty, exact oracle.
+5.2 Policies: fixed, random, ε-greedy, LinUCB, Thompson (LinTS). Director's prior: HumorGen,
+    uniform, or wrong (shuffled). No switching penalty: per-bit decisions keep the voice coherent.
 5.3 Long-form generation: set planner → bit writer → director.
 5.4 Data: rJokes prep and mode labels; what transcripts were (and weren't) used for.
 5.5 Live system: voice loop, laugh detection, operator fallback, safety filter.
 
 ## 6. Key decisions and trade-offs
 
-One row per D-xx entry that changed the result (options, trade-off, choice). Candidates so far:
-pause transcripts for rJokes; hierarchical long-form generation; reward = level / 3; fatigue
-strength vs venue offsets; learn within vs across shows; Explorer for GPU jobs only.
+One row per decision that changed the result (to become D-xx entries: options, trade-off, choice).
+
+| Decision | Status | Evidence |
+|---|---|---|
+| Pause transcripts; rJokes + simulator first | Decided 2026-10-26 | decisions.md |
+| Long-form sets planned hierarchically (planner → bit writer → director) | Decided 2026-10-26 | decisions.md |
+| Reward = laugh level 0–3, scaled to [0, 1] | Decided 2026-10-27 | sim/README.md |
+| Director decides per bit, not per joke | Decided 2026-10-27 | metrics.md #1 v1 vs v2 |
+| Director policy: LinUCB + uniform prior | Decided 2026-10-27 | metrics.md #4 |
+| Learn across shows (one show is too short) | Decided 2026-10-27 | metrics.md #1: 14–177 shows to separate top modes |
+| Explorer for GPU jobs only | Decided 2026-10-26 | decisions.md |
+| Human mode preference: rJokes upvotes vs HumorGen judge | Open | explore-next.md #1 |
 
 ## 7. Results
 
-| Experiment | Metric | Source |
-|---|---|---|
-| Sim sanity: is there anything to learn? | Oracle vs fixed vs random laughs/set | metrics.md, PR #1 |
-| Policies within one show | Cumulative regret, laughs/set, 3 venues | PR 2 |
-| Policies across shows | Regret vs number of shows per venue | PR 2 |
-| Switching penalty ablation | Laughs/set vs mode switches | PR 2 |
-| Mid-set preference shift | Jokes until recovery | PR 2 |
-| Callbacks: greedy vs sequential | Late-set laugh rate, regret | PR 2b |
-| rJokes priors vs hand priors | Regret change | PR 3 |
-| Long-form sets | Word budget, closer present, planned callbacks used | PR 4 |
-| Live pilots | Detector vs operator agreement; episode rating | Weeks 5–7 |
+| Experiment | Metric | Status | Headline so far |
+|---|---|---|---|
+| Is there anything to learn? | Oracle vs best fixed vs random, laughs/show | Done (#1) | Oracle 47–50, best fixed 43–47, random 38–41 |
+| Policies × priors across a career | Laughs lost vs oracle over 300 shows; cold start; experienced | Done (#4) | LinUCB: 97% of oracle, +18% vs always-Neurotic; ε-greedy loses 3.4× more; prior makes no significant difference |
+| Mid-set preference shift | Bits until recovery | Next (explore-next #4) | |
+| Callbacks: greedy vs sequential | Late-set laugh rate, laughs lost | Planned (explore-next #5) | |
+| Prior strength sweep | Laughs lost vs prior weight | Planned (explore-next #7) | |
+| Human vs LLM-judge mode ranking | Rank correlation, rJokes upvotes vs HumorGen | Blocked on Explorer labels | |
+| Room's `base` from human data | Change in policy ranking | After the above | |
+| Long-form sets | Word budget, closer present, planned callbacks used | Planned | |
+| Live pilots | Detector vs operator agreement; episode rating | Weeks 5–7 | |
+
+Dropped: switching-penalty ablation (per-bit decisions made it unnecessary).
 
 ## 8. Limitations
 
