@@ -1,4 +1,4 @@
-"""PR 2: compare mode-choice policies × priors over a run of shows.
+"""Compare mode-choice policies × priors over a run of shows.
 
 Usage:
     python -m sim.evaluate_policies [--shows 300 --seeds 10]
@@ -8,20 +8,20 @@ for every policy, so comparisons are paired). Policies keep learning across show
 
 Reports, per policy: laughs/show in the first 10 shows (cold start: walking into rooms with
 only the prior), laughs/show in the last 50 (experienced), and total laughs lost vs the oracle.
-Writes reports/metrics/policies.json and reports/figures/laughs_lost_across_shows.png.
+Writes reports/metrics/policies.json (cached by params) and
+reports/figures/laughs_lost_across_shows.png. Importable: run(), table(), plot().
 """
 import argparse
-import json
 import pathlib
 import time
 
 import numpy as np
 
+from sim.cache import run_or_load
 from sim.env import AGES, ENERGIES, VENUES, AudienceEnv, Context
 from sim.policies import EpsilonGreedy, Fixed, LinTS, LinUCB, Random, prior_means
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-OUT = ROOT / "reports" / "metrics" / "policies.json"
 FIG = ROOT / "reports" / "figures" / "laughs_lost_across_shows.png"
 CONTEXTS = [Context(v, e, a) for v in VENUES for e in ENERGIES for a in AGES]
 PRIORS = ("humorgen", "uniform", "wrong")
@@ -73,15 +73,10 @@ def ci(x: np.ndarray) -> tuple[float, float]:
     return float(x.mean()), float(1.96 * x.std(ddof=1) / np.sqrt(len(x)))
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--shows", type=int, default=300)
-    ap.add_argument("--seeds", type=int, default=10)
-    args = ap.parse_args()
-    t0 = time.time()
+def run(shows: int = 300, seeds: int = 10) -> dict:
     results = {}
     for name, make in makers(AudienceEnv().modes).items():
-        runs = [career(make, args.shows, seed) for seed in range(args.seeds)]
+        runs = [career(make, shows, seed) for seed in range(seeds)]
         laughs = np.stack([r[0] for r in runs])
         lost = np.stack([r[1] for r in runs])
         results[name] = {
@@ -90,25 +85,39 @@ def main() -> None:
             "lost_total": ci(lost.sum(1)),
             "lost_curve": [round(v, 1) for v in lost.cumsum(1).mean(0)],
         }
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    # One line per policy keeps the file diffable (curves are 300 numbers each).
-    lines = ",\n".join(f"  {json.dumps(k)}: {json.dumps(v)}" for k, v in results.items())
-    OUT.write_text(f'{{"shows": {args.shows}, "seeds": {args.seeds}, "results": {{\n{lines}\n}}}}\n')
-    plot(results, args.shows)
+    return results
 
-    print(f"{args.seeds} careers x {args.shows} shows, {time.time() - t0:.0f}s. Laughs/show (40 jokes), mean ± 95% CI\n")
-    print(f"| Policy | Prior | First {COLD} shows | Last {WARM} shows | Laughs lost vs oracle (total) |")
-    print("|---|---|---|---|---|")
+
+def table(results: dict) -> str:
+    lines = [f"| Policy | Prior | First {COLD} shows | Last {WARM} shows | Laughs lost vs oracle (total) |",
+             "|---|---|---|---|---|"]
     for name, r in results.items():
         algo, _, prior = name.partition(" | ")
-        print(f"| {algo} | {prior or '-'} | {r['cold'][0]:.1f} ± {r['cold'][1]:.1f} | "
-              f"{r['warm'][0]:.1f} ± {r['warm'][1]:.1f} | {r['lost_total'][0]:.0f} ± {r['lost_total'][1]:.0f} |")
+        lines.append(f"| {algo} | {prior or '–'} | {r['cold'][0]:.1f} ± {r['cold'][1]:.1f} | "
+                     f"{r['warm'][0]:.1f} ± {r['warm'][1]:.1f} | {r['lost_total'][0]:.0f} ± {r['lost_total'][1]:.0f} |")
+    return "\n".join(lines)
 
 
-def plot(results: dict, n_shows: int) -> None:
+def main() -> None:
     import matplotlib
-    matplotlib.use("Agg")
+    matplotlib.use("Agg")  # CLI only; the notebook renders inline
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--shows", type=int, default=300)
+    ap.add_argument("--seeds", type=int, default=10)
+    ap.add_argument("--rerun", action="store_true")
+    a = ap.parse_args()
+    t0 = time.time()
+    results = run_or_load("policies", run, rerun=a.rerun, shows=a.shows, seeds=a.seeds)
+    plot(results).savefig(FIG, dpi=150, facecolor="#fcfcfb")
+    print(f"{a.seeds} careers x {a.shows} shows, {time.time() - t0:.0f}s. Laughs/show (40 jokes), mean ± 95% CI\n")
+    print(table(results))
+
+
+def plot(results: dict):
+    """Cumulative laughs lost vs oracle, one panel per prior. Returns the figure."""
     import matplotlib.pyplot as plt
+
+    n_shows = len(results["oracle"]["lost_curve"])
 
     colors = dict(zip(ALGOS, ("#2a78d6", "#eb6834", "#1baf7a")))  # dataviz categorical slots 1-3
     ink, muted, grid = "#2b2a27", "#8a8880", "#e6e4dd"
@@ -142,9 +151,10 @@ def plot(results: dict, n_shows: int) -> None:
     axes[0].set_ylabel("cumulative laughs lost vs oracle", color=ink)
     axes[0].legend(frameon=False, fontsize=8, loc="upper left")
     fig.suptitle("Laughs lost across a career of shows (lower is better)", color=ink, x=0.01, ha="left")
+    fig.set_facecolor("#fcfcfb")
     fig.tight_layout()
     FIG.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(FIG, dpi=150, facecolor="#fcfcfb")
+    return fig
 
 
 if __name__ == "__main__":
