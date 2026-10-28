@@ -38,8 +38,8 @@ def policies(modes) -> dict:
     }
 
 
-def career(make, n_shows: int, seed: int, shift_at: int) -> list[dict]:
-    plain, shifting = AudienceEnv(), AudienceEnv(shift_at=shift_at)
+def career(make, n_shows: int, seed: int, shift_at: int, n_bits: int = 8) -> list[dict]:
+    plain, shifting = AudienceEnv(n_bits=n_bits), AudienceEnv(n_bits=n_bits, shift_at=shift_at)
     # One policy object across both envs: the director can't tell which room it's in.
     policy = make(plain, seed)
     rng = np.random.default_rng(seed)
@@ -50,7 +50,7 @@ def career(make, n_shows: int, seed: int, shift_at: int) -> list[dict]:
         if isinstance(policy, Oracle):
             policy.env = env
         obs = env.reset(CONTEXTS[rng.integers(len(CONTEXTS))], seed=seed * 100_000 + s)
-        laughs, regret = [], []
+        laughs, regret, quality = [], [], []
         done = False
         while not done:
             a = policy.act(obs)
@@ -59,7 +59,9 @@ def career(make, n_shows: int, seed: int, shift_at: int) -> list[dict]:
             obs = nxt
             laughs.append(sum(info["levels"]))
             regret.append(info["regret"])
-        shows.append({"shifted": shifted, "laughs": laughs, "regret": regret})
+            # 1.0 = picked the mode that was best for this bit; noise-free, unlike laughs
+            quality.append(float(info["expected"][a] / info["expected"].max()))
+        shows.append({"shifted": shifted, "laughs": laughs, "regret": regret, "quality": quality})
     return shows
 
 
@@ -71,12 +73,14 @@ def bits_to_recover(regret: list[float], shift_at: int) -> int:
     return len(regret) - shift_at
 
 
-def summarize(careers: list[list[dict]], shift_at: int) -> dict:
+def summarize(careers: list[list[dict]], shift_at: int, eval_last: int = EVAL) -> dict:
     out = {}
     for label, want in (("shifted", True), ("steady", False)):
         pre, post, rec = [], [], []
         for shows in careers:
-            sel = [sh for sh in shows[-EVAL:] if sh["shifted"] == want]
+            sel = [sh for sh in shows[-eval_last:] if sh["shifted"] == want]
+            if not sel:  # tiny runs can draw no shifted (or no steady) shows
+                continue
             pre.append(np.mean([sum(sh["laughs"][:shift_at]) for sh in sel]))
             post.append(np.mean([sum(sh["laughs"][shift_at:]) for sh in sel]))
             rec.append(np.mean([bits_to_recover(sh["regret"], shift_at) for sh in sel]))
@@ -99,6 +103,84 @@ def table(results: dict) -> str:
                      f"{r['shifted']['recover'][0]:.2f} ± {r['shifted']['recover'][1]:.2f} | "
                      f"{st[0]:.1f} ± {st[1]:.1f} | {100 * st[0] / o['steady']['post'][0]:.0f}% |")
     return "\n".join(lines)
+
+
+LENGTH_POLICIES = ("oracle", "random", "LinUCB", "LinTS")
+
+
+def run_lengths(lengths: tuple = (8, 16, 32, 52), total_bits: int = 3200, seeds: int = 10) -> dict:
+    """Does a longer set let the director recover from a mid-set shift?
+
+    Shift at the midpoint of each set length. Every career has the same total experience
+    (total_bits), so longer sets mean fewer shows, not more data. Evaluated on the last quarter
+    of each career. Returns, per length: summary per policy, and the mean choice quality at each
+    bit position in shifted vs steady shows (the recovery curve).
+    """
+    makers = {k: v for k, v in policies(AudienceEnv().modes).items() if k in LENGTH_POLICIES}
+    out = {}
+    for n_bits in lengths:
+        shift_at, shows = n_bits // 2, max(4, total_bits // n_bits)
+        eval_last = max(1, shows // 4)
+        res = {"shows": shows, "shift_at": shift_at, "summary": {}, "curve": {}, "steady_curve": {}}
+        for name, make in makers.items():
+            careers = [career(make, shows, s, shift_at, n_bits) for s in range(seeds)]
+            res["summary"][name] = summarize(careers, shift_at, eval_last)
+            for key, want in (("curve", True), ("steady_curve", False)):
+                q = [sh["quality"] for c in careers for sh in c[-eval_last:] if sh["shifted"] == want]
+                res[key][name] = [round(float(v), 4) for v in np.mean(q, axis=0)]
+        out[str(n_bits)] = res
+    return out
+
+
+def table_lengths(res: dict) -> str:
+    """Per set length: what the shift costs, and whether choices recover late in the set."""
+    lines = ["| Set length (bits) | Shows per career | Policy | After shift: % of oracle laughs | "
+             "Choice quality: first 2 bits after shift | Last quarter of set | Same bits, steady shows | "
+             "Bits to recover (max) |", "|---|---|---|---|---|---|---|---|"]
+    for n, r in res.items():
+        n_int, s = int(n), r["shift_at"]
+        last_q = slice(n_int - max(1, n_int // 4), n_int)
+        for name in LENGTH_POLICIES:
+            if name == "oracle":
+                continue
+            sm, osm = r["summary"][name]["shifted"], r["summary"]["oracle"]["shifted"]
+            c, sc = r["curve"][name], r["steady_curve"][name]
+            lines.append(f"| {n} | {r['shows']} | {name} | {100 * sm['post'][0] / osm['post'][0]:.0f}% | "
+                         f"{np.mean(c[s:s + 2]):.3f} | {np.mean(c[last_q]):.3f} | {np.mean(sc[last_q]):.3f} | "
+                         f"{sm['recover'][0]:.1f} ({n_int - s}) |")
+    return "\n".join(lines)
+
+
+def plot_lengths(res: dict):
+    """Recovery curves: choice quality by bit position relative to the shift, one panel per policy."""
+    import matplotlib.pyplot as plt
+
+    ramp = ("#6da7ec", "#3987e5", "#256abf", "#104281")  # dataviz blue ramp: longer set = darker
+    ink, muted, grid = "#2b2a27", "#8a8880", "#e6e4dd"
+    names = [p for p in LENGTH_POLICIES if p != "oracle"]
+    fig, axes = plt.subplots(1, len(names), figsize=(12, 3.8), sharey=True)
+    for ax, name in zip(axes, names):
+        for color, (n, r) in zip(ramp, res.items()):
+            x = np.arange(int(n)) - r["shift_at"]
+            ax.plot(x, r["steady_curve"][name], color=color, lw=1, ls=":", alpha=0.8)
+            ax.plot(x, r["curve"][name], color=color, lw=2, label=f"{n} bits")
+        ax.axvline(0, color=muted, lw=1)
+        ax.annotate("shift", (0, 1.0), xytext=(3, -2), textcoords="offset points", color=muted, fontsize=8, va="top")
+        ax.set_title(name, color=ink, fontsize=10, loc="left")
+        ax.set_xlabel("bits since the shift", color=ink)
+        ax.grid(color=grid, lw=0.8)
+        ax.set_axisbelow(True)
+        for sp in ("top", "right"):
+            ax.spines[sp].set_visible(False)
+        ax.tick_params(colors=muted)
+    axes[0].set_ylabel("choice quality (1 = best mode)", color=ink)
+    # LinUCB's lower-left is empty (pre-shift quality is high), so the legend can't cover data there.
+    axes[1].legend(frameon=False, fontsize=8, loc="lower left", title="solid: shifted · dotted: steady",
+                   title_fontsize=7)
+    fig.suptitle("Does a longer set let the director recover after the room turns?", color=ink, x=0.01, ha="left")
+    fig.set_facecolor("#fcfcfb")
+    fig.tight_layout()
+    return fig
 
 
 def main() -> None:
