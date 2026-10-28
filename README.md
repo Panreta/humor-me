@@ -15,12 +15,13 @@ never as text the model imitates.
 
 | Folder | What it is | Status | Details |
 |---|---|---|---|
-| [`pipeline/`](pipeline/README.md) | Turns transcript PDFs into labeled beats, bits and sets | S0–S2 built; S3–S6 planned | [README](pipeline/README.md) · [wiki](pipeline/wiki/README.md) |
+| [`pipeline/`](pipeline/README.md) | Transcript PDFs → beats/bits/sets (paused); rJokes prep | S0–S6 built, paused; R1 built | [README](pipeline/README.md) · [wiki](pipeline/wiki/README.md) |
 | [`data/`](data/README.md) | Corpus (local only) + committed config: lexicon, body trims | Active | [README](data/README.md) |
 | [`backend/`](backend/README.md) | FastAPI server: show loop, websocket to the UI | Scaffold | [README](backend/README.md) |
 | [`frontend/`](frontend/README.md) | Next.js UI: waveform avatar, operator panel | Scaffold | [README](frontend/README.md) |
 | [`scripts/`](scripts/README.md) | One-off tools: paper PDF → markdown, LLM latency probe | Active | [README](scripts/README.md) |
-| [`docs/`](docs/README.md) | Design, roadmap, data sources, pipeline spec, decision log | Active | [README](docs/README.md) |
+| [`docs/`](docs/README.md) | Design, roadmap, data sources, pipeline spec, decision log | Active | [README](docs/README.md) · [wiki](docs/wiki/README.md) |
+| [`explorer/`](explorer/README.md) | GPU batch jobs on Northeastern's Explorer cluster | Ready, not run | [README](explorer/README.md) |
 | [`references/`](references/md/README.md) | Reference papers (local only) and their markdown conversions | Local | [README](references/md/README.md) |
 
 ## How the pieces depend on each other
