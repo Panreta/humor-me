@@ -173,4 +173,4 @@ oracle at every length. Cause: the director's estimates pool thousands of bits a
 of shows; it has no notion of "this room, tonight". Keep 8-bit (10-minute) sets, the demo
 length. Also learned: "bits to recover" rewards luck (random scores well, a sticky deterministic
 policy scores badly), so recovery is judged by choice-quality curves from now on.
-Evidence: notebooks/decisions.ipynb §6; metrics.md "set length vs shift".
+Evidence: notebooks/decisions.ipynb Exp 6; metrics.md "set length vs shift".
