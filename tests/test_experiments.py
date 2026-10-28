@@ -60,3 +60,15 @@ def test_set_length_experiment_holds_total_bits_and_records_curves():
     assert len(res["16"]["curve"]["LinUCB"]) == 16
     assert all(abs(q - 1) < 1e-9 for q in res["8"]["steady_curve"]["oracle"])  # oracle always picks best
     assert "| 16 |" in evaluate_shift.table_lengths(res)
+
+
+def test_exp5_policy_set_is_pinned():
+    res = evaluate_shift.run(shows=4, seeds=1, shift_at=2)
+    assert tuple(res) == evaluate_shift.SHIFT_POLICIES  # new policies can't leak into Exp 5
+
+
+def test_show_state_comparison_rows():
+    res = evaluate_shift.run_lengths(lengths=(8,), total_bits=64, seeds=2, names=evaluate_shift.SHOW_STATE_POLICIES)
+    rows = evaluate_shift.show_state_deltas(res)
+    assert {r["algo"] for r in rows} == {"LinUCB", "LinTS"}
+    assert "Gain" in evaluate_shift.table_show_state(res)

@@ -84,6 +84,7 @@ class AudienceEnv:
                         + self._vec(p["age"][c.age]) + p["energy"][c.energy])
         self.t = 0
         self.history = []
+        self.rewards: list[float] = []
         return self._obs(None, None)
 
     def mu(self, joke_offset: int = 0) -> np.ndarray:
@@ -119,9 +120,13 @@ class AudienceEnv:
         reward = sum(levels) / len(levels) / MAX_LEVEL
         info = {"levels": levels, "expected": expected, "regret": float(expected.max() - expected[action])}
         self.history.append(action)
+        self.rewards.append(reward)
         self.t += 1
         return self._obs(action, reward), reward, self.t >= self.n_bits, info
 
     def _obs(self, last_mode: int | None, last_reward: float | None) -> dict:
+        # "tonight" is everything a comedian could remember about this show so far: (mode, reward)
+        # per bit. Policies that ignore it behave exactly as before.
         return {"t": self.t, "n_bits": self.n_bits, "context": self.context,
-                "last_mode": last_mode, "last_reward": last_reward}
+                "last_mode": last_mode, "last_reward": last_reward,
+                "tonight": tuple(zip(self.history, self.rewards))}

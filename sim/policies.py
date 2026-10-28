@@ -17,11 +17,15 @@ from sim.env import AGES, ENERGIES, MAX_LEVEL, VENUES, AudienceEnv, Context, _ph
 BIT_REWARD_SD = 0.15  # per-bit reward noise in [0, 1] units; measured 0.14 (evaluate_env.env_reward_sd)
 
 
-def features(obs: dict, arm: int, react: bool = False) -> np.ndarray:
+def features(obs: dict, arm: int, react: bool = False, show_state: bool = False) -> np.ndarray:
     """bias, venue/energy/age one-hots, 'same mode as last bit' (fatigue), last bit's reward.
 
     react=True adds 'same mode × last reward': how *this* mode just landed. Without it the model
     can't express "this mode just bombed, don't repeat it" (mid-set shift experiment).
+
+    show_state=True (step A) adds tonight's record for this mode: tried tonight (0/1) and its mean
+    reward tonight (0 if untried). Career averages can't tell "this room, tonight" apart from
+    hundreds of past shows; these two inputs can.
     """
     c: Context = obs["context"]
     x = [1.0]
@@ -32,10 +36,18 @@ def features(obs: dict, arm: int, react: bool = False) -> np.ndarray:
     x.append(obs["last_reward"] or 0.0)
     if react:
         x.append(x[-2] * x[-1])
+    if show_state:
+        mine = [r for m, r in obs.get("tonight", ()) if m == arm]
+        x.append(float(bool(mine)))
+        x.append(float(np.mean(mine)) if mine else 0.0)
     return np.array(x)
 
 
 N_FEATURES = 1 + len(VENUES) + len(ENERGIES) + len(AGES) + 2
+
+
+def n_features(react: bool = False, show_state: bool = False) -> int:
+    return N_FEATURES + react + 2 * show_state
 
 
 def prior_means(env: AudienceEnv, kind: str, seed: int = 0) -> np.ndarray:
@@ -111,17 +123,20 @@ class EpsilonGreedy:
 
 class _Linear:
     def __init__(self, prior: np.ndarray, prior_strength: float = 1.0, seed: int = 0,
-                 react: bool = False):
-        self.react = react
-        d, k = N_FEATURES + react, len(prior)
+                 react: bool = False, show_state: bool = False):
+        self.react, self.show_state = react, show_state
+        d, k = n_features(react, show_state), len(prior)
         self.A = np.stack([prior_strength * np.eye(d) for _ in range(k)])
         theta0 = np.zeros((k, d))
         theta0[:, 0] = prior
         self.b = np.einsum("kij,kj->ki", self.A, theta0)
         self.rng = np.random.default_rng(seed)
 
+    def _x(self, obs, arm):
+        return features(obs, arm, self.react, self.show_state)
+
     def update(self, obs, action, reward):
-        x = features(obs, action, self.react)
+        x = self._x(obs, action)
         self.A[action] += np.outer(x, x)
         self.b[action] += reward * x
 
@@ -134,7 +149,7 @@ class LinUCB(_Linear):
     def act(self, obs):
         scores = []
         for a in range(len(self.A)):
-            x = features(obs, a, self.react)
+            x = self._x(obs, a)
             A_inv = np.linalg.inv(self.A[a])
             scores.append(A_inv @ self.b[a] @ x + self.alpha * math.sqrt(x @ A_inv @ x))
         return int(np.argmax(scores))
@@ -152,5 +167,5 @@ class LinTS(_Linear):
         for a in range(len(self.A)):
             A_inv = np.linalg.inv(self.A[a])
             theta = self.rng.multivariate_normal(A_inv @ self.b[a], self.v**2 * A_inv)
-            scores.append(theta @ features(obs, a, self.react))
+            scores.append(theta @ self._x(obs, a))
         return int(np.argmax(scores))
