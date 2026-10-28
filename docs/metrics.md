@@ -152,3 +152,23 @@ Figure: `reports/figures/shift_recovery_by_set_length.png`.
 3. **"Bits to recover" is misleading:** random "recovers" in ~4 bits by luck while LinUCB, which
    sticks with its old favorite, takes 14. Choice-quality curves are the honest measure.
 4. Same root cause as the shift experiment: no memory of *this* show → needs show state.
+
+## PR: show state, step A (2026-10-28)
+
+`evaluate_shift.run_lengths(lengths=[8, 16], total_bits=3200, seeds=10, names=SHOW_STATE_POLICIES)`
+(notebook Exp 7; ~4 min). Raw: `reports/metrics/show_state_a.json`; figure:
+`reports/figures/show_state_a.png`. Same harness as Exp 6. Pass criteria fixed before running.
+
+| Set | Algorithm | Shifted: quality after shift (without → with) | Gain (need ≥ +0.05) | Steady: same bits (without → with) | Change (need ≥ −0.01) |
+|---|---|---|---|---|---|
+| 8 | LinUCB | 0.770 → 0.816 | +0.046 | 0.930 → 0.908 | −0.022 |
+| 8 | LinTS | 0.788 → 0.815 | +0.027 | 0.939 → 0.910 | −0.030 |
+| 16 | LinUCB | 0.773 → 0.781 | +0.008 | 0.936 → 0.925 | −0.011 |
+| 16 | LinTS | 0.779 → 0.812 | +0.033 | 0.941 → 0.923 | −0.017 |
+
+**Findings**
+1. **Fails both criteria in all four cells.** Small help after a turn, small cost in steady rooms.
+2. **It hedges rather than reads:** quality is higher *at* the shift (8-bit LinUCB 0.76 → 0.82)
+   but doesn't climb afterwards. The director is less committed to its favorite all show.
+3. Why: a single learned weight on "tonight's mean" serves shifted and steady rooms alike, so it
+   compromises. Step B makes the per-show correction explicit.

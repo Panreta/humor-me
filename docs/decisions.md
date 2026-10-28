@@ -174,3 +174,14 @@ of shows; it has no notion of "this room, tonight". Keep 8-bit (10-minute) sets,
 length. Also learned: "bits to recover" rewards luck (random scores well, a sticky deterministic
 policy scores badly), so recovery is judged by choice-quality curves from now on.
 Evidence: notebooks/decisions.ipynb Exp 6; metrics.md "set length vs shift".
+
+## 2026-10-28 — Show state step A (tonight's record as features): not adopted; go to B
+Plan (user): add show state incrementally, A → B → C. A gives LinUCB/LinTS two more inputs per
+mode: tried tonight, and mean reward tonight; the career model learns how much to trust them.
+Pass criteria were fixed before running: shifted-show choice quality +≥ 0.05, steady-show
+change ≥ −0.01. Result: gains +0.008 to +0.046, steady changes −0.011 to −0.030, so it **fails
+both in every cell**. It hedges (less committed to the old favorite at the moment of the shift)
+rather than reads the turn: the curve doesn't climb afterwards, and steady shows pay for it.
+Why: one linear weight on "tonight's mean" has to serve both shifted and steady rooms, so it
+settles on a compromise. Next: step B, where tonight's correction is explicit and per show.
+Evidence: notebooks/decisions.ipynb Exp 7; metrics.md "show state step A".

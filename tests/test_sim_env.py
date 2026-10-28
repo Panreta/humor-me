@@ -115,3 +115,12 @@ def test_random_context_when_none_given():
 def test_unknown_mode_in_priors_fails_loudly():
     with pytest.raises(ValueError):
         AudienceEnv(shift={"clown": 1.0})
+
+
+def test_obs_carries_tonights_history_and_resets_each_show():
+    env = AudienceEnv()
+    env.reset(BAR, seed=0)
+    env.step(2)
+    obs, r, _, _ = env.step(4)
+    assert [m for m, _ in obs["tonight"]] == [2, 4] and obs["tonight"][-1][1] == r
+    assert env.reset(BAR, seed=1)["tonight"] == ()
