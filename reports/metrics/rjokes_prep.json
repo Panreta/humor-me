@@ -1,0 +1,12 @@
+{"params": {"max_words": 200, "min_words": 4, "source": "python -m pipeline.rjokes (R1)"}, "results": {
+  "rows_in": 432457,
+  "after_dedupe": 419446,
+  "after_length": 402981,
+  "no_year": 1081,
+  "per_split": {"train": 323573, "dev": 39764, "test": 39644},
+  "flag_rate": {"protected": 0.0856, "body": 0.0407, "sexual": 0.0433, "alcohol_drugs": 0.0565, "death_violence": 0.0546},
+  "unflagged_rate": 0.7498,
+  "score_hist": {"0": 142080, "1": 98754, "2": 72291, "3": 37582, "4": 22456, "5": 13593, "6": 7427, "7": 3941, "8": 1947, "9": 1516, "10": 1359, "11": 35},
+  "reposted": 6971,
+  "repost_spread_median": 2
+}}
