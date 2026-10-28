@@ -155,3 +155,11 @@ once experienced. The prior made no significant difference at weight 1, so the u
 wins on keeping the LLM judge's taste out. Rejected ε-greedy: no pooling across contexts, 3.4×
 the loss. Thompson stays as the comparison in the report (near-identical once experienced).
 Evidence: metrics.md PR #4.
+
+## 2026-10-28 — Keep the director's features; within-show adaptation needs show state
+Tested a reaction feature (same mode × last reward) against a mid-set taste shift. It added
+0.2–0.4 laughs after the shift, within the CIs, so it isn't adopted. All bandit policies
+recover no faster than random (2.1–2.5 of 4 bits) because they carry no memory of *this*
+show beyond the last bit. Consequence: the next step is a stateful director (show-so-far
+features / MDP), built together with callbacks, not more per-bit features.
+Evidence: metrics.md "mid-set preference shift".

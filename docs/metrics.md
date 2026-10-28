@@ -88,3 +88,35 @@ Laughs per show (40 jokes, sum of 0–3 levels), mean ± 95% CI over careers.
    help, because the venue offsets it knows nothing about decide the best mode.
 4. **Chosen: LinUCB + uniform prior**: lowest total loss with the tightest CI, and no LLM-judge
    taste built in. Prior strength sweep logged as explore-next #7.
+
+## PR: mid-set preference shift (2026-10-28)
+
+`python -m sim.evaluate_shift` (10 careers × 400 shows; in a random half of shows the room's
+taste shifts after bit 4 of 8, unannounced; metrics from the last 100 shows; ~2 min).
+Raw: `reports/metrics/shift.json`. The shift changes the best mode in every venue
+(bar: cynic → neurotic, company event: observer → optimist, showcase: absurdist → wordsmith).
+
+Laughs in bits 5–8, mean ± 95% CI. "Bits to recover": bits after the shift until the director
+first picks a (near-)best mode again (regret < 0.02/bit), capped at 4.
+
+| Policy | Shifted shows: bits 5–8 | % of oracle | Bits to recover | Steady shows: bits 5–8 | % of oracle |
+|---|---|---|---|---|---|
+| oracle | 24.0 ± 0.4 | 100% | 0.00 | 23.7 ± 0.6 | 100% |
+| fixed neurotic | 18.1 ± 0.4 | 75% | 3.69 ± 0.09 | 18.7 ± 0.6 | 79% |
+| random | 17.6 ± 0.6 | 73% | 2.33 ± 0.10 | 18.8 ± 0.6 | 79% |
+| LinUCB (chosen) | 19.1 ± 0.6 | 80% | 2.46 ± 0.22 | 22.6 ± 0.7 | 95% |
+| LinUCB + react | 19.5 ± 0.4 | 81% | 2.26 ± 0.28 | 22.6 ± 0.6 | 95% |
+| LinTS | 19.7 ± 0.4 | 82% | 2.12 ± 0.13 | 22.8 ± 0.6 | 96% |
+| LinTS + react | 19.9 ± 0.4 | 83% | 2.18 ± 0.15 | 22.8 ± 0.6 | 96% |
+
+**Findings**
+1. **The director reads rooms, not turns.** In steady shows the learners get 95–96% of the
+   oracle; when the room turns mid-set they drop to 80–83%, and take ~2.1–2.5 of the 4
+   remaining bits to land on a good mode again: **no better than random (2.33)**.
+2. **The reaction feature doesn't fix it.** +0.2–0.4 laughs, inside the CIs; harmless in
+   steady shows. Not adopted.
+3. **Why:** a bandit's estimates average hundreds of shows, so one bombed bit barely moves
+   them, and its features can only say "*this* mode just bombed", not "this room has turned".
+   Reacting within a show needs **state about the show so far**, which is a sequential (MDP)
+   problem, the same step callbacks require.
+4. LinTS edges LinUCB after a shift (19.7 vs 19.1), but the CIs overlap: no reason to switch.
