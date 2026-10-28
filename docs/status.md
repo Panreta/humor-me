@@ -12,11 +12,11 @@ Last updated: 2026-10-27. Update this file whenever the state below changes.
 | Transcript pipeline | **Paused 2026-10-26** (decisions.md). Kept for aggregate structure stats + report appendix |
 | Pipeline S4+S5 (`pipeline.bits`) | Built (Gemini, one call/set). Revised prompt run on Bargatze: bits F1 0.80, threads 0.63, callbacks 0/3. Callback pass needs its own step |
 | Pipeline S6 (`pipeline.validate`) | Built. Scores bits + threads + callbacks vs hand labels and an even-spacing baseline |
-| Tests | `.venv/Scripts/python -m pytest tests -q`, 34 passing, synthetic data only |
+| Tests | `.venv/Scripts/python -m pytest tests -q`, 45 passing, synthetic data only |
 | Backend / frontend | Scaffold only (FastAPI echo websocket, default Next.js page) |
 | rJokes | R1 prep done (`python -m pipeline.rjokes`): 403k jokes, era-normalized `pct`. R2 labeling job ready in `explorer/`, not run |
 | Explorer (NEU HPC) | Access granted; setup steps in `explorer/README.md`, not done yet |
-| RL simulator | Not started (current sprint, roadmap.md) |
+| RL simulator | Env built (`sim/`, PR `feat/sim-env`); policies next (PR 2), callbacks after (PR 2b) |
 
 ## Models and providers
 

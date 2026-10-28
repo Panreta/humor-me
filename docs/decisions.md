@@ -136,3 +136,13 @@ of rJokes (vLLM + a 7–8B instruct model) and a small learned joke scorer (enco
 rJokes scores). Sim, bandits, pipeline and the live loop stay on the laptop and must not depend
 on Explorer. Why: removes the Gemini free-tier bottleneck for bulk labeling. Jobs are written as
 scripts first and notebooks second, so they also run on the 4060 at smaller scale.
+
+## 2026-10-27 — The director picks a mode per bit, not per joke
+Options: (a) per joke, weaker fatigue; (b) per joke + recent modes in context; (c) per bit.
+Chose (c): a comedian commits to one premise and attitude for a bit and varies between bits.
+Per joke, the sim rewarded rotation (random beat every fixed mode; metrics.md v1), and a
+history-aware per-joke bandit would learn to rotate, which is a sim artifact, not comedy.
+Per bit, coherence is built in (no switching penalty needed), each decision's reward averages
+5 jokes (less noise), and the last bit's mode and reward go in the context. Cost: only 8
+decisions per show. Evidence: metrics.md PR #1 v2 (best fixed mode now beats random by 3–9
+laughs per set; oracle beats best fixed by 4–5).

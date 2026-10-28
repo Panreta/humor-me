@@ -1,0 +1,81 @@
+{
+  "episodes": 1000,
+  "n_bits": 8,
+  "jokes_per_bit": 5,
+  "venues": [
+    {
+      "venue": "bar",
+      "oracle": 50.354,
+      "random": 38.145,
+      "best_fixed_mode": "cynic",
+      "best_fixed": 46.66,
+      "fixed_neurotic": 39.026,
+      "best_mode": "cynic",
+      "runner_up": "absurdist",
+      "gap": 0.05193914189244675,
+      "bits_to_separate": 111,
+      "shows_to_separate": 13.9
+    },
+    {
+      "venue": "company_event",
+      "oracle": 46.865,
+      "random": 37.682,
+      "best_fixed_mode": "observer",
+      "best_fixed": 42.604,
+      "fixed_neurotic": 39.026,
+      "best_mode": "observer",
+      "runner_up": "neurotic",
+      "gap": 0.031343987576902876,
+      "bits_to_separate": 296,
+      "shows_to_separate": 37.0
+    },
+    {
+      "venue": "showcase",
+      "oracle": 49.11,
+      "random": 40.822,
+      "best_fixed_mode": "absurdist",
+      "best_fixed": 43.923,
+      "fixed_neurotic": 42.293,
+      "best_mode": "absurdist",
+      "runner_up": "neurotic",
+      "gap": 0.014406200335025543,
+      "bits_to_separate": 1414,
+      "shows_to_separate": 176.8
+    }
+  ],
+  "best_mode_by_context": {
+    "bar/low/teens": "absurdist",
+    "bar/low/young_adults": "cynic",
+    "bar/low/mixed": "cynic",
+    "bar/normal/teens": "absurdist",
+    "bar/normal/young_adults": "cynic",
+    "bar/normal/mixed": "cynic",
+    "bar/high/teens": "absurdist",
+    "bar/high/young_adults": "cynic",
+    "bar/high/mixed": "cynic",
+    "company_event/low/teens": "observer",
+    "company_event/low/young_adults": "observer",
+    "company_event/low/mixed": "observer",
+    "company_event/normal/teens": "observer",
+    "company_event/normal/young_adults": "observer",
+    "company_event/normal/mixed": "observer",
+    "company_event/high/teens": "observer",
+    "company_event/high/young_adults": "observer",
+    "company_event/high/mixed": "observer",
+    "showcase/low/teens": "absurdist",
+    "showcase/low/young_adults": "neurotic",
+    "showcase/low/mixed": "absurdist",
+    "showcase/normal/teens": "absurdist",
+    "showcase/normal/young_adults": "neurotic",
+    "showcase/normal/mixed": "absurdist",
+    "showcase/high/teens": "absurdist",
+    "showcase/high/young_adults": "neurotic",
+    "showcase/high/mixed": "absurdist"
+  },
+  "distinct_best_modes": [
+    "absurdist",
+    "cynic",
+    "neurotic",
+    "observer"
+  ]
+}

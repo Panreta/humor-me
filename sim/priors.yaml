@@ -1,0 +1,43 @@
+# Hidden audience preferences for the simulated audience.
+# THESE ARE MADE UP (except `base`), and the report must say so: the sim tests whether a policy
+# *adapts*, not whether jokes are funny. PR 3 replaces `base` with rJokes-derived values.
+# Units are the latent "funniness" scale: laugh level = how many `thresholds` the latent clears.
+
+modes: [neurotic, cynic, observer, wordsmith, optimist, absurdist]
+
+# HumorGen Table 4 judge win rates mapped linearly: 0.3 + 2 * (win_rate - 0.5).
+base:
+  neurotic: 0.57    # 63.4%
+  cynic: 0.40       # 55.2%
+  observer: 0.28    # 49.1%
+  wordsmith: 0.00   # 34.9%
+  optimist: 0.12    # 41.1%
+  absurdist: 0.42   # 55.8%
+
+# Chosen so each venue has a different best mode (bar: cynic, company_event: observer,
+# showcase: absurdist); otherwise "fixed best mode" would be unbeatable and nothing is learned.
+venue:
+  bar: {cynic: 0.4, absurdist: 0.2, optimist: -0.3, wordsmith: -0.2}
+  company_event: {observer: 0.4, optimist: 0.3, cynic: -0.4, absurdist: -0.2}
+  showcase: {wordsmith: 0.3, absurdist: 0.3, neurotic: 0.1}
+
+age:
+  teens: {absurdist: 0.3, observer: 0.1, cynic: -0.2}
+  young_adults: {cynic: 0.1, neurotic: 0.1}
+  mixed: {}
+
+energy: {low: -0.4, normal: 0.0, high: 0.3}
+
+dynamics:
+  thresholds: [0.0, 1.0, 2.0]   # levels 1, 2, 3
+  noise: 1.0                    # latent sd; large on purpose, humor ratings are noisy
+  novelty: 0.4                  # "a robot is talking!" bump at t=0 ...
+  novelty_tau: 5.0              # ... decaying with this many jokes
+  fatigue: 0.15                 # per use of the same mode ...
+  fatigue_window: 2             # ... within the last N bits (fixed mode at steady state: -0.3)
+  n_bits: 8                     # decisions per set; mode is fixed within a bit
+  jokes_per_bit: 5              # 8 x 5 = 40 jokes ~ 10 min at ~4 jokes/min
+
+# Default mid-set preference shift (env built with shift_at, in bits): the room
+# turns on the mode that was working and warms to a different one.
+shift: {cynic: -0.5, observer: -0.5, absurdist: -0.4, optimist: 0.6, wordsmith: 0.5}
