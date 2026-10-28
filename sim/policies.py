@@ -17,8 +17,12 @@ from sim.env import AGES, ENERGIES, MAX_LEVEL, VENUES, AudienceEnv, Context, _ph
 BIT_REWARD_SD = 0.15  # per-bit reward noise in [0, 1] units; measured 0.14 (evaluate_env.env_reward_sd)
 
 
-def features(obs: dict, arm: int) -> np.ndarray:
-    """bias, venue/energy/age one-hots, 'same mode as last bit' (fatigue), last bit's reward."""
+def features(obs: dict, arm: int, react: bool = False) -> np.ndarray:
+    """bias, venue/energy/age one-hots, 'same mode as last bit' (fatigue), last bit's reward.
+
+    react=True adds 'same mode × last reward': how *this* mode just landed. Without it the model
+    can't express "this mode just bombed, don't repeat it" (mid-set shift experiment).
+    """
     c: Context = obs["context"]
     x = [1.0]
     x += [float(c.venue == v) for v in VENUES]
@@ -26,6 +30,8 @@ def features(obs: dict, arm: int) -> np.ndarray:
     x += [float(c.age == a) for a in AGES]
     x.append(float(obs["last_mode"] == arm))
     x.append(obs["last_reward"] or 0.0)
+    if react:
+        x.append(x[-2] * x[-1])
     return np.array(x)
 
 
@@ -104,8 +110,10 @@ class EpsilonGreedy:
 
 
 class _Linear:
-    def __init__(self, prior: np.ndarray, prior_strength: float = 1.0, seed: int = 0):
-        d, k = N_FEATURES, len(prior)
+    def __init__(self, prior: np.ndarray, prior_strength: float = 1.0, seed: int = 0,
+                 react: bool = False):
+        self.react = react
+        d, k = N_FEATURES + react, len(prior)
         self.A = np.stack([prior_strength * np.eye(d) for _ in range(k)])
         theta0 = np.zeros((k, d))
         theta0[:, 0] = prior
@@ -113,7 +121,7 @@ class _Linear:
         self.rng = np.random.default_rng(seed)
 
     def update(self, obs, action, reward):
-        x = features(obs, action)
+        x = features(obs, action, self.react)
         self.A[action] += np.outer(x, x)
         self.b[action] += reward * x
 
@@ -126,7 +134,7 @@ class LinUCB(_Linear):
     def act(self, obs):
         scores = []
         for a in range(len(self.A)):
-            x = features(obs, a)
+            x = features(obs, a, self.react)
             A_inv = np.linalg.inv(self.A[a])
             scores.append(A_inv @ self.b[a] @ x + self.alpha * math.sqrt(x @ A_inv @ x))
         return int(np.argmax(scores))
@@ -144,5 +152,5 @@ class LinTS(_Linear):
         for a in range(len(self.A)):
             A_inv = np.linalg.inv(self.A[a])
             theta = self.rng.multivariate_normal(A_inv @ self.b[a], self.v**2 * A_inv)
-            scores.append(theta @ features(obs, a))
+            scores.append(theta @ features(obs, a, self.react))
         return int(np.argmax(scores))

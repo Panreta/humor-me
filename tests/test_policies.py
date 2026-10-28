@@ -69,3 +69,18 @@ def test_learners_beat_random_after_experience(cls):
     env = AudienceEnv()
     uniform = prior_means(env, "uniform")
     assert career_laughs(cls(uniform, seed=0)) > career_laughs(Random(env.n_modes, seed=0)) + 2
+
+
+def test_reaction_feature_is_this_modes_last_reward():
+    x = features(obs(last_mode=2, last_reward=0.4), arm=2, react=True)
+    assert len(x) == N_FEATURES + 1 and x[-1] == 0.4
+    assert features(obs(last_mode=2, last_reward=0.4), arm=3, react=True)[-1] == 0
+    assert len(features(obs(), arm=0)) == N_FEATURES  # default unchanged: #4's results stand
+
+
+@pytest.mark.parametrize("cls", [LinUCB, LinTS])
+def test_react_policies_act_and_learn(cls):
+    p = cls(np.full(6, 0.3), seed=0, react=True)
+    a = p.act(obs(last_mode=1, last_reward=0.0))
+    p.update(obs(last_mode=1, last_reward=0.0), a, 0.5)
+    assert p.A.shape[-1] == N_FEATURES + 1
