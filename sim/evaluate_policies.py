@@ -92,12 +92,8 @@ def main() -> None:
         }
     OUT.parent.mkdir(parents=True, exist_ok=True)
     # One line per policy keeps the file diffable (curves are 300 numbers each).
-    lines = ",
-".join(f"  {json.dumps(k)}: {json.dumps(v)}" for k, v in results.items())
-    OUT.write_text(f'{{"shows": {args.shows}, "seeds": {args.seeds}, "results": {{
-{lines}
-}}}}
-')
+    lines = ",\n".join(f"  {json.dumps(k)}: {json.dumps(v)}" for k, v in results.items())
+    OUT.write_text(f'{{"shows": {args.shows}, "seeds": {args.seeds}, "results": {{\n{lines}\n}}}}\n')
     plot(results, args.shows)
 
     print(f"{args.seeds} careers x {args.shows} shows, {time.time() - t0:.0f}s. Laughs/show (40 jokes), mean ± 95% CI\n")
