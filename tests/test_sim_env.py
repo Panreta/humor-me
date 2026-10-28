@@ -1,4 +1,4 @@
-"""Simulated audience env: dynamics behave as documented in sim/priors.yaml."""
+"""Simulated audience env: dynamics behave as documented in sim/audience.yaml."""
 import pytest
 
 from sim.env import AudienceEnv, Context

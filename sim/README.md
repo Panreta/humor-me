@@ -20,7 +20,8 @@ obs["last_mode"], obs["last_reward"]               # history for context-aware p
 | Reward | mean level of the bit's jokes / 3 (samplers work on [0, 1]; logs keep the levels) |
 | Oracle | `expected_rewards()`: exact E[mean level]/3 per mode for the next bit; regret = best − chosen |
 
-All numbers live in [priors.yaml](priors.yaml). Only `base` has a source (HumorGen judge win
+All numbers live in [audience.yaml](audience.yaml) (the room's hidden truth, not the
+director's prior). Only `base` has a source (HumorGen judge win
 rates); venue/age/energy offsets are made up and the report must say so. PR 3 swaps `base`
 for rJokes-derived values.
 
