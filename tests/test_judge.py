@@ -5,9 +5,8 @@ import json
 import numpy as np
 import pytest
 
-from judge.backends import LLMJudge, SimulatedJudge
-from judge.bt import borda_scores, fit_bt
-from judge.rank import rank, write_judgments
+from judge import LLMJudge, SimulatedJudge, fit_bt, rank, write_judgments
+from judge.bt import borda_scores
 from judge.select import adaptive_next
 
 N_JOKES = 24
