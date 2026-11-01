@@ -51,3 +51,18 @@ def test_length_bins_are_roughly_equal_sized():
 def test_spearman_is_rank_only():
     assert spearman(np.array([1.0, 2, 3]), np.array([10.0, 200, 3000])) == 1.0
     assert spearman(np.array([1.0, 2, 3]), np.array([3.0, 2, 1])) == -1.0
+
+
+def test_an_extra_adjustment_removes_a_gap_that_only_comes_through_that_feature():
+    rng = np.random.default_rng(0)
+    n = 40000
+    mode = rng.integers(0, 2, n)
+    extra = (rng.random(n) < np.where(mode == 1, 0.6, 0.1)).astype(int)
+    pct = 0.5 - 0.2 * extra + rng.normal(0, 0.05, n)
+    year, lbin = np.zeros(n, dtype=int), np.zeros(n, dtype=int)
+    without = reg_effects(mode, year, lbin, pct, n_modes=2)
+    with_extra = reg_effects(mode, year, lbin, pct, n_modes=2, extra=extra)
+    assert abs(without[1] - without[0]) > 0.05
+    assert abs(with_extra[1] - with_extra[0]) < 0.005
+    cell = extra
+    assert abs(win_rates(mode, cell, pct, n_modes=2)[1] - 0.5) < 0.02
