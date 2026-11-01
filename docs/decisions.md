@@ -308,3 +308,20 @@ to need this, since mode effects are smaller still and modes differ in length.
 Correlation doesn't show that length causes upvotes.
 **Open (user's call):** a correlation map of every rJokes feature against upvotes, as its own experiment.
 `n_posts` and `score_spread` would need a caveat, because both are computed from the score.
+
+## 2026-11-01 — rJokes correlation map: design and rule (fixed before running)
+The user chose to run the map before the two-tastes sim run, to check that Exp 10 adjusted for the
+right things. Already seen before this entry (the one-off check above): length, year, `n_posts` and
+`score_spread` against `pct`. Flags, modes and safety labels against `pct` have not been looked at.
+**Measure:** Spearman ρ with midranks for ties, because upvotes are heavily skewed; each mode, flag and
+safety label is a yes/no column. Each feature gets ρ with `pct` twice: raw, and within the same year
+and length group (deciles, as in Exp 10). 95% CIs from 200 bootstrap resamples, seed 0.
+**Data:** text features and flags on all of `train.jsonl` with a known year; modes and safety labels on
+the 90k labeled sample, where the full feature-by-feature map is also computed.
+**Rule:** Exp 10 is re-run with an extra adjustment for a feature only if, within the same year and
+length group, its |ρ| is at least 0.05 with `pct` **and** at least 0.05 with some mode. A confound
+needs both links. Otherwise Exp 10 stands as it is. The threshold 0.05 is a judgment call: about half
+of the 0.10 usually called a small correlation, because the mode effects at stake are themselves small.
+**Excluded from the rule:** `n_posts` and `score_spread` (computed from the score), `year` and length
+(already adjusted for), and modes themselves. Safety labels are reported, but the hand check found them
+unreliable (Exp 9), so a hit on one is a reason to look closer, not to re-run. `mode2` is not used.
