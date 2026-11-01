@@ -101,7 +101,7 @@ One row per decision that changed the result (to become D-xx entries: options, t
 | Learn across shows (one show is too short) | Decided 2026-10-27 | metrics.md #1: 14–177 shows to separate top modes | [Contextual bandits](wiki/contextual-bandits.md) |
 | Explorer for GPU jobs only | Decided 2026-10-26 | decisions.md | [Explorer HPC](wiki/explorer-hpc.md) |
 | rJokes for mode statistics only, never joke material (judge safety flags unreliable) | Decided 2026-10-31 | notebook Exp 9; metrics.md "Hand check of R2 labels" | [rJokes](wiki/rjokes-dataset.md) |
-| Human mode preference: rJokes upvotes vs HumorGen judge | Open | explore-next.md #1 | [rJokes](wiki/rjokes-dataset.md) |
+| Human mode preference: compare same-year, similar-length jokes; keep both tastes for the sim | Decided 2026-11-01 | notebook Exp 10; metrics.md "Human vs judge mode ranking" | [rJokes](wiki/rjokes-dataset.md) |
 
 ## 7. Results
 
@@ -120,8 +120,8 @@ How to read the numbers (laughs per show, laughs lost vs oracle, cold start, CI)
 | Callbacks: greedy vs sequential | Late-set laugh rate, laughs lost | Planned (explore-next #5) | |
 | Prior strength sweep | Laughs lost vs prior weight | Planned (explore-next #7) | |
 | Hand check of R2 judge labels | Mode precision vs 105 hand labels; safety-flag misses | Done (notebook Exp 9) | Modes 92% precise at the labeled mode mix, misses lean to puns; safety flags caught 0 of 16 hand-flagged jokes. Examples: [metrics.md](metrics.md#hand-check-of-r2-labels-2026-10-31) |
-| Human vs LLM-judge mode ranking | Rank correlation, rJokes upvotes vs HumorGen | Next: 90k labels ready, all modes within ±0.02 | |
-| Room's `base` from human data | Change in policy ranking | After the above | |
+| Human vs LLM-judge mode ranking | Spearman ρ, side of the field, wordsmith last; rJokes upvotes vs HumorGen | Done (notebook Exp 10) | Agree only in part: neurotic up, wordsmith down, optimist clearly disagrees (ρ +0.20 to +0.37). Mode makes a small difference in upvotes (win rates 0.480–0.527), about half of length's effect; upvote noise means this doesn't show people care less about mode |
+| Room's `base` from human data | Change in policy ranking | Next: two-tastes run, judge vs human `base` | |
 | Long-form sets | Word budget, closer present, planned callbacks used | Planned | |
 | Live pilots | Detector vs operator agreement; episode rating | Weeks 5–7 | |
 

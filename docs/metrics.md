@@ -276,7 +276,8 @@ delivery-driver double meaning), 3 targeting a group, 1 about bodies; the judge 
 
 ## R2 extended to 90k: precision rule met (2026-11-01)
 
-Same labeler, seed and sample order as the first 30k, extended twice (`N=60000`, then `N=90000`).
+Same labeler, seed and sample order as the first 30k, extended to `N=90000`. About 5 h of GPU time
+for all 90k at ~5.2 jokes/s (estimated from that rate).
 The 90k run hit a CUDA OOM at 76k on code from before the halve-and-retry fix (job started before
 the pull); a later job finished it. Checked on the laptop: 90,000 lines, 90,000 unique ids, no torn
 lines, and the first 30k identical to the earlier file (no label changed). 45 parse failures (0.05%).
@@ -300,3 +301,44 @@ Log: [end + precision table](../assets/labeling/batch-labeling-90k.png).
    within the 30k CIs: a reminder not to read the middle order as settled.
 3. **Wordsmith last is robust:** same at 30k and 90k, and last in HumorGen's judge ranking too.
    The hand check's misses were puns filed elsewhere, which would grow wordsmith's group, not move it.
+
+**Later correction:** these are raw means, so finding 2 is confounded by joke length. Use the next
+section to rank modes; this table only answers the precision rule.
+
+## Human vs judge mode ranking (2026-11-01)
+
+Do people rank the six modes the way HumorGen's LLM judge does? 89,200 labeled jokes (no parse
+failures, no `none`, year known). Design and pass criteria were fixed before running
+(decisions.md 2026-11-01). Terms: [glossary](wiki/glossary.md#reading-the-results-statistics-terms).
+Run: `explorer/mode_ranking.py`, notebook Exp 10.
+
+| Mode | Judge win rate | Raw mean `pct` | Win rate vs the field, deciles [95% CI] | Regression effect, deciles |
+|---|---|---|---|---|
+| optimist | 41.1% | 0.532 | 0.527 [0.512, 0.543] | +0.022 |
+| neurotic | 63.4% | 0.522 | 0.521 [0.516, 0.526] | +0.012 |
+| observer | 49.1% | 0.509 | 0.502 [0.497, 0.508] | −0.001 |
+| cynic | 55.2% | 0.507 | 0.501 [0.497, 0.506] | −0.003 |
+| absurdist | 55.8% | 0.521 | 0.493 [0.487, 0.500] | −0.010 |
+| wordsmith | 34.9% | 0.469 | 0.480 [0.476, 0.484] | −0.020 |
+
+| Criterion | Result across all 4 variants |
+|---|---|
+| C1 Spearman ρ vs the judge | "Agree" by the rule (+0.20 to +0.37), but weak: the CI's lower end is +0.20 and it covers human uncertainty only |
+| C2 side of the field | Matches for neurotic (above) and wordsmith (below). **Optimist clearly disagrees** (human above, judge below). Absurdist and cynic depend on the estimator; observer is too close to tell |
+| C3 wordsmith last | Holds in ≥ 99.7% of resamples |
+
+**Findings**
+1. **Humans and the judge agree only in part:** on neurotic and wordsmith, and clearly not on optimist.
+   Optimist rests on the fewest jokes (1,170), and its CI is the widest.
+2. **The length confound is real:** absurdist drops from third on raw means (0.521) to fifth with
+   decile length groups (0.493). Win rate and regression rank the modes identically at each bin size.
+3. **Mode makes a small difference in upvotes:** spread 0.047–0.051 in win rate, about 0.04 in `pct`.
+   Length quartiles alone move `pct` by 0.085 (0.465 → 0.550), about twice as much.
+4. **This doesn't show people care less about mode.** The judge's spread is about 6× wider (0.285), but
+   the two aren't like for like: upvotes are noisy (repost spread ~7×), which pulls win rates toward
+   50%; HumorGen's jokes were written per persona while these were labeled afterwards; about 8% of
+   labels are wrong; and upvotes aren't a room's laughter.
+
+Sim impact: with `base = 0.3 + 2*(win_rate − 0.5)`, decile win rates give a `base` spread of 0.094,
+against the judge's 0.57. The two-tastes run therefore compares strong and weak mode differences,
+not a wrong taste and a true one.

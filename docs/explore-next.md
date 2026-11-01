@@ -5,7 +5,6 @@ row to "Done" with its PR. Add a row whenever something is deferred so it isn't 
 
 | # | Idea | Why it might matter | Blocked by | Raised |
 |---|---|---|---|---|
-| 1 | **Human mode preference from rJokes upvotes**: Bradley–Terry over modes on year/length-matched pairs; rank-correlate with HumorGen's judge ranking | Tests whether an LLM judge ranks personas the way people do; would replace the sim's `base`. **Precision rule (fixed 2026-10-30):** label 30k; if any mode's 95% CI is wider than ±0.02, extend by 30k (`explorer/mode_precision.py`) | Explorer labeling run (`explorer/`) | 2026-10-27 |
 | 2 | SemEval-2021 Task 7 "HaHackathon" humor ratings | Ratings from annotators of different ages → could inform the `age` context | Verify license + contents; only if #1 falls short | 2026-10-27 |
 | 3 | New Yorker caption contest crowd ratings (Hessel et al. 2023) | Large-scale human funniness ratings, not popularity-driven like upvotes | Verify license + contents; only if #1 falls short | 2026-10-27 |
 | 5 | **Show state, step by step** (user, 2026-10-28): A = tonight's per-mode record as features → B = two timescales (career estimate + fast per-show correction) → C = MDP with show state, built with callbacks | Exp 5–6: the director can't read a room turning; it needs memory of tonight | A, B done (not adopted) → C (MDP: in-show exploration + fatigue planning), week 6 | 2026-10-28 |
@@ -15,6 +14,7 @@ row to "Done" with its PR. Add a row whenever something is deferred so it isn't 
 | 8 | Judge-as-audience (idea B): LLM judge scores generated jokes in the loop | More realistic reward than a parametric room | Sim + bandits done (stretch) | 2026-10-26 |
 | 9 | Learned joke scorer on rJokes (encoder regressor) | Cheap reranker for K candidates | Explorer; noise ceiling caps it | 2026-10-26 |
 | 10 | Transcript callback pass + Birbiglia held-out eval | Completes the paused pipeline's report appendix | Gemini quota; Birbiglia labels | 2026-10-21 |
+| 11 | **Known issue, if labeling ever runs again:** `label_modes.py`'s transformers backend ignores `--max-model-len` (vLLM only), so one very long "joke" can OOM a batch | #23's halve-and-retry already turns it into one parse failure; a length cap would skip it without wasting GPU time | Only if `label_modes.py` is reused (dev/test splits, another judge) | 2026-11-01 |
 
 ## Done
 
@@ -26,3 +26,4 @@ row to "Done" with its PR. Add a row whenever something is deferred so it isn't 
 | Set length vs shift (user question) | (this PR) | No: 8–52-bit sets all stay at 80–85% of oracle after a turn; keep 8-bit sets |
 | Show state A: tonight's record as features | (this PR) | Fails pre-set criteria; hedges instead of reading the turn → step B |
 | Show state B: career + tonight's correction | (this PR) | No κ passes; win-stay meets fatigue, untried modes never tested → C |
+| #1 Human mode preference from rJokes upvotes (win rate vs the field + regression, not Bradley–Terry; decisions.md 2026-11-01) | (this PR) | Partial agreement with the judge; small mode effect in upvotes → two-tastes sim run next |

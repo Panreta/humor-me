@@ -240,3 +240,71 @@ handful of rows verbatim with attribution. **Chose quoting** (user): a few illus
 not the dataset. Limits: a small table in docs only (metrics.md hand check: 8 rows), credited to
 r/Jokes via rJokes, nothing NSFW quoted; the full hand-check file with text stays local
 (`data/processed/rjokes/hand_check_with_text.csv`, gitignored).
+
+## 2026-11-01 — Human vs judge mode ranking: design and pass criteria (fixed before running)
+**Why:** HumorGen's LLM judge ranks the six modes (Table 4 win rates: neurotic 63.4, absurdist 55.8,
+cynic 55.2, observer 49.1, optimist 41.1, wordsmith 34.9); the sim's `base` comes from it. Does a
+human signal (rJokes upvotes on the 90k R2 labels) rank them the same way?
+**Confound found first:** joke length predicts upvote percentile more than mode does (shortest to
+longest quartile: 0.465 → 0.550, larger than the whole between-mode spread of raw means, 0.469–0.531),
+and modes differ in length (median words: wordsmith 14, absurdist 26, others ~20). Year is already
+controlled (`pct` is within-year). So raw means per mode are not used.
+
+**D1 Estimator.** Options: (a) raw mean pct: rejected, length-confounded. (b) win rate vs the field
+within year × length-bin cells (ties half, pooled by pair count): same unit as HumorGen's Table 4.
+(c) Bradley–Terry on sampled matched pairs: rejected, with 6 modes it adds a mode-vs-mode matrix but
+little else, and pair sampling adds noise that (b)'s exact counting avoids. (d) OLS pct ~ mode
+(sum-to-zero) + year + length bin: most efficient, effects in pct units. **Chose (b) and (d)**
+(user): compare the two; a ranking that depends on the estimator isn't a finding.
+**Length bins:** quartiles and deciles of `n_words` (user: "decide from outcomes"). With D1 that is
+4 variants: WR-q4, WR-d10, REG-q4, REG-d10.
+**Sample:** 90k labels joined to `train.jsonl`; parse failures and `none` dropped (HumorGen has no
+`none`), so the field is the six modes.
+**Uncertainty:** 1,000 bootstrap resamples of jokes (seed 0), shared by all variants. Judge-side
+uncertainty (Table 4's CIs) is not modelled: a stated limitation.
+
+**D2 Comparison and pass criteria.** Options: (a) Spearman ρ only: with 6 modes ρ needs ~0.89 for
+significance, so alone it mostly says "inconclusive". (b) per-mode side of the field only: says
+where, not how much. **Chose (c) both, plus one prediction** (user). Per variant:
+- **C1** ρ(human, judge) with a bootstrap 95% CI: *agree* if the lower bound > 0, *disagree* if the
+  upper bound < 0, else *inconclusive*.
+- **C2** per mode, side of the field: human above/below (WR vs 0.5, REG effect vs 0; *undetermined*
+  if the bootstrap CI crosses it) vs judge above/below 50%. Report matches out of 6.
+- **C3** prediction: *wordsmith is last for humans too*, holds if it has the lowest human estimate
+  in ≥ 95% of resamples.
+A claim is reported as a finding only if it holds in **all 4 variants**; otherwise "depends on the
+estimator". Raw vs adjusted estimates are reported side by side to show the confound's size.
+
+**D3 Sim `base` (next PR).** Options: (a) replace with human values: likely flattens mode differences
+(human spread ~±0.05 → `base` spread ~0.2 vs 0.57), so policies would barely differ; (b) keep the
+judge's, human ranking as validation only; **chose (c)** (user): re-run the policy experiment (Exp 4)
+under both tastes. Its pass criteria are fixed in that PR before it runs.
+
+## 2026-11-01 — Human `base` for the sim: decile win rates
+The two-tastes run needs one human estimate. Options: quartile or decile win rates (regression gives
+the same order but isn't in HumorGen's unit). The two bin sizes disagree only on absurdist, the
+longest mode (0.505 vs 0.493), where coarse bins leave more of the length confound in. **Chose
+deciles** (user).
+Evidence: notebooks/decisions.ipynb Exp 10.
+
+## 2026-11-01 — Human vs judge mode ranking: outcome
+Against the criteria fixed above, in all 4 variants: C1 "agree" but weak (Spearman ρ +0.20 to +0.37);
+C2 matches neurotic and wordsmith, clearly disagrees on optimist; C3 holds (wordsmith last).
+**Conclusion:** the judge is a partial stand-in for human taste, so keep both tastes for the sim as
+D3 planned. We do **not** conclude that people care less about mode: the judge's spread is about 6×
+wider, but upvote noise, different joke sources and label errors all shrink the human number.
+The D3 estimate of a human `base` spread (~0.2) was too high: decile win rates give 0.094.
+Evidence: notebooks/decisions.ipynb Exp 10; metrics.md "Human vs judge mode ranking".
+
+## 2026-11-01 — Joke length vs upvotes: weak correlation, clear trend
+Raised by the user: is length correlated with upvotes, given that we adjust every mode comparison for
+it? A one-off check on all of `train.jsonl` with a known year (322,731 jokes): Spearman ρ +0.13 between
+`n_words` and `pct` (Pearson +0.15); within a single year, +0.09 to +0.28 (2010–2019). Weak, because
+length explains little about any one joke, but the trend is steady: mean `pct` 0.46 at ≤13 words, 0.51
+at 19–50, 0.55 at 51–100, 0.63 at 101–300.
+**Decision:** keep comparing modes among same-year, similar-length jokes. A weak correlation is enough
+to need this, since mode effects are smaller still and modes differ in length.
+**Limits:** not an experiment yet: this ran outside the notebook, so it has no `run()` or claim check.
+Correlation doesn't show that length causes upvotes.
+**Open (user's call):** a correlation map of every rJokes feature against upvotes, as its own experiment.
+`n_posts` and `score_spread` would need a caveat, because both are computed from the score.

@@ -1,0 +1,6 @@
+{"params": {"first_n": 90000, "max_halfwidth": 0.02, "path": "data/processed/rjokes/modes.jsonl"}, "results": {
+  "labeled": 90000,
+  "failed": 45,
+  "modes": {"absurdist": {"n": 9632, "mean_pct": 0.5208585548172757, "halfwidth": 0.005576844380614309}, "cynic": {"n": 24496, "mean_pct": 0.5070939459503593, "halfwidth": 0.0035464414823594198}, "neurotic": {"n": 18480, "mean_pct": 0.5215207900432901, "halfwidth": 0.004078612838409534}, "none": {"n": 540, "mean_pct": 0.443095, "halfwidth": 0.02333392702660865}, "observer": {"n": 10305, "mean_pct": 0.5090599708879185, "halfwidth": 0.0053256827435269214}, "optimist": {"n": 1170, "mean_pct": 0.5313969230769231, "halfwidth": 0.016386370676855413}, "wordsmith": {"n": 25332, "mean_pct": 0.469015206063477, "halfwidth": 0.003262265633989817}},
+  "wide": []
+}}

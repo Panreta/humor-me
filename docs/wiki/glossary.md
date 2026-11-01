@@ -103,4 +103,23 @@ deliberately separate: a good director must do well even when its guess is wrong
 | **Choice quality** | Expected reward of the mode the director picked ÷ that of the best mode, for one bit. 1.0 = picked the best mode. Noise-free (unlike laughs), so it shows *decisions* directly |
 | **Recovery curve** | Mean choice quality at each bit position relative to a shift. Climbing back after the shift = the director noticed; flat = it didn't |
 | **Bits to recover** | After a shift, how many bits pass before the director first picks a (near-)best mode again (per-bit regret < 0.02 ≈ 0.3 laughs). Capped at 4, the bits left in the show |
-| **95% CI** | `mean ± 1.96·sd/√n` over careers; two numbers whose CIs overlap aren't reliably different |
+| **95% CI (confidence interval)** | The range of likely values for a number we measured, given how much data we had. Narrower = more certain. In the sim: `mean ± 1.96·sd/√n` over careers; two numbers whose CIs overlap aren't reliably different. Example: wordsmith's win rate 0.480 [0.476, 0.484] |
+
+## Reading the results: statistics terms
+
+Used in the rJokes results (notebook Exp 2, 10, 11). Examples are from the 90k labeled jokes.
+
+| Term | Meaning here | Example |
+|---|---|---|
+| **Spread** | The gap between the highest and lowest number in a group | Upvote win rates by mode: 0.527 − 0.480 = 0.047. Judge: 0.285 |
+| **Repost spread** | How far apart the scores are when the same joke text was posted more than once. Older docs call this just "spread" | Median 2 on the ln scale, about 7× upvotes |
+| **Noise ceiling** | The best any joke scorer could do, because the score itself is noisy. Repost spread sets it for rJokes | The same text can get 7× the upvotes |
+| **Percentile (`pct`)** | The share of jokes from the same year that this joke beat on upvotes. Lets us compare years with different traffic | `pct` 0.55 = more upvotes than 55% of that year's jokes |
+| **Quartiles** | Sort by a value, cut into 4 equal-sized groups | Length quartiles: ≤13, 14–18, 19–28, >28 words |
+| **Deciles** | The same, cut into 10 equal-sized groups. Jokes in a group are closer in length, so they compare more fairly | Our human `base` uses decile win rates |
+| **Confound** | A third thing that affects the result and differs between the groups, so it gets mistaken for the effect you're measuring | **Length confound:** longer jokes get more upvotes and absurdist jokes run long (median ~25 words vs wordsmith's 14), so raw averages credit the mode for what length did |
+| **Win rate vs the field** | How often a joke from this mode beats a joke from any other mode, same year and same length group; ties count half. 50% = mode makes no difference. Our human version of HumorGen's judge win rate | Optimist 0.527, wordsmith 0.480 |
+| **Side of the field** | Whether a mode's win rate is clearly above or below 50%, or too close to tell | Neurotic above, wordsmith below, for both humans and the judge |
+| **Regression (OLS)** | Fits one number per factor so the factors add up to predict the outcome, which shows each factor's effect with the others held fixed. OLS = ordinary least squares, the standard way to fit it | `pct` ~ mode + year + length group: optimist +0.022, wordsmith −0.020 |
+| **Spearman ρ (rho)** | How similar two rankings are, from −1 (opposite order) through 0 (unrelated) to +1 (same order) | Humans vs judge: +0.20 to +0.37, weak agreement |
+| **Bootstrap** | Estimates uncertainty from the data alone: draw a new sample of the same size from the data, with repeats allowed (a **resample**), recompute the number, and repeat. How much it moves gives the CI | 1,000 resamples for Exp 10 |

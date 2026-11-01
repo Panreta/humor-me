@@ -113,6 +113,18 @@ def test_split_on_oom_reraises_other_errors():
         split_on_oom(run, [0, 1], lambda e: False)
 
 
+def test_precision_run_flags_wide_modes_ignores_none_and_reads_a_prefix(tmp_path):
+    from explorer.mode_precision import run
+    path = tmp_path / "modes.jsonl"
+    recs = [{"mode": "cynic", "pct": p} for p in (0.1, 0.9) * 5000] + [{"mode": "none", "pct": 0.1}, {"mode": "none", "pct": 0.9}]
+    recs += [{"mode": "optimist", "pct": 0.1}, {"mode": "optimist", "pct": 0.9}, {"raw": "garbage", "pct": 0.5}]
+    path.write_text("".join(json.dumps(r) + "\n" for r in recs), encoding="utf-8")
+    res = run(str(path))
+    assert res["labeled"] == len(recs) and res["failed"] == 1
+    assert res["wide"] == ["optimist"]                                       # none is exempt from the rule
+    assert run(str(path), first_n=10000)["modes"].keys() == {"cynic"}        # earlier run = the file's prefix
+
+
 # --- hand check of judge labels ---
 import csv
 
