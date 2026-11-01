@@ -40,8 +40,8 @@ class Oracle:
         pass
 
 
-def career(make, n_shows: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
-    env = AudienceEnv()
+def career(make, n_shows: int, seed: int, audience: dict | None = None) -> tuple[np.ndarray, np.ndarray]:
+    env = AudienceEnv(audience)
     policy = make(env, seed)
     ctx_rng = np.random.default_rng(seed)
     laughs, lost = np.zeros(n_shows), np.zeros(n_shows)
