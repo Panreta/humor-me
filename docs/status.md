@@ -1,6 +1,6 @@
 # Status (read this first in a new session)
 
-Last updated: 2026-10-31. Update this file whenever the state below changes.
+Last updated: 2026-11-01. Update this file whenever the state below changes.
 
 Learning the material from scratch (RL foundations → our experiments → Explorer runbook):
 [study-guide.md](study-guide.md).
@@ -15,9 +15,9 @@ Learning the material from scratch (RL foundations → our experiments → Explo
 | **Director policy** | **LinUCB + uniform prior**: 97% of oracle, +18% vs always-Neurotic (notebook Exp 4) |
 | Within-show adaptation | Open problem: the director reads rooms, not a room *turning* (Exp 5: 95% → 80% of oracle after a mid-set shift; Exp 6: longer sets don't help) |
 | Show state (A → B → C) | **A** (tonight's record as features): not adopted, hedges (Exp 7). **B** (career + tonight's correction): not adopted, no speed passes (Exp 8). **C** (MDP + callbacks, with in-show exploration and fatigue planning): next |
-| Decision notebook | Exp 1–9, all claim checks ✅. Run `python scripts/run_notebook.py` before committing it |
-| Tests | `.venv/Scripts/python -m pytest tests -q`: 112 passing, synthetic data only |
-| rJokes | R1 prep done (403k jokes). **R2 done: 90k labeled**, `modes.jsonl` on the laptop (30k copy kept as `modes_30k.jsonl`). **Precision rule met:** every mode within ±0.02 (optimist 1,170 jokes, ±0.016). Tiers: optimist > neurotic ≈ absurdist > observer ≈ cynic > wordsmith ([metrics.md](metrics.md#r2-extended-to-90k-precision-rule-met-2026-11-01)). **Hand check (105 jokes):** mode labels 92% precise at the labeled mode mix, misses lean to wordsmith; judge safety flags caught 0 of 16 human-flagged rows (Exp 9) |
+| Decision notebook | Exp 1–11, all claim checks ✅. Run `python scripts/run_notebook.py` before committing it |
+| Tests | `.venv/Scripts/python -m pytest tests -q`: 120 passing, synthetic data only |
+| rJokes | R1 prep done (403k jokes). **R2 done: 90k labeled**, `modes.jsonl` on the laptop (30k copy kept as `modes_30k.jsonl`). **Precision rule met:** every mode within ±0.02 (optimist 1,170 jokes, ±0.016). **Human vs judge ranking:** agree only in part (neurotic up, wordsmith down, optimist clearly disagrees; Spearman ρ +0.20 to +0.37), and mode makes a small difference in upvotes (win rates 0.480–0.527, Exp 10, [metrics.md](metrics.md#human-vs-judge-mode-ranking-2026-11-01)). **Hand check (105 jokes):** mode labels 92% precise at the labeled mode mix, misses lean to wordsmith; judge safety flags caught 0 of 16 human-flagged rows (Exp 9) |
 | Explorer (NEU HPC) | Working env: Python 3.13 module, `torch==2.5.1+cu121`, `transformers` 4.57, V100 in float16, 5.2 jokes/s in batch ([explorer/README.md](../explorer/README.md)) |
 | Transcript pipeline | **Paused 2026-10-26**. Bits F1 0.80 on Bargatze; kept for structure stats + report appendix |
 | Report | [report.md](report.md): overview written (user + AI), results table filled for Exp 1–7 |
@@ -53,10 +53,10 @@ Learning the material from scratch (RL foundations → our experiments → Explo
 
 1. **Show state step C** (MDP over bits + callbacks): step B showed a per-bit correction learns
    what bombed but never tries untried modes, and trusting tonight repeats modes into fatigue.
-   C needs in-show exploration and fatigue planning (decisions.md 2026-10-31). Notebook Exp 10.
-2. **Human-vs-judge mode ranking** (explore-next #1): R2 is done (90k, precision rule met) and
-   the hand check (Exp 9) cleared the mode labels. Next: Bradley–Terry over year/length-matched
-   pairs, rank-correlated with HumorGen's judge ranking, then replace the sim's `base`.
+   C needs in-show exploration and fatigue planning (decisions.md 2026-10-31). Notebook Exp 12.
+2. **Two tastes in the sim:** re-run the policy experiment (Exp 4) under the judge's `base` and a
+   human `base` from decile win rates (decisions.md 2026-11-01). Pass criteria fixed in that PR
+   before it runs; `run` needs a way to override `base`.
 3. **Demo track from Monday Nov 2:** voice loop → waveform UI → operator laugh button (roadmap
    weeks 3–4), then laugh detection (week 5).
 4. Week 6: final sim figures for the report.

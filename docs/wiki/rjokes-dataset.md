@@ -28,6 +28,9 @@ Result: 402,981 jokes (train 323,573 / dev 39,764 / test 39,644).
   and a rough prior for ranking candidate jokes.
 - **Can't:** venue preferences (no venue), timing, or stand-up structure. Upvotes measure
   Reddit popularity, not a room's laughter.
+- **Watch out:** longer jokes get more upvotes, and modes differ in length (absurdist runs long,
+  wordsmith short). This length confound moved absurdist from third to fifth, so compare modes
+  only among same-year, similar-length jokes (notebook Exp 10).
 
 ## Further reading
 
