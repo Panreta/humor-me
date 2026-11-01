@@ -1,8 +1,27 @@
 """judge/: Bradley-Terry fit, pair selection, position randomization, and the rank() loop.
 Synthetic jokes only; no network."""
-import numpy as np
+import json
 
+import numpy as np
+import pytest
+
+from judge.backends import LLMJudge, SimulatedJudge
 from judge.bt import borda_scores, fit_bt
+from judge.rank import rank, write_judgments
+
+N_JOKES = 24
+JOKES = [f"joke {i}" for i in range(N_JOKES)]
+
+
+def spearman(x, y):
+    rx, ry = np.argsort(np.argsort(x)), np.argsort(np.argsort(y))
+    return np.corrcoef(rx, ry)[0, 1]
+
+
+def pooled_all_pairs(judge, repeats):
+    """Every pair `repeats` times (one all_pairs pass per seed), pooled into one fit."""
+    comps = [c for s in range(repeats) for c in rank("p", JOKES, judge, method="all_pairs", budget=None, seed=s).comparisons]
+    return comps, fit_bt(N_JOKES, [c.winner_loser() for c in comps])[0]
 
 
 def test_fit_bt_orders_by_wins_and_centers():
@@ -21,3 +40,66 @@ def test_winless_item_gets_finite_theta():
 def test_borda_scores():
     b = borda_scores(4, [(0, 1), (0, 1), (1, 0), (0, 2)])
     assert np.isclose(b[0], (2 / 3 + 1) / 2) and b[2] == 0.0 and np.isnan(b[3])
+
+
+def test_all_pairs_recovers_true_order():
+    theta_true = np.random.default_rng(1).normal(size=N_JOKES)
+    _, theta = pooled_all_pairs(SimulatedJudge(theta_true, JOKES, seed=2), repeats=10)
+    assert spearman(theta, theta_true) > 0.9
+
+
+def test_all_pairs_single_pass_and_budget():
+    judge = SimulatedJudge(np.zeros(N_JOKES), JOKES)
+    r = rank("p", JOKES, judge, method="all_pairs", budget=None)
+    assert r.n_calls == N_JOKES * (N_JOKES - 1) // 2 and r.stop_reason == "exhausted"
+    assert len({(min(c.a, c.b), max(c.a, c.b)) for c in r.comparisons}) == r.n_calls
+    r = rank("p", JOKES, judge, method="all_pairs", budget=30)
+    assert r.n_calls == 30 and r.stop_reason == "budget"
+
+
+def test_position_randomization_cancels_first_bias():
+    judge = SimulatedJudge(np.zeros(N_JOKES), JOKES, seed=3, first_bias=3.0)
+    comps, theta = pooled_all_pairs(judge, repeats=10)
+    share_a_first = np.mean([c.shown_first == "a" for c in comps])
+    assert 0.45 < share_a_first < 0.55
+    # The bias shows up in the raw calls: the first-shown joke wins ~95% of the time...
+    assert np.mean([c.winner == c.shown_first for c in comps]) > 0.9
+    # ...but the coin spreads it evenly, so no joke's strength moves.
+    assert np.all(np.abs(theta) < 0.5)
+
+
+def test_same_seed_same_comparisons():
+    theta_true = np.random.default_rng(1).normal(size=N_JOKES)
+
+    def run(seed):
+        return rank("p", JOKES, SimulatedJudge(theta_true, JOKES, seed=0), method="all_pairs", budget=60, seed=seed).comparisons
+
+    assert run(0) == run(0)
+    assert run(0) != run(1)
+
+
+def test_input_validation():
+    judge = SimulatedJudge(np.zeros(N_JOKES), JOKES)
+    with pytest.raises(ValueError):
+        rank("p", JOKES[:1], judge)
+    with pytest.raises(ValueError):
+        rank("p", JOKES, judge, method="vibes")
+    with pytest.raises(ValueError):
+        rank("p", JOKES, judge, method="all_pairs", budget=-1)
+    with pytest.raises(ValueError):
+        SimulatedJudge([0.0, 1.0], ["same", "same"])
+
+
+def test_llm_judge_is_a_stub():
+    judge = LLMJudge("some-model")
+    assert judge.name == "llm:some-model"
+    with pytest.raises(NotImplementedError):
+        judge.compare("p", "a", "b")
+
+
+def test_write_judgments(tmp_path):
+    r = rank("p", JOKES[:4], SimulatedJudge(np.zeros(4), JOKES[:4]), method="all_pairs", budget=None, prompt_id="p1")
+    lines = write_judgments(tmp_path / "j.jsonl", r.comparisons).read_text().splitlines()
+    assert len(lines) == 6
+    assert json.loads(lines[0]).keys() == {"prompt_id", "a", "b", "shown_first", "winner", "judge"}
+    assert json.loads(lines[0])["prompt_id"] == "p1"
