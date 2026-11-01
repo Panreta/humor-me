@@ -228,3 +228,75 @@ greedy). 30,000 jokes from `train.jsonl` (seed 0) in ~1.6 h at 5.2 jokes/s; 11 p
 3. **Spread between modes is small:** 0.47–0.53 in percentile, with wordsmith clearly last
    (also last in HumorGen's judge ranking). Not yet comparable to the judge ranking: that needs
    the year/length-matched pairs of explore-next #1, and a hand check of 100 labels first.
+
+## Hand check of R2 labels (2026-10-31)
+
+`python explorer/hand_check.py` (notebook Exp 9). 105 jokes from the first 30k, 15 per judge mode,
+marked by the user: y; n + better mode; ? (joke didn't land, no mode assignable); skipped (mostly
+NSFW). Labels: `data/labels/rjokes_hand_check.csv`. No pass criterion was fixed beforehand.
+
+| Judge mode | Share of 90k | y | n | ? | skipped | Precision | 95% CI (Wilson) |
+|---|---|---|---|---|---|---|---|
+| wordsmith | 28.2% | 11 | 0 | 1 | 3 | 100% | 74–100% |
+| cynic | 27.2% | 10 | 1 | 1 | 3 | 91% | 62–98% |
+| neurotic | 20.5% | 6 | 1 | 2 | 6 | 86% | 49–97% |
+| observer | 11.5% | 11 | 3 | 0 | 1 | 79% | 52–92% |
+| absurdist | 10.7% | 7 | 0 | 6 | 2 | 100% | 65–100% |
+| optimist | 1.3% | 9 | 2 | 1 | 3 | 82% | 52–95% |
+| none | 0.6% | 14 | 1 | 0 | 0 | 93% | 70–99% |
+
+**Findings**
+1. **Mode labels mostly hold:** 89% on judged rows (81–95%), **92%** re-weighted to the mode mix of all 90k labels (same at 30k).
+2. **Misses lean to wordsmith:** 5 of 6 misses with a known mode were puns the judge filed elsewhere
+   (observer ×2, neurotic, optimist, none). Wordsmith's last place in percentile may be slightly
+   understated in size, not order.
+3. **Absurdist is hard to verify:** 6 of 13 judged absurdist jokes couldn't be given any mode; the
+   label may be the judge's bin for jokes that don't land.
+4. **Safety flags are not usable as a filter:** the user flagged 16 rows (sexual 8, targets_group 3,
+   about_bodies 1, outside the schema 4: guns, death, Nazis, profanity); the judge flagged **none**
+   of them. Notes were opportunistic, so only misses are measured, not false alarms.
+
+**Examples** (verbatim from r/Jokes via [rJokes](https://github.com/orionw/rJokesData); a few rows
+quoted for illustration only, the full set stays local, see decisions.md 2026-10-31). Row = `n` in
+`data/labels/rjokes_hand_check.csv`.
+
+| Row | Joke | Judge | Hand | What it shows |
+|---|---|---|---|---|
+| 2 | My Grandpa's last words to me were "Wanna see how far I can kick this bucket?" | absurdist | ✅ | Agreement |
+| 90 | My teacher told me I'd never be good at poetry because I'm dyslexic But so far I've made three jugs and a vase and they're lovely | optimist | ✅ | Agreement on the rarest mode |
+| 97 | What do you call a dictator running a bookshop? The Supreme Reader. | wordsmith | ✅ | Agreement |
+| 38 | What were the final words of the man stuck in a spring? The tension is killing me. | neurotic | wordsmith | Pun filed under its surface topic (tension) |
+| 57 | Wanna hear a joke about ghosts? That's the spirit. | none | wordsmith | Pun missed entirely |
+| 71 | Well, well, well... That's three holes in the ground. | observer | wordsmith | Pun filed under its setup |
+| 78 | I doubt vodka is the answer.... But it's worth a shot | optimist | wordsmith | Pun read as a positive spin |
+| 1 | a horse, a pediatrician and a fish walk into a bar the horse stands in place, the fish dies and pediatrician just missed his shift | absurdist | ? | Joke didn't land, no mode assignable |
+
+Safety misses are described, not quoted: 8 rows of sexual content or innuendo (e.g. row 67, a
+delivery-driver double meaning), 3 targeting a group, 1 about bodies; the judge flagged none.
+
+## R2 extended to 90k: precision rule met (2026-11-01)
+
+Same labeler, seed and sample order as the first 30k, extended twice (`N=60000`, then `N=90000`).
+The 90k run hit a CUDA OOM at 76k on code from before the halve-and-retry fix (job started before
+the pull); a later job finished it. Checked on the laptop: 90,000 lines, 90,000 unique ids, no torn
+lines, and the first 30k identical to the earlier file (no label changed). 45 parse failures (0.05%).
+Log: [end + precision table](../assets/labeling/batch-labeling-90k.png).
+
+| Mode | Jokes | Share | Mean pct | 95% CI ± | Mean pct at 30k |
+|---|---|---|---|---|---|
+| optimist | 1,170 | 1.3% | 0.531 | 0.016 | 0.530 |
+| neurotic | 18,480 | 20.5% | 0.522 | 0.004 | 0.525 |
+| absurdist | 9,632 | 10.7% | 0.521 | 0.006 | 0.515 |
+| observer | 10,305 | 11.5% | 0.509 | 0.005 | 0.521 |
+| cynic | 24,496 | 27.2% | 0.507 | 0.004 | 0.508 |
+| wordsmith | 25,332 | 28.2% | 0.469 | 0.003 | 0.470 |
+| none | 540 | 0.6% | 0.443 | 0.023 | 0.418 |
+
+**Findings**
+1. **Precision rule met:** every mode within ±0.02 (optimist ±0.016; `none` is excluded by the rule).
+   No further extension.
+2. **Three tiers, not a full order:** optimist on top; neurotic ≈ absurdist; observer ≈ cynic
+   (overlapping CIs); wordsmith clearly last. Observer and absurdist swapped places from 30k,
+   within the 30k CIs: a reminder not to read the middle order as settled.
+3. **Wordsmith last is robust:** same at 30k and 90k, and last in HumorGen's judge ranking too.
+   The hand check's misses were puns filed elsewhere, which would grow wordsmith's group, not move it.
