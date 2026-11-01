@@ -8,6 +8,7 @@ import pytest
 from judge.backends import LLMJudge, SimulatedJudge
 from judge.bt import borda_scores, fit_bt
 from judge.rank import rank, write_judgments
+from judge.select import adaptive_next
 
 N_JOKES = 24
 JOKES = [f"joke {i}" for i in range(N_JOKES)]
@@ -78,6 +79,39 @@ def test_same_seed_same_comparisons():
     assert run(0) != run(1)
 
 
+def test_adaptive_next_stops_when_separated():
+    theta = np.array([3.0, 2.0, 1.0, -1.0, -2.0, -3.0])
+    assert adaptive_next(theta, np.full(6, 0.01), [2, 4], beta=1.96) is None
+
+
+def test_adaptive_next_picks_the_most_overlapping_boundary():
+    theta = np.array([3.0, 2.0, 1.9, 0.0, -2.0, -3.0])
+    se = np.full(6, 0.1)
+    # Cut-off 2 overlaps (2.0 vs 1.9), cut-off 4 is clear: compare the two jokes at the boundary.
+    assert adaptive_next(theta, se, [2, 4], beta=1.96) == (1, 2)
+    # A wider interval on joke 0 makes it the weakest insider instead.
+    se[0] = 1.0
+    assert adaptive_next(theta, se, [2, 4], beta=1.96) == (0, 2)
+
+
+def test_adaptive_rank_respects_budget():
+    theta_true = np.random.default_rng(1).normal(size=N_JOKES)
+    for seed in range(3):
+        r = rank("p", JOKES, SimulatedJudge(theta_true, JOKES, seed=seed), budget=80, seed=seed)
+        assert r.n_calls == len(r.comparisons) <= 80
+        assert r.stop_reason in ("separated", "budget")
+        top, bottom = r.top(5), r.bottom(5)
+        assert len(top) == len(bottom) == 5 and not set(top) & set(bottom)
+
+
+def test_adaptive_rank_separates_an_easy_set():
+    theta_true = np.repeat([4.0, 0.0, -4.0], 4)  # three clear tiers of 4
+    jokes = JOKES[:12]
+    r = rank("p", jokes, SimulatedJudge(theta_true, jokes), budget=500, top_cutoffs=(4,), bottom_cutoffs=(4,))
+    assert r.stop_reason == "separated" and r.n_calls < 500
+    assert set(r.top(4)) == {0, 1, 2, 3} and set(r.bottom(4)) == {8, 9, 10, 11}
+
+
 def test_input_validation():
     judge = SimulatedJudge(np.zeros(N_JOKES), JOKES)
     with pytest.raises(ValueError):
@@ -88,6 +122,12 @@ def test_input_validation():
         rank("p", JOKES, judge, method="all_pairs", budget=-1)
     with pytest.raises(ValueError):
         SimulatedJudge([0.0, 1.0], ["same", "same"])
+    with pytest.raises(ValueError):
+        rank("p", JOKES[:8], judge, top_cutoffs=(10,), bottom_cutoffs=())  # m = 10 >= n
+    with pytest.raises(ValueError):
+        rank("p", JOKES[:8], judge, top_cutoffs=(), bottom_cutoffs=(8,))  # m = 0
+    with pytest.raises(ValueError):
+        rank("p", JOKES, judge, budget=None)  # adaptive needs a budget
 
 
 def test_llm_judge_is_a_stub():

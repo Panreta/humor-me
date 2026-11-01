@@ -8,7 +8,7 @@ import numpy as np
 
 from .backends import Judge
 from .bt import borda_scores, bt_se, fit_bt, games_matrix
-from .select import all_pairs
+from .select import adaptive_next, all_pairs, warm_start_pairs
 from .types import Comparison, Ranking
 
 METHODS = ("adaptive", "all_pairs")
@@ -51,6 +51,12 @@ def rank(prompt: str, jokes: Sequence[str], judge: Judge, *, method: str = "adap
         raise ValueError(f"method must be one of {METHODS}, got {method!r}")
     if budget is not None and budget < 0:
         raise ValueError(f"budget must be >= 0 or None, got {budget}")
+    if method == "adaptive":
+        if budget is None:
+            raise ValueError("method='adaptive' needs a budget: tied jokes may never separate")
+        cutoffs_m = sorted({*top_cutoffs, *(n - k for k in bottom_cutoffs)})
+        if not all(0 < m < n for m in cutoffs_m):
+            raise ValueError(f"cut-offs must give 0 < m < {n}: top {tuple(top_cutoffs)}, bottom {tuple(bottom_cutoffs)}")
     if prompt_id is None:
         prompt_id = hashlib.sha1(prompt.encode()).hexdigest()[:12]
     rng = np.random.default_rng(seed)
@@ -63,7 +69,18 @@ def rank(prompt: str, jokes: Sequence[str], judge: Judge, *, method: str = "adap
         comparisons = [_ask(prompt, prompt_id, jokes, judge, a, b, rng) for a, b in pairs]
         stop_reason = "exhausted" if len(comparisons) == n * (n - 1) // 2 else "budget"
     else:
-        raise NotImplementedError("method='adaptive'")
+        for a, b in warm_start_pairs(n, warm_rounds, rng)[:budget]:
+            comparisons.append(_ask(prompt, prompt_id, jokes, judge, a, b, rng))
+        while True:
+            theta, se = _fit(n, comparisons, alpha)
+            pair = adaptive_next(theta, se, cutoffs_m, beta)
+            if pair is None:
+                stop_reason = "separated"
+                break
+            if len(comparisons) >= budget:
+                stop_reason = "budget"
+                break
+            comparisons.append(_ask(prompt, prompt_id, jokes, judge, *pair, rng))
 
     theta, se = _fit(n, comparisons, alpha)
     pairs = [c.winner_loser() for c in comparisons]
