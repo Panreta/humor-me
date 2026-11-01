@@ -15,6 +15,7 @@ row to "Done" with its PR. Add a row whenever something is deferred so it isn't 
 | 8 | Judge-as-audience (idea B): LLM judge scores generated jokes in the loop | More realistic reward than a parametric room | Sim + bandits done (stretch) | 2026-10-26 |
 | 9 | Learned joke scorer on rJokes (encoder regressor) | Cheap reranker for K candidates | Explorer; noise ceiling caps it | 2026-10-26 |
 | 10 | Transcript callback pass + Birbiglia held-out eval | Completes the paused pipeline's report appendix | Gemini quota; Birbiglia labels | 2026-10-21 |
+| 11 | **Known issue, if labeling ever runs again:** `label_modes.py`'s transformers backend ignores `--max-model-len` (vLLM only), so one very long "joke" can OOM a batch | #23's halve-and-retry already turns it into one parse failure; a length cap would skip it without wasting GPU time | Only if `label_modes.py` is reused (dev/test splits, another judge) | 2026-11-01 |
 
 ## Done
 
