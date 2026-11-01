@@ -342,3 +342,47 @@ Run: `explorer/mode_ranking.py`, notebook Exp 10.
 Sim impact: with `base = 0.3 + 2*(win_rate − 0.5)`, decile win rates give a `base` spread of 0.094,
 against the judge's 0.57. The two-tastes run therefore compares strong and weak mode differences,
 not a wrong taste and a true one.
+
+## rJokes correlation map (2026-11-01)
+
+Did Exp 10 adjust for the right things? Rule fixed before running (decisions.md 2026-11-01). Spearman ρ
+with `pct`, on the 89,200 labeled jokes, 200 bootstrap resamples. Run:
+`explorer/rjokes_correlations.py`, notebook Exp 12. Full map:
+[rjokes_correlations.png](../reports/figures/rjokes_correlations.png).
+
+| Feature | Raw ρ | Same year and length group |
+|---|---|---|
+| `n_words` | +0.123 | +0.033 |
+| `year` | −0.076 | n/a |
+| `n_posts` (computed from the score) | +0.142 | +0.151 |
+| `score_spread` (computed from the score) | +0.151 | +0.158 |
+| `mode_wordsmith` | −0.073 | −0.032 |
+| `mode_neurotic` | +0.035 | +0.031 |
+| `flag_sexual` | +0.035 | +0.022 |
+| `safety_targets_group` | −0.024 | −0.026 |
+| Other modes, flags, safety labels | under 0.04 either way | under 0.02 either way |
+
+**Findings**
+1. **Exp 10 stands:** no flag or safety label reaches 0.05 with `pct` after adjustment, so the rule's
+   two-link test never fires.
+2. **Length is weak but needed:** ρ +0.127 on all 322,731 jokes. Wordsmith's link to `pct` more than
+   halves once length is held fixed (−0.073 → −0.032), which is the length confound in one number.
+3. **Length groups don't remove all of length:** +0.033 remains, as large as the biggest mode link.
+   Don't read much into small differences between the middle modes.
+4. **Nothing we measured predicts upvotes well:** every usable feature is under 0.13 in size. This fits the
+   noise ceiling: most of a joke's upvotes aren't explained by these features.
+
+**Extra check:** the rule tests each link separately, so it misses a weak link paired with a strong one
+(`safety_targets_group`: −0.026 with `pct`, +0.325 with cynic). Exp 10 re-run, also adjusting for that label:
+
+| Mode | Win rate, deciles: Exp 10 | With the extra adjustment | Regression, deciles: Exp 10 | With the extra adjustment |
+|---|---|---|---|---|
+| optimist | 0.527 | 0.526 | +0.022 | +0.020 |
+| neurotic | 0.521 | 0.519 | +0.012 | +0.011 |
+| cynic | 0.501 | **0.510** | −0.003 | **+0.002** |
+| observer | 0.502 | 0.499 | −0.001 | −0.001 |
+| absurdist | 0.493 | 0.492 | −0.010 | −0.011 |
+| wordsmith | 0.480 | 0.475 | −0.020 | −0.021 |
+
+Main findings hold (C1, C3, and the sides of neurotic, optimist and wordsmith). Cynic passes observer, so the
+order of the middle modes is unsettled. Exp 10's values stay in use, because this safety label is unreliable.

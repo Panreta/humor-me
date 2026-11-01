@@ -325,3 +325,30 @@ of the 0.10 usually called a small correlation, because the mode effects at stak
 **Excluded from the rule:** `n_posts` and `score_spread` (computed from the score), `year` and length
 (already adjusted for), and modes themselves. Safety labels are reported, but the hand check found them
 unreliable (Exp 9), so a hit on one is a reason to look closer, not to re-run. `mode2` is not used.
+
+## 2026-11-01 — rJokes correlation map: outcome, Exp 10 stands
+No feature met the rule. Within the same year and length group, every flag and safety label stays under
+0.05 with `pct` (largest: `safety_targets_group` −0.026), so **no extra adjustment and no re-run**.
+Length itself still leaks through the groups: +0.033 within deciles, as large as the biggest mode link
+(wordsmith −0.032). It wasn't a rule candidate because it's already adjusted for, so this is a stated
+limit of Exp 10, not a trigger. It also limits how fine a ranking the middle modes can support.
+The map only covers features we have: it can't rule out anything unmeasured, like topic or joke format.
+Evidence: notebooks/decisions.ipynb Exp 12; metrics.md "rJokes correlation map".
+
+## 2026-11-01 — Correlation-map rule misses a weak link paired with a strong one
+Asked by the user why the threshold was 0.05, I found it was a judgment call with a flaw. A feature can
+shift a mode's result by about (its link to `pct`) × (its link to the mode), but the rule tests each link
+separately. `safety_targets_group` (−0.026 with `pct`, +0.325 with cynic) fails the rule, yet its estimated
+shift (0.0085) is over 3× what the rule's minimum implies (0.0025). The rule's outcome stands, since changing
+a rule after seeing results would fit it to them.
+**Extra check (user), fixed before running, not a rule trigger:** re-run all 4 Exp 10 variants, same
+resamples, also adjusting for `safety_targets_group`. **Main findings hold** if C1, C3 and the sides of
+neurotic, optimist and wordsmith all stay the same. Report how far cynic moves (estimate: its ρ with `pct`
+goes from about +0.002 to +0.011). This safety label is unreliable (Exp 9), so a change would be a reason
+to doubt cynic's place, not to adopt the adjustment.
+**Outcome: main findings hold.** C1, C3 and the sides of neurotic, optimist and wordsmith are unchanged.
+Cynic moves: decile win rate 0.501 → 0.510 (CI [0.505, 0.514], now above 50%), regression −0.003 → +0.002.
+Its side still depends on the estimator, but it moves from fourth to third, passing observer. **Decision:**
+the sim's human `base` keeps the Exp 10 decile values, without this adjustment, and the middle-mode order
+(observer, cynic, absurdist) is reported as unsettled, not as a ranking.
+Evidence: notebooks/decisions.ipynb Exp 12.

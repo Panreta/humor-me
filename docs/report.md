@@ -121,6 +121,7 @@ How to read the numbers (laughs per show, laughs lost vs oracle, cold start, CI)
 | Prior strength sweep | Laughs lost vs prior weight | Planned (explore-next #7) | |
 | Hand check of R2 judge labels | Mode precision vs 105 hand labels; safety-flag misses | Done (notebook Exp 9) | Modes 92% precise at the labeled mode mix, misses lean to puns; safety flags caught 0 of 16 hand-flagged jokes. Examples: [metrics.md](metrics.md#hand-check-of-r2-labels-2026-10-31) |
 | Human vs LLM-judge mode ranking | Spearman ρ, side of the field, wordsmith last; rJokes upvotes vs HumorGen | Done (notebook Exp 10) | Agree only in part: neurotic up, wordsmith down, optimist clearly disagrees (ρ +0.20 to +0.37). Mode makes a small difference in upvotes (win rates 0.480–0.527), about half of length's effect; upvote noise means this doesn't show people care less about mode |
+| rJokes correlation map | Spearman ρ of each feature with `pct`, raw and within year and length group | Done (notebook Exp 12) | No flag or safety label needs an extra adjustment, so the ranking stands. Length is a weak link (ρ +0.13) but halves wordsmith's raw link; a little length remains within groups |
 | Room's `base` from human data | Change in policy ranking | Next: two-tastes run, judge vs human `base` | |
 | Long-form sets | Word budget, closer present, planned callbacks used | Planned | |
 | Live pilots | Detector vs operator agreement; episode rating | Weeks 5–7 | |
