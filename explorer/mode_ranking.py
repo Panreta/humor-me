@@ -26,20 +26,21 @@ MODES_PATH = "data/processed/rjokes/modes.jsonl"
 JOKES_PATH = "data/processed/rjokes/train.jsonl"
 
 
-def load(modes: str = MODES_PATH, jokes: str = JOKES_PATH) -> dict:
+def load(modes: str = MODES_PATH, jokes: str = JOKES_PATH, also_adjust: str | None = None) -> dict:
     lab = {}
     for line in pathlib.Path(modes).read_text(encoding="utf-8").splitlines():
         r = json.loads(line)
         if r.get("mode") in JUDGE:  # drops parse failures and "none" (no judge value)
-            lab[r["id"]] = MODES.index(r["mode"])
+            lab[r["id"]] = (MODES.index(r["mode"]), bool(also_adjust and r["safety"][also_adjust]))
     rows = []
     with open(jokes, encoding="utf-8") as f:
         for line in f:
             r = json.loads(line)
             if r["id"] in lab and r["year"] is not None:  # ~0.3% of rJokes has no date: can't year-match
-                rows.append((lab[r["id"]], r["pct"], r["year"], r["n_words"]))
+                rows.append((lab[r["id"]][0], r["pct"], r["year"], r["n_words"], lab[r["id"]][1]))
     a = np.array(rows, dtype=float)
-    return {"mode": a[:, 0].astype(int), "pct": a[:, 1], "year": a[:, 2].astype(int), "words": a[:, 3]}
+    return {"mode": a[:, 0].astype(int), "pct": a[:, 1], "year": a[:, 2].astype(int), "words": a[:, 3],
+            "extra": a[:, 4].astype(int) if also_adjust else None}
 
 
 def length_bins(words: np.ndarray, k: int) -> np.ndarray:
@@ -77,7 +78,7 @@ def win_rates(mode: np.ndarray, cell: np.ndarray, pct: np.ndarray, n_modes: int 
 
 
 def reg_effects(mode: np.ndarray, year: np.ndarray, lbin: np.ndarray, pct: np.ndarray,
-                n_modes: int = len(MODES)) -> np.ndarray:
+                n_modes: int = len(MODES), extra: np.ndarray | None = None) -> np.ndarray:
     """OLS mode effects vs the average mode (sum-to-zero), adjusted for year and length bin."""
     def dummies(v):
         levels = np.unique(v)[1:]
@@ -86,6 +87,8 @@ def reg_effects(mode: np.ndarray, year: np.ndarray, lbin: np.ndarray, pct: np.nd
     for j in range(n_modes - 1):
         m[:, j] = (mode == j).astype(float) - (mode == n_modes - 1)
     X = np.hstack([np.ones((len(mode), 1)), m, dummies(year), dummies(lbin)])
+    if extra is not None:
+        X = np.hstack([X, extra[:, None].astype(float)])
     beta = np.linalg.lstsq(X, pct, rcond=None)[0][1:n_modes]
     return np.r_[beta, -beta.sum()]
 
@@ -97,14 +100,17 @@ def spearman(a: np.ndarray, b: np.ndarray) -> float:
 
 def estimate(kind: str, d: dict, lbin: np.ndarray, idx: np.ndarray) -> np.ndarray:
     mode, pct, year, lb = d["mode"][idx], d["pct"][idx], d["year"][idx], lbin[idx]
+    extra = None if d.get("extra") is None else d["extra"][idx]
     if kind == "wr":
-        _, cell = np.unique(year * 100 + lb, return_inverse=True)
+        key = year * 100 + lb if extra is None else (year * 100 + lb) * 2 + extra
+        _, cell = np.unique(key, return_inverse=True)
         return win_rates(mode, cell.ravel(), pct)
-    return reg_effects(mode, year, lb, pct)
+    return reg_effects(mode, year, lb, pct, extra=extra)
 
 
-def run(modes: str = MODES_PATH, jokes: str = JOKES_PATH, boots: int = 1000, seed: int = 0) -> dict:
-    d = load(modes, jokes)
+def run(modes: str = MODES_PATH, jokes: str = JOKES_PATH, boots: int = 1000, seed: int = 0,
+        also_adjust: str | None = None) -> dict:
+    d = load(modes, jokes, also_adjust)
     n = len(d["pct"])
     judge = np.array([JUDGE[m] for m in MODES])
     rng = np.random.default_rng(seed)
