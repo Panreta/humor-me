@@ -1,4 +1,4 @@
 {"params": {"names": ["LinUCB", "LinQ refit"], "seeds": 3, "shift_at": 4, "shows": 400}, "results": {
   "LinUCB": {"repeat_rate": 0.2914285714285714, "hurt_pick_rate": 0.5071942446043165},
-  "LinQ refit": {"repeat_rate": 0.35, "hurt_pick_rate": 0.5449640287769785}
+  "LinQ refit": {"repeat_rate": 0.39, "hurt_pick_rate": 0.3273381294964029}
 }}

@@ -456,7 +456,26 @@ One corrected run, same criteria. Each mode starts at its one-bit prior × the b
 2. **The scale diagnosis held:** repeats fall from 77% to 35% and early-show quality recovers to 0.96.
 3. **A new problem appears:** quality falls through the show even with no turn (0.96 → 0.66 at 8 bits). In laughs
    after the shift it ties LinUCB at 8 bits (19.1 each) but loses in steady shows (18.4 vs 22.6).
-4. **Bug found afterwards:** `update` grows `A` mid-show while `b` waits for the show's end, so values drop with no
-   new evidence (−82% in show 1, −3% after 300), a likely part of finding 3. A diagnostic with both updated at show
-   end (not reproduced by me, decisions.md) improves steady shows to −0.160 and −0.149 but still fails, so C1 stays
-   a negative result. The numbers above are from the code as it ran.
+4. **Bug found afterwards:** `update` grew `A` mid-show while `b` waited for the show's end, so values dropped with no
+   new evidence (−82% in show 1, −3% after 300). The tables above are from that code. Results after the fix follow.
+
+### C1b with the bug fixed
+
+`A` and `b` change together at the show's end, and the refit uses values from before that show was added. Same criteria,
+one run. Raw: `reports/metrics/show_state_c1b.json`; the first code's numbers are in `show_state_c1b_buggy*.json`.
+
+| Set | After the shift: LinUCB → fixed | Gain (need ≥ +0.05) | Steady: LinUCB → fixed | Change (need ≥ −0.01) | Pass |
+|---|---|---|---|---|---|
+| 8 | 0.770 → 0.798 | +0.029 | 0.930 → 0.766 | −0.164 | no |
+| 16 | 0.773 → 0.760 | −0.013 | 0.936 → 0.747 | −0.189 | no |
+
+| Policy | Repeats the last bit's mode | After a shift, picks a hurt mode |
+|---|---|---|
+| LinUCB | 29% | 51% |
+| Fixed C1b | 39% | 33% |
+
+**Findings**
+1. **Still fails, so C1 stays a negative result.** The demo keeps LinUCB.
+2. **The fix helps it read a turn:** hurt-mode picks fall to 33%. After the shift at 8 bits it gets 19.8 laughs vs 19.1,
+   but the CIs overlap.
+3. **It pays for that in steady shows:** 19.9 vs 22.6 laughs at 8 bits, and quality still falls from 0.94 to 0.74.

@@ -1,6 +1,5 @@
 """Show state step C1: LinQ's planning inputs and its Bellman target."""
 import numpy as np
-import pytest
 
 from sim.env import AudienceEnv, Context
 from sim.policies import LinQ, LinQRefit, LinUCB, n_features, planning_features, prior_means
@@ -74,13 +73,31 @@ def test_refit_recomputes_old_targets_from_the_current_model():
     assert len(q.shows) == 51 and q._show == []
 
 
-@pytest.mark.xfail(strict=True, reason="known bug: C1b grows A mid-show while b waits for the show's end (decisions.md)")
 def test_an_in_show_update_leaves_values_unchanged_until_the_refit():
     q = LinQRefit(np.array([0.4, 0.4]), n_bits=8)
     obs = _obs(0, [])
     before = q.scores(obs)[0, 0]
     q.update(obs, 0, 0.5)
     assert abs(q.scores(obs)[0, 0] - before) < 1e-9
+
+
+def test_the_refit_uses_values_from_before_the_show_was_added():
+    q = LinQRefit(np.array([0.4, 0.4]), n_bits=2)
+    first, last = _obs(0, [], n_bits=2), _obs(1, [(0, 0.5)], n_bits=2)
+    expected_next = max(np.linalg.solve(q.A[a], q.b[a]) @ q._x(last, a) for a in range(2))
+    q.update(first, 0, 0.5)
+    q.update(last, 1, 0.3)
+    assert np.allclose(q.b[0] - q.b0[0], (0.5 + expected_next) * q._x(first, 0))
+    assert np.allclose(q.b[1] - q.b0[1], 0.3 * q._x(last, 1))
+
+
+def test_a_bit_from_a_finished_show_counts_once_in_a():
+    q = LinQRefit(np.array([0.4, 0.4]), n_bits=1)
+    a0 = q.A[0].copy()
+    obs = _obs(0, [], n_bits=1)
+    q.update(obs, 0, 0.5)
+    x = q._x(obs, 0)
+    assert np.allclose(q.A[0] - a0, np.outer(x, x))
 
 
 def test_adding_linq_leaves_linucb_feature_size_alone():

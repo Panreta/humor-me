@@ -261,17 +261,18 @@ class LinQRefit(LinQ):
         return s
 
     def update(self, obs, action, reward):
+        # A and b only change together, at the show's end: growing A alone would shrink values with no new evidence.
         k = len(self.A)
-        x = self._x(obs, action)
-        self.A[action] += np.outer(x, x)
-        self._show.append((x, action, reward, np.stack([self._x(obs, a) for a in range(k)])))
+        self._show.append((self._x(obs, action), action, reward, np.stack([self._x(obs, a) for a in range(k)])))
         if obs["t"] == obs["n_bits"] - 1:
             self.shows.append(self._show)
             self._show = []
             self._refit()
 
     def _refit(self):
-        theta = np.stack([np.linalg.solve(self.A[a], self.b[a]) for a in range(len(self.A))])
+        theta = np.stack([np.linalg.solve(self.A[a], self.b[a]) for a in range(len(self.A))])  # before A grows
+        for x, action, _, _ in self.shows[-1]:
+            self.A[action] += np.outer(x, x)
         b = self.b0.copy()
         for show in self.shows:
             next_best = 0.0  # nothing follows the last bit

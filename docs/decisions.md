@@ -452,6 +452,23 @@ it stops at bit 8, so this isn't the whole story. (4) The turn is hidden: one no
 the room changed, so this is really a POMDP (the true state is hidden), and hurt-mode picks barely move.
 Evidence: notebooks/decisions.ipynb Exp 15.
 
+## 2026-11-01 — Show state step C1b, bug fixed: one more run (fixed before running)
+The user asked to fix the bug and record the result. `A` and `b` now change together at the show's end, and the
+refit's values come from the model as it was before that show was added. Nothing else changes. **Same pass criteria,
+same protocol and seeds, one run, no tuning.** The numbers in the entry above stay, as what the first code did. If it
+passes, the user decides whether to adopt it; the demo keeps LinUCB until then. If it fails, C1 stays a negative result.
+**Outcome: still fails, so C1 stays a negative result and the demo keeps LinUCB.** After the shift: +0.029 at 8 bits,
+−0.013 at 16 (need +0.05). Steady shows: −0.164 and −0.189 (need −0.01). The fix helps most at reading a turn: it now
+picks a hurt mode 33% of the time vs LinUCB's 51%, and after the shift gets 19.8 laughs vs 19.1 at 8 bits, but with
+overlapping CIs (± 0.5, ± 0.6). It pays for that in steady shows: 19.9 vs 22.6 laughs. The review's diagnostic
+got +0.003 and −0.001 after the shift and −0.160 and −0.149 steady; this run differs slightly because its refit also
+uses values from before the show was added, and those gaps are within the CIs. **Why it still fails (one-off, steady rooms, 3 seeds, causes not
+tested separately):** quality still falls through the show (0.94 → 0.74), values still run high (3.20 vs 2.97), the
+gap between its modes' values (0.57–1.22) is two to four times LinUCB's, and it tries untried modes far more (45% at
+bit 3 vs 9%). So this replaces the buggy measurements in the entry above. The little-to-gain and hidden-turn reasons
+stand. `passes()` still uses point estimates, so a +0.029 gain isn't clearly different from zero or from the bar.
+Evidence: notebooks/decisions.ipynb Exp 15.
+
 ## 2026-11-01 — rJokes may also test judges, still never joke material
 Extends the 2026-10-31 rule (user). To choose the judge behind the DPO preference pairs, compare a plain judge,
 a "human taste" prompt, and that prompt with example pairs, on how often each picks the joke with more upvotes
