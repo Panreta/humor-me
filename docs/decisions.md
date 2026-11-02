@@ -383,3 +383,114 @@ The user chose Kokoro over a cloud voice (better quality, but cost and a network
 (lighter, but more synthetic). It runs on the CPU so the 8 GB GPU stays free for the joke model. Measured: 1.9–3.7 s
 per line for 5–8 s of audio, so lines must be prepared ahead to meet the 1 s target (design.md "Latency budget"). The
 user heard it working in the browser. Still unmeasured: speed while a local joke model is also running.
+
+## 2026-11-01 — M1 target moves to Dec 8; presentation and report on Dec 14
+From the user. Replaces the Dec 15 date (2026-10-20 entry). Target Dec 8, spillover by Dec 12, and on Dec 14
+the final presentation (15 min at most, team) and final report are due. The old week 8 (freeze, rehearse,
+finalize the report) now has to fit into Dec 1–8, so the demo track has about a week less of slack.
+
+## 2026-11-01 — Cut banter and roast handling from M1
+From the user, to make room for the trained joke model and show state. The agent won't hear or answer what
+people say in the demo, so nothing can trigger a roast response. Invariant 4 (concede and escalate, never
+hostile) still stands and applies again if banter returns after M1. Laugh detection is unaffected.
+
+## 2026-11-01 — Split show state step C: keep the MDP, defer callbacks
+Step C was "MDP + callbacks". **C1** = MDP over the 8 bits with show state, in-show exploration and fatigue
+planning, in the simulator. **C2** = callbacks. Keep C1 for its RL value; callbacks come back after the demo
+and DPO are done (user). They depend on a model that can write them and would add more made-up rewards to
+the simulator. C1's pass criteria get fixed in its own PR, before it runs.
+
+## 2026-11-01 — Show state step C1: method and pass criteria (fixed before running)
+**Pass criteria:** the same as steps A and B, so the three compare directly. Against plain LinUCB, at both 8
+and 16 bits: choice quality after the shift +≥ 0.05, and over the same bits in steady shows change ≥ −0.01.
+Same protocol as Exp 7 and 8: careers with a random half of shows shifted, same total bits, same seeds.
+**Method.** Options: (a) known-model planning: rejected, it would read the room's hidden truth; (b) PPO: more
+to tune and harder to debug, for an 8-step problem with few features; **(c) chose linear Q-learning**
+(`LinQ`): LinUCB's ridge model and exploration bonus, but each bit's target is its reward plus the best value
+of the next bit, with no discount. That target is what lets a choice be valued for what it does to later bits.
+**Inputs:** LinUCB's, plus the reaction and step A's show state, plus five for planning: used two bits ago
+(fatigue covers two bits), share of the show left, drop in last bit's reward vs tonight's earlier mean, that
+drop × untried tonight, and untried × share of the show left.
+**One run, no tuning:** if it fails, that's the result. Any later variant needs its own entry. PPO is the next
+candidate only if the user wants it. C1 runs in the simulator only, whose fatigue and shift are made up, and
+the live demo keeps LinUCB unless the user decides otherwise.
+
+## 2026-11-01 — Show state step C1, first run: fails, and the run doesn't test planning fairly
+Fails both criteria at both lengths. After the shift: −0.023 at 8 bits, −0.114 at 16. Steady shows: −0.198 and
+−0.255. It repeats the last mode 77% of the time (LinUCB 29%), though it picks a hurt mode less often (16% vs
+51%). Measured with a one-off script, seeds 0–2: 96% repeats in the first 50 shows, and values too high
+(predicted return ~3.6–4.0 vs actual ~2.8; last bit ~0.6 vs ~0.3). **Likely cause, not yet proven: a scale error
+in my design.** The uniform prior starts every mode at one bit's reward (~0.4), but Q-values estimate the rest
+of the show (~3), and the bonus is also sized for one bit, so a mode tried once would jump far above untried
+ones and the director would lock on. If so, this rejects this implementation, not MDP planning.
+
+## 2026-11-01 — Show state step C1b: fix the scale and targets (fixed before running)
+The user approved one corrected run. **Same pass criteria** as A, B and C1: at 8 and 16 bits against LinUCB, choice
+quality after the shift +≥ 0.05, steady change ≥ −0.01. Same protocol and inputs as C1. Two changes, both from
+the diagnosis, neither a tuned number:
+- **Scale:** each mode starts at its one-bit prior × the bits left, and the exploration bonus grows with √(bits
+  left), since noise in a sum of bits grows that way.
+- **Targets:** after each show, every past bit's target is recomputed from the current model, last bit first. C1
+  kept targets from early, wrong guesses in its running totals.
+**One run, no tuning.** If it fails, C1 is reported as a negative result and the demo keeps LinUCB. Anything more,
+PPO included, needs the user's decision.
+**Outcome: fails, so C1 is a negative result.** After the shift: −0.013 at 8 bits, −0.062 at 16. Steady shows:
+−0.233 and −0.237. The scale fix did remove the lock-on: repeats fall from 77% to 35% (LinUCB 29%) and early-show
+quality recovers (0.96 at bit 1). But quality then falls through the show even with no turn (0.96 → 0.66 at 8
+bits), and it picks hurt modes as often as LinUCB (54% vs 51%). In laughs after the shift it ties LinUCB at 8
+bits (19.1 each); in steady shows it loses (18.4 vs 22.6). **Decision:** the
+demo keeps LinUCB. Steps A, B and C1 all failed the same bar, so a linear model on these inputs hasn't beaten
+LinUCB at reading a turn. That says nothing about planning in general, and the simulator's numbers are made up.
+**Bug found after the run (other session's review; I confirmed the mechanism).** `LinQRefit.update` grows `A[action]` after
+every bit, but `b` only changes at the show's end, so a mode's value drops mid-show with no new evidence. For the
+same situation after one update: −82% in show 1, −68% after 5 shows, −16% after 50, −3% after 300. So this run wasn't
+a clean test of its own design. The review's diagnostic, which I haven't reproduced (A and b both updated at show
+end, 10 seeds, paired against LinUCB): 8 bits, shifted +0.003 ± 0.044, steady −0.160 ± 0.031; 16 bits, shifted
+−0.001 ± 0.037, steady −0.149 ± 0.032. That's better, but **still fails both criteria, so the decision stands**. The
+code stays as it ran: the entry allows one run, and a fix or re-run is the user's call. A test marks the bug as a
+known failure. Also, `passes()` uses point estimates, while these paired CIs (± 0.03 to 0.07) are as wide as the +0.05 gate.
+**Why it failed (one-off measurement in steady rooms, 3 seeds, last quarter of each career, **on the buggy code**,
+so (2) and (3) and the fall in quality may be partly the bug; causes not tested separately).** (1) Little to gain: fatigue is small, so the best next bit is already close to the best plan. (2) A
+noisier target: it predicts a sum of future bits, its values run about 11% high (3.21 vs 2.88), and the gap between
+its modes' values (0.41–0.58) is about twice LinUCB's (0.26–0.32), so noise probably decides many choices. (3) It
+keeps moving to untried modes: at bit 3 it picks one 63% of the time vs LinUCB's 9%, though quality stays low after
+it stops at bit 8, so this isn't the whole story. (4) The turn is hidden: one noisy bit says little about whether
+the room changed, so this is really a POMDP (the true state is hidden), and hurt-mode picks barely move.
+Evidence: notebooks/decisions.ipynb Exp 15.
+
+## 2026-11-01 — Show state step C1b, bug fixed: one more run (fixed before running)
+The user asked to fix the bug and record the result. `A` and `b` now change together at the show's end, and the
+refit's values come from the model as it was before that show was added. Nothing else changes. **Same pass criteria,
+same protocol and seeds, one run, no tuning.** The numbers in the entry above stay, as what the first code did. If it
+passes, the user decides whether to adopt it; the demo keeps LinUCB until then. If it fails, C1 stays a negative result.
+**Outcome: still fails, so C1 stays a negative result and the demo keeps LinUCB.** After the shift: +0.029 at 8 bits,
+−0.013 at 16 (need +0.05). Steady shows: −0.164 and −0.189 (need −0.01). The fix helps most at reading a turn: it now
+picks a hurt mode 33% of the time vs LinUCB's 51%, and after the shift gets 19.8 laughs vs 19.1 at 8 bits, but with
+overlapping CIs (± 0.5, ± 0.6). It pays for that in steady shows: 19.9 vs 22.6 laughs. The review's diagnostic
+got +0.003 and −0.001 after the shift and −0.160 and −0.149 steady; this run differs slightly because its refit also
+uses values from before the show was added, and those gaps are within the CIs. **Why it still fails (one-off, steady rooms, 3 seeds, causes not
+tested separately):** quality still falls through the show (0.94 → 0.74), values still run high (3.20 vs 2.97), the
+gap between its modes' values (0.57–1.22) is two to four times LinUCB's, and it tries untried modes far more (45% at
+bit 3 vs 9%). So this replaces the buggy measurements in the entry above. The little-to-gain and hidden-turn reasons
+stand. `passes()` still uses point estimates, so a +0.029 gain isn't clearly different from zero or from the bar.
+Evidence: notebooks/decisions.ipynb Exp 15.
+
+## 2026-11-01 — rJokes may also test judges, still never joke material
+Extends the 2026-10-31 rule (user). To choose the judge behind the DPO preference pairs, compare a plain judge,
+a "human taste" prompt, and that prompt with example pairs, on how often each picks the joke with more upvotes
+among same-year, similar-length pairs. Asking a judge to have human taste doesn't give it that taste, so this
+measures it. Examples shown to a judge must pass a hand check first. rJokes text is still never used to train
+or feed the generator, and never committed. Upvote noise caps every judge's score, so small gaps won't count.
+
+## 2026-11-01 — Trained joke model and DPO move into M1, from our own premises
+Replaces DPO's "cut until after M1" (user): the Dec 8 demo is the agent on screen with its waveform and audio,
+speaking jokes from a model we trained. DPO should finish well before that. Training order follows HumorGen:
+SFT first, then DPO on top. HumorGen found DPO about equal to SFT, so SFT is the safe checkpoint.
+**Preference pairs:** there are no logged shows yet and rJokes is not joke material, so they come from a judge
+on jokes generated per mode, chosen by the rJokes comparison above, plus a small human vote. The model learns
+that judge's taste, which Exp 10 shows matches people only in part. The report must say so.
+**Prompts.** Options: (a) SemEval 2026 Task 1 headlines and word pairs, as HumorGen did: directly comparable,
+but we found no license or download link and news can be sensitive; **(b) chose our own premises** (user), which
+give control over the data and the bit and scene structure we want. Cost: not directly comparable to HumorGen.
+Limits: our 7B generator and judge are weaker than HumorGen's 32B and 70B. The reward model from logged shows
+(H2) stays after M1.
