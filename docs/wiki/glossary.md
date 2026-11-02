@@ -97,8 +97,11 @@ deliberately separate: a good director must do well even when its guess is wrong
 |---|---|
 | **Episode** | One simulated show: 8 bits × 5 jokes = 40 jokes |
 | **Career** | A run of consecutive shows (300) where the policy keeps learning; one seed = one career |
-| **Oracle** | A policy that knows the room's hidden truth and always picks the best mode. The ceiling, not achievable |
-| **Regret / laughs lost** | How many laughs a policy missed compared with the oracle. We report it in laughs (sum of levels) so it reads in audience terms |
+| **Oracle** | A policy that knows the room's hidden truth and always picks the best mode for the next bit. Not achievable, and not quite the ceiling, because it doesn't plan around fatigue (see planning optimum) |
+| **Planning optimum** | The best possible sequence of modes for a room, found by checking every path through the show (dynamic programming). It plans around fatigue, which the oracle doesn't, so it scores slightly higher: 50.03 vs 49.20 expected laughs a show (notebook Exp 16) |
+| **Regret / laughs lost** | How many laughs a policy missed compared with the oracle. We report it in laughs (sum of levels) so it reads in audience terms. It compares each choice with the best mode from the policy's own position, so it isn't simply oracle laughs minus policy laughs |
+| **Ideal observer** | A test policy that is given every true room setting and only has to infer what stays hidden (here, whether the room turned tonight). It shows how much the evidence itself allows, so a real policy isn't asked for the impossible |
+| **Statistical power** | The chance a test detects an effect that really exists. Usually set at 80%, which then tells you how much data to collect. Example: a 60/40 preference needs about 194 pair votes |
 | **Cold start** | The first 10 shows: performance on the prior alone, before much learning |
 | **Experienced** | The last 50 shows of a career: performance after learning |
 | **Choice quality** | Expected reward of the mode the director picked ÷ that of the best mode, for one bit. 1.0 = picked the best mode. Noise-free (unlike laughs), so it shows *decisions* directly |

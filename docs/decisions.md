@@ -494,3 +494,16 @@ but we found no license or download link and news can be sensitive; **(b) chose 
 give control over the data and the bit and scene structure we want. Cost: not directly comparable to HumorGen.
 Limits: our 7B generator and judge are weaker than HumorGen's 32B and 70B. The reward model from logged shows
 (H2) stays after M1.
+
+## 2026-11-01 — Oracle vs planning optimum: keep the oracle as the yardstick, report the true ceiling beside it
+The oracle picks the best next bit, so it can't plan around fatigue, and we had called it the ceiling. An exact best
+sequence per room (dynamic programming) scores 50.03 expected laughs a show against the oracle's 49.20 under judge
+taste (47.60 vs 46.98 under human taste). On the same rooms, LinUCB's last 50 shows are 95.4% of that optimum (94.9%
+under human taste), against 97.0% and 96.2% of the oracle. Options: (a) replace the oracle in every experiment and re-run,
+(b) keep it and report the optimum beside it. **Chose (b):** the policy order doesn't change, only the denominator, and
+Exp 13's 95% criterion stays as it was defined, against the oracle. Say "97% of the oracle, about 95% of the true best",
+and stop calling the oracle the ceiling. This also limits step C's upside: in a steady room, perfect planning around
+fatigue adds only about 0.8 laughs a show (at most 2.5).
+**Limits:** no bar was fixed beforehand, and a one-off script had already shown the result. Steady shows only: the shift
+experiments (Exp 5 to 8, 14, 15) still compare against the oracle. The fatigue being planned around is made up.
+Evidence: notebooks/decisions.ipynb Exp 16; metrics.md "Oracle vs planning optimum".
