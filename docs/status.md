@@ -22,7 +22,7 @@ Learning the material from scratch (RL foundations → our experiments → Explo
 | Transcript pipeline | **Paused 2026-10-26**. Bits F1 0.80 on Bargatze; kept for structure stats + report appendix |
 | Report | [report.md](report.md): overview written (user + AI), results table filled for Exp 1–7 |
 | Wiki | [docs/wiki/](wiki/README.md) + [glossary](wiki/glossary.md), mirrored to the GitHub wiki by `scripts/sync_wiki.py` after merges |
-| **Backend / frontend (demo)** | **Scaffold only.** Voice loop, waveform UI, laugh detection, safety filter, logging: not started. Biggest risk to Dec 15 |
+| **Backend / frontend (demo)** | **First slice built:** fixed lines → Kokoro on the CPU → browser audio and frequency display, with session logs. Generator, director, safety filter, laugh button, laugh detection: not started. Biggest risk to Dec 15 |
 
 ## Open PRs
 

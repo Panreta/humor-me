@@ -1,6 +1,6 @@
 # frontend/
 
-Next.js UI for the live show. Today it's the default `create-next-app` page; it grows into:
+Next.js UI for the live show. Today it has the frequency display and a Start button; it grows into:
 
 - **Waveform avatar**: an original animated line driven by the TTS audio amplitude.
 - **Operator panel**: session context (`venue`, `energy`, `age`), a manual "laughed" button

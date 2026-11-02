@@ -377,3 +377,9 @@ tastes. A judge prior in a human room makes no clear difference (45.0 ± 1.0).
 so part of learning's advantage comes from those made-up values. This shows the choice doesn't depend on
 `base`, not how much learning would help in a real room. Live pilots have to answer that.
 Evidence: notebooks/decisions.ipynb Exp 13; metrics.md "Two tastes in the sim".
+
+## 2026-11-01 — Demo voice: Kokoro, local, on the CPU
+The user chose Kokoro over a cloud voice (better quality, but cost and a network dependency at the venue) and Piper
+(lighter, but more synthetic). It runs on the CPU so the 8 GB GPU stays free for the joke model. Measured: 1.9–3.7 s
+per line for 5–8 s of audio, so lines must be prepared ahead to meet the 1 s target (design.md "Latency budget"). The
+user heard it working in the browser. Still unmeasured: speed while a local joke model is also running.

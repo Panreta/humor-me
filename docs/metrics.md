@@ -410,3 +410,20 @@ Run: `sim/evaluate_tastes.py`, notebook Exp 13.
 3. **The prior still doesn't matter much:** a judge prior in a human room stays within the CI of a uniform one.
 4. **Limit:** venue and age offsets are made up and now mostly decide the best mode, so this shows the choice
    doesn't depend on `base`, not how much learning would help in a real room.
+   
+## Demo voice: first slice (2026-11-01)
+
+Three fixed lines through the real server, from `data/sessions/` logs (local only). Kokoro 0.9.4, CPU, Ryzen 9 8945HS.
+One test-client show and three browser shows.
+
+| Measure | Result |
+|---|---|
+| Time to render a line | 1.9–3.7 s, for 5.25–8.43 s of audio (one 5.9 s outlier on a first line) |
+| Render time ÷ audio length | About 0.3–0.5 |
+| Whole show in the browser | About 30 s: 21.6 s of audio plus rendering |
+| First load | 54 s with model downloads; about 33 s to the first line once downloaded |
+
+**Findings**
+1. **It runs faster than real time on the CPU**, so a local voice is workable for the demo.
+2. **It misses the 1 s target on its own**, so the next line must be rendered while the current one plays.
+3. **The slow first load should happen at server start**, not when the operator presses Start.

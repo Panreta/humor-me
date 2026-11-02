@@ -1,5 +1,7 @@
-# Runs on 3.14 for now; audio/ML wheels (faster-whisper, torch) may need 3.12/3.13 in week 5
+# Python 3.12: Kokoro needs spaCy, whose build dependencies fail on 3.14 (dev-log, 2026-11-01)
 fastapi==0.115.12
 uvicorn[standard]==0.34.2
 httpx==0.28.1
 python-dotenv==1.1.0
+kokoro==0.9.4
+soundfile==0.14.0
