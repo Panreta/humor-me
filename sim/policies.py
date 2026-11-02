@@ -236,6 +236,52 @@ class LinQ(LinUCB):
             self._pending = (obs, action, reward)
 
 
+class LinQRefit(LinQ):
+    """Step C1b: LinQ with values on the scale of the show left, and targets refit after each show.
+
+    Each mode starts at its one-bit prior × the bits left. After a show, all past targets are
+    recomputed from the current model, last bit first, so early wrong guesses don't stay in `b`.
+    """
+
+    LEFT = n_features(react=True, show_state=True) + 1  # index of "share of the show left"
+
+    def __init__(self, prior, n_bits: int, **kw):
+        super().__init__(prior, **kw)
+        k, d = self.A.shape[:2]
+        theta0 = np.zeros((k, d))
+        theta0[:, self.LEFT] = np.asarray(prior) * n_bits  # left = bits left / n_bits
+        self.b0 = np.einsum("kij,kj->ki", self.A, theta0)
+        self.b = self.b0.copy()
+        self.shows: list[list[tuple]] = []  # per show: (x of the choice, arm, reward, x for all arms)
+        self._show: list[tuple] = []
+
+    def scores(self, obs) -> np.ndarray:
+        s = super().scores(obs)
+        s[:, 1] *= math.sqrt(obs["n_bits"] - obs["t"])
+        return s
+
+    def update(self, obs, action, reward):
+        # A and b only change together, at the show's end: growing A alone would shrink values with no new evidence.
+        k = len(self.A)
+        self._show.append((self._x(obs, action), action, reward, np.stack([self._x(obs, a) for a in range(k)])))
+        if obs["t"] == obs["n_bits"] - 1:
+            self.shows.append(self._show)
+            self._show = []
+            self._refit()
+
+    def _refit(self):
+        theta = np.stack([np.linalg.solve(self.A[a], self.b[a]) for a in range(len(self.A))])  # before A grows
+        for x, action, _, _ in self.shows[-1]:
+            self.A[action] += np.outer(x, x)
+        b = self.b0.copy()
+        for show in self.shows:
+            next_best = 0.0  # nothing follows the last bit
+            for x, action, reward, all_arms in reversed(show):
+                b[action] += (reward + next_best) * x
+                next_best = float((all_arms * theta).sum(axis=1).max())
+        self.b = b
+
+
 class LinTS(_Linear):
     """Thompson sampling on the same Bayesian ridge model (Agrawal & Goyal 2013)."""
 
