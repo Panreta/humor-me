@@ -410,7 +410,7 @@ Run: `sim/evaluate_tastes.py`, notebook Exp 13.
 3. **The prior still doesn't matter much:** a judge prior in a human room stays within the CI of a uniform one.
 4. **Limit:** venue and age offsets are made up and now mostly decide the best mode, so this shows the choice
    doesn't depend on `base`, not how much learning would help in a real room.
-   
+
 ## Demo voice: first slice (2026-11-01)
 
 Three fixed lines through the real server, from `data/sessions/` logs (local only). Kokoro 0.9.4, CPU, Ryzen 9 8945HS.
@@ -427,3 +427,72 @@ One test-client show and three browser shows.
 1. **It runs faster than real time on the CPU**, so a local voice is workable for the demo.
 2. **It misses the 1 s target on its own**, so the next line must be rendered while the current one plays.
 3. **The slow first load should happen at server start**, not when the operator presses Start.
+
+## Show state step C1, first run (2026-11-01)
+
+`LinQ`: LinUCB's model and bonus, with target = reward + the next bit's best value, no discount. Same protocol
+and criteria as steps A and B, fixed before running (decisions.md 2026-11-01). Run: `sim/evaluate_shift.py`,
+notebook Exp 14. Raw: `reports/metrics/show_state_c1.json`, `show_state_c1_behaviour.json`.
+
+| Set | After the shift: LinUCB → LinQ | Gain (need ≥ +0.05) | Steady: LinUCB → LinQ | Change (need ≥ −0.01) | Pass |
+|---|---|---|---|---|---|
+| 8 | 0.770 → 0.747 | −0.023 | 0.930 → 0.732 | −0.198 | no |
+| 16 | 0.773 → 0.659 | −0.114 | 0.936 → 0.681 | −0.255 | no |
+
+| Policy | Repeats the last bit's mode | After a shift, picks a hurt mode |
+|---|---|---|
+| LinUCB | 29% | 51% |
+| LinQ | 77% | 16% |
+
+**Findings**
+1. **Fails both criteria at both lengths; not adopted.** The demo keeps LinUCB.
+2. **It locks onto modes**, even in steady shows, which points at the implementation and not at reading a turn.
+3. **Likely cause, not proven:** modes start at one bit's reward (~0.4) while Q-values estimate the rest of the
+   show (~3). A one-off script fits this: 96% repeats in the first 50 shows, and predicted return ~3.6–4.0 vs an
+   actual ~2.8. So this run probably isn't a fair test of planning.
+
+## Show state step C1b: scale and targets fixed (2026-11-01)
+
+One corrected run, same criteria. Each mode starts at its one-bit prior × the bits left, the bonus grows with
+√(bits left), and past targets are recomputed after each show. Notebook Exp 15. Raw:
+`reports/metrics/show_state_c1b.json`, `show_state_c1b_behaviour.json`.
+
+| Set | After the shift: LinUCB → C1b | Gain (need ≥ +0.05) | Steady: LinUCB → C1b | Change (need ≥ −0.01) | Pass |
+|---|---|---|---|---|---|
+| 8 | 0.770 → 0.756 | −0.013 | 0.930 → 0.697 | −0.233 | no |
+| 16 | 0.773 → 0.711 | −0.062 | 0.936 → 0.700 | −0.237 | no |
+
+| Policy | Repeats the last bit's mode | After a shift, picks a hurt mode |
+|---|---|---|
+| LinUCB | 29% | 51% |
+| C1 | 77% | 16% |
+| C1b | 35% | 54% |
+
+**Findings**
+1. **C1 is a negative result; the demo keeps LinUCB.** Steps A, B and C1 all failed the same bar.
+2. **The scale diagnosis held:** repeats fall from 77% to 35% and early-show quality recovers to 0.96.
+3. **A new problem appears:** quality falls through the show even with no turn (0.96 → 0.66 at 8 bits). In laughs
+   after the shift it ties LinUCB at 8 bits (19.1 each) but loses in steady shows (18.4 vs 22.6).
+4. **Bug found afterwards:** `update` grew `A` mid-show while `b` waited for the show's end, so values dropped with no
+   new evidence (−82% in show 1, −3% after 300). The tables above are from that code. Results after the fix follow.
+
+### C1b with the bug fixed
+
+`A` and `b` change together at the show's end, and the refit uses values from before that show was added. Same criteria,
+one run. Raw: `reports/metrics/show_state_c1b.json`; the first code's numbers are in `show_state_c1b_buggy*.json`.
+
+| Set | After the shift: LinUCB → fixed | Gain (need ≥ +0.05) | Steady: LinUCB → fixed | Change (need ≥ −0.01) | Pass |
+|---|---|---|---|---|---|
+| 8 | 0.770 → 0.798 | +0.029 | 0.930 → 0.766 | −0.164 | no |
+| 16 | 0.773 → 0.760 | −0.013 | 0.936 → 0.747 | −0.189 | no |
+
+| Policy | Repeats the last bit's mode | After a shift, picks a hurt mode |
+|---|---|---|
+| LinUCB | 29% | 51% |
+| Fixed C1b | 39% | 33% |
+
+**Findings**
+1. **Still fails, so C1 stays a negative result.** The demo keeps LinUCB.
+2. **The fix helps it read a turn:** hurt-mode picks fall to 33%. After the shift at 8 bits it gets 19.8 laughs vs 19.1,
+   but the CIs overlap.
+3. **It pays for that in steady shows:** 19.9 vs 22.6 laughs at 8 bits, and quality still falls from 0.94 to 0.74.
