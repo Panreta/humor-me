@@ -1,0 +1,9 @@
+%%{init:{"theme":"default","flowchart":{"nodeSpacing":18,"rankSpacing":30,"wrappingWidth":420}}}%%
+flowchart LR
+A0["Audio only"]:::r --> B0["Face tracking: noisy, slow, privacy cost"]:::x
+A1["Per-joke laugh is the reward"]:::r --> B1["Raw laugh counts: gamed by joke spam"]:::x
+A2["One robot, six modes"]:::r --> B2["Full persona switching: incoherent"]:::x
+A3["Contextual bandit first"]:::r --> B3["Full RL online: too little signal per show"]:::x
+A4["Safety is a hard rule"]:::r --> B4["Leaving it to the bandit"]:::x
+classDef r fill:#d4f4dd,stroke:#2e7d32,color:#000
+classDef x fill:#f8d7d7,stroke:#c62828,color:#000

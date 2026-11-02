@@ -1,0 +1,9 @@
+%%{init:{"theme":"default","flowchart":{"nodeSpacing":18,"rankSpacing":30,"wrappingWidth":420}}}%%
+flowchart LR
+A["Try a bit<br/>(action)"]:::c --> B["Room laughs, or doesn't<br/>(reward)"]:::u
+B --> C["Choose differently<br/>(learning)"]:::r
+C --> E["Next show, new room<br/>(context)"]:::r
+E -.->|"many shows, many rooms"| A
+classDef c fill:#fde3cf,stroke:#d84315,color:#000
+classDef r fill:#d4f4dd,stroke:#2e7d32,color:#000
+classDef u fill:#fbdce8,stroke:#ad1457,color:#000
