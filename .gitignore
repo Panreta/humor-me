@@ -235,3 +235,6 @@ references/md/*.md
 data/labels/work/
 # Third-party datasets (cloned/downloaded, never committed)
 data/external/
+
+# Live show logs: replay data, local only
+data/sessions/

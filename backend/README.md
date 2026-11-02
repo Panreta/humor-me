@@ -1,6 +1,6 @@
 # backend/
 
-FastAPI server for the live show loop. Today it's a scaffold (health check + echo websocket);
+FastAPI server for the live show loop. It speaks fixed lines for now, through Kokoro on the CPU;
 it grows into the director → generator → safety → TTS loop described in
 [docs/design.md](../docs/design.md#architecture).
 
@@ -8,7 +8,8 @@ it grows into the director → generator → safety → TTS loop described in
 
 ```sh
 cd backend
-py -3.14 -m venv .venv
+uv python install 3.12  # or any Python 3.12
+uv venv --seed --python 3.12 .venv
 .venv/Scripts/python -m pip install -r requirements.txt
 cp .env.example .env
 ```
