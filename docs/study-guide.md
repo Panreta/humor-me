@@ -451,15 +451,60 @@ greedy bandit vs sequential policy on late-set laugh rate.
 - **Off-policy evaluation** (Li et al. 2011 replay) is how logged live sessions could evaluate a
   new policy later without running it live.
 
-### 2.9 Beyond M1: preferences, reward models, DPO
+### 2.9 Preferences, reward models, DPO
 
 - **RLHF from preferences (Christiano et al. 2017):** pairwise votes → Bradley–Terry reward model.
   Our training mode collects exactly these votes (H2).
 - **Bradley–Terry** also powers explore-next #1: human mode ranking from rJokes upvote pairs vs
   HumorGen's judge Elo.
-- **DPO (Rafailov et al. 2023):** optimizes the generator directly on preference pairs, no
-  explicit reward model. LoL uses a frozen pairwise judge for online DPO (it does *not* classify
-  personas: that's HumorGen).
+- **DPO (direct preference optimization; Rafailov et al. 2023):** optimizes the generator directly
+  on preference pairs, no explicit reward model. LoL uses a frozen pairwise judge for online DPO
+  (it does *not* classify personas: that's HumorGen).
+
+#### DPO in depth (moved into M1, decisions.md 2026-11-01)
+
+**The problem it solves.** SFT (supervised fine-tuning) teaches a model to imitate good examples, but
+"funny" is easier to judge than to write down: people can usually pick the better of two jokes without
+being able to produce the ideal one. RLHF uses those choices in two stages: fit a reward model, then
+train the generator against it with RL (usually PPO). That means two models to fit, plus RL's tuning
+and instability. DPO reaches a closely related goal in one supervised training run.
+
+**What it needs.**
+
+- A **preference pair**: (prompt, chosen output, rejected output).
+- A **reference model**: a frozen copy of the model before DPO, here the SFT checkpoint.
+
+**The mechanism.** For each pair, ask how much the model raised each output's probability compared with
+the reference, then reward it for raising the chosen one more:
+
+```text
+chosen_gain   = log π(chosen | prompt)   − log π_ref(chosen | prompt)
+rejected_gain = log π(rejected | prompt) − log π_ref(rejected | prompt)
+loss          = −log σ( β × (chosen_gain − rejected_gain) )
+```
+
+σ squashes a number into 0–1. β (beta) sets how strongly the model may move away from the reference:
+a lower β allows it to drift further. The paper derives this loss from the RLHF objective "maximize reward
+while staying close to the reference", so the reward model disappears from the maths rather than being
+ignored.
+
+**In this project.** Own premises → jokes per mode → judge picks pairs → SFT → DPO → the voice in the demo.
+Note what DPO does *not* do: it trains the generator (how a joke gets written) offline, before the show.
+The director (LinUCB) chooses the mode live. No gradient updates happen during a show.
+
+**Where it can go wrong here.**
+
+- **It learns whoever chose the pairs.** Exp 10 found the judge matches human taste only in part
+  (Spearman ρ +0.20 to +0.37), so judge-chosen pairs teach partly the wrong taste.
+- **The expected gain is small.** HumorGen found DPO about equal to SFT, which is why SFT is the safe
+  checkpoint. Run DPO only if SFT has shown a gain and there's time, and keep it only if it beats SFT.
+- **Comparing models needs enough votes.** Detecting a 60/40 preference takes about 194 pair votes (80%
+  power, two-sided 5% test); 55/45 takes about 783. Fix the number before voting.
+- **Modes can blur.** Optimizing for one judge can push all six modes toward whatever it likes, leaving
+  the director with six names for one style. Check that each mode is still distinct after training.
+
+**Check yourself.** Why does DPO need the frozen reference? What happens as β gets very large or very
+small? Why can't DPO fix a judge with the wrong taste?
 
 ---
 
