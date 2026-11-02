@@ -19,6 +19,7 @@ obs["last_mode"], obs["last_reward"]               # history for context-aware p
 | Laugh level | latent + N(0, noise), counted against thresholds `[0, 1, 2]` → 0–3 |
 | Reward | mean level of the bit's jokes / 3 (samplers work on [0, 1]; logs keep the levels) |
 | Oracle | `expected_rewards()`: exact E[mean level]/3 per mode for the next bit; regret = best − chosen |
+| Planning optimum | `evaluate_planning.PlanningOracle`: exact best sequence for the show, by dynamic programming; the true ceiling in steady shows |
 
 All numbers live in [audience.yaml](audience.yaml) (the room's hidden truth, not the
 director's prior). Only `base` has a source (HumorGen judge win

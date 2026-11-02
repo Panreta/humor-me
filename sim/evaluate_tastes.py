@@ -57,13 +57,18 @@ def criteria(rows: dict) -> dict:
             "beaten_by": beaten_by, "p3": not beaten_by}
 
 
-def run(shows: int = 300, seeds: int = 10) -> dict:
+def tastes() -> dict:
     judge = load_audience()
-    human_base = base_from_win_rates(human_win_rates())
     human = copy.deepcopy(judge)
-    human["base"] = human_base
-    out = {"base": {"judge": judge["base"], "human": human_base}, "tastes": {}}
-    for taste, audience in (("judge", judge), ("human", human)):
+    human["base"] = base_from_win_rates(human_win_rates())
+    return {"judge": judge, "human": human}
+
+
+def run(shows: int = 300, seeds: int = 10) -> dict:
+    audiences = tastes()
+    judge = audiences["judge"]
+    out = {"base": {t: a["base"] for t, a in audiences.items()}, "tastes": {}}
+    for taste, audience in audiences.items():
         rows = {}
         for name, make in makers(tuple(judge["modes"])).items():
             runs = [career(make, shows, seed, audience=audience) for seed in range(seeds)]

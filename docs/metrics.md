@@ -495,4 +495,34 @@ one run. Raw: `reports/metrics/show_state_c1b.json`; the first code's numbers ar
 1. **Still fails, so C1 stays a negative result.** The demo keeps LinUCB.
 2. **The fix helps it read a turn:** hurt-mode picks fall to 33%. After the shift at 8 bits it gets 19.8 laughs vs 19.1,
    but the CIs overlap.
-3. **It pays for that in steady shows:** 19.9 vs 22.6 laughs at 8 bits, and quality still falls from 0.94 to 0.74.
+3. **It pays for that in steady shows:** 19.9 vs 22.6 laughs at 8 bits, and quality still falls from 0.94 to 0.74. That's the 3-seed one-off; Exp 15's saved curve gives 0.95 to 0.72.
+
+## Oracle vs planning optimum (2026-11-01)
+
+`python -m sim.evaluate_planning` (notebook Exp 16). Raw: `reports/metrics/planning_optimum.json`. "Exact" rows are expected
+values over the 27 rooms with no sampling. Careers are 300 shows, 10 seeds, same rooms as Exp 4 and 13. No bar was fixed
+beforehand, and a one-off script had already shown the result.
+
+| | Judge taste | Human taste |
+|---|---|---|
+| Exact: planning optimum, laughs a show | 50.03 | 47.60 |
+| Exact: oracle | 49.20 | 46.98 |
+| Exact: best fixed mode per room | 45.96 | 43.37 |
+| Oracle's share of the optimum, mean of rooms (worst room) | 98.3% (94.4%) | 98.7% (93.9%) |
+| Rooms where planning beats the oracle, of 27 | 27 | 17 |
+| Repeats of the last mode, optimum vs oracle | 29% vs 49% | 33% vs 43% |
+| Last 50 shows: planning optimum | 50.3 ± 1.1 | 47.7 ± 1.0 |
+| Last 50 shows: oracle | 49.4 ± 1.0 | 47.1 ± 1.0 |
+| Last 50 shows: LinUCB, uniform prior | 48.0 ± 1.1 | 45.3 ± 1.0 |
+| **LinUCB's share of the oracle** | **97.0%** | **96.2%** |
+| **LinUCB's share of the optimum** | **95.4%** | **94.9%** |
+
+**Findings**
+1. **The oracle isn't the ceiling.** It follows the best next bit, and planning around fatigue beats it in every room under
+   judge taste. The gap is small: 0.83 laughs a show on average, at most 2.47.
+2. **The headline moves a little:** LinUCB is about 95% of the true best, not 97%. Under human taste it's 94.9%, just below the 95%
+   that Exp 13's criterion applied to the oracle. That criterion isn't re-judged.
+3. **"Laughs lost" isn't zero for the best policy:** the optimum "loses" 196 ± 5, because it sometimes gives up the best next bit to
+   avoid fatigue. Laughs lost measures each choice against the best next bit, not the best show.
+4. **Planning has little to gain in a steady room:** LinUCB's gap to the optimum is about 2.3 laughs a show, and at most about 0.8 of
+   that average gap is the oracle's own failure to plan.

@@ -199,7 +199,7 @@ Agents are value-based, policy-based, or actor-critic; model-free or model-based
 
 **In the stand-up agent:** LinUCB's θ̂ₐᵀx is a **q-estimate** for each arm in context x; its
 argmax-plus-bonus is the **policy**. The sim *is* a model, and the oracle uses it exactly:
-that's why the oracle is a ceiling, not a competitor. **Check:** is LinUCB model-free or
+that's why the oracle is a yardstick, not a competitor. (It follows the best next bit, so a planner scores slightly higher: notebook Exp 16.) **Check:** is LinUCB model-free or
 model-based? (Model-free: it never predicts the room's next state, only rewards.)
 
 Three distinctions Silver makes in L1 that you'll use constantly:
