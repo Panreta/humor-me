@@ -433,3 +433,30 @@ notebook Exp 14. Raw: `reports/metrics/show_state_c1.json`, `show_state_c1_behav
 3. **Likely cause, not proven:** modes start at one bit's reward (~0.4) while Q-values estimate the rest of the
    show (~3). A one-off script fits this: 96% repeats in the first 50 shows, and predicted return ~3.6–4.0 vs an
    actual ~2.8. So this run probably isn't a fair test of planning.
+
+## Show state step C1b: scale and targets fixed (2026-11-01)
+
+One corrected run, same criteria. Each mode starts at its one-bit prior × the bits left, the bonus grows with
+√(bits left), and past targets are recomputed after each show. Notebook Exp 15. Raw:
+`reports/metrics/show_state_c1b.json`, `show_state_c1b_behaviour.json`.
+
+| Set | After the shift: LinUCB → C1b | Gain (need ≥ +0.05) | Steady: LinUCB → C1b | Change (need ≥ −0.01) | Pass |
+|---|---|---|---|---|---|
+| 8 | 0.770 → 0.756 | −0.013 | 0.930 → 0.697 | −0.233 | no |
+| 16 | 0.773 → 0.711 | −0.062 | 0.936 → 0.700 | −0.237 | no |
+
+| Policy | Repeats the last bit's mode | After a shift, picks a hurt mode |
+|---|---|---|
+| LinUCB | 29% | 51% |
+| C1 | 77% | 16% |
+| C1b | 35% | 54% |
+
+**Findings**
+1. **C1 is a negative result; the demo keeps LinUCB.** Steps A, B and C1 all failed the same bar.
+2. **The scale diagnosis held:** repeats fall from 77% to 35% and early-show quality recovers to 0.96.
+3. **A new problem appears:** quality falls through the show even with no turn (0.96 → 0.66 at 8 bits). In laughs
+   after the shift it ties LinUCB at 8 bits (19.1 each) but loses in steady shows (18.4 vs 22.6).
+4. **Bug found afterwards:** `update` grows `A` mid-show while `b` waits for the show's end, so values drop with no
+   new evidence (−82% in show 1, −3% after 300), a likely part of finding 3. A diagnostic with both updated at show
+   end (not reproduced by me, decisions.md) improves steady shows to −0.160 and −0.149 but still fails, so C1 stays
+   a negative result. The numbers above are from the code as it ran.

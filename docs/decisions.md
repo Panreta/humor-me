@@ -418,6 +418,40 @@ in my design.** The uniform prior starts every mode at one bit's reward (~0.4), 
 of the show (~3), and the bonus is also sized for one bit, so a mode tried once would jump far above untried
 ones and the director would lock on. If so, this rejects this implementation, not MDP planning.
 
+## 2026-11-01 — Show state step C1b: fix the scale and targets (fixed before running)
+The user approved one corrected run. **Same pass criteria** as A, B and C1: at 8 and 16 bits against LinUCB, choice
+quality after the shift +≥ 0.05, steady change ≥ −0.01. Same protocol and inputs as C1. Two changes, both from
+the diagnosis, neither a tuned number:
+- **Scale:** each mode starts at its one-bit prior × the bits left, and the exploration bonus grows with √(bits
+  left), since noise in a sum of bits grows that way.
+- **Targets:** after each show, every past bit's target is recomputed from the current model, last bit first. C1
+  kept targets from early, wrong guesses in its running totals.
+**One run, no tuning.** If it fails, C1 is reported as a negative result and the demo keeps LinUCB. Anything more,
+PPO included, needs the user's decision.
+**Outcome: fails, so C1 is a negative result.** After the shift: −0.013 at 8 bits, −0.062 at 16. Steady shows:
+−0.233 and −0.237. The scale fix did remove the lock-on: repeats fall from 77% to 35% (LinUCB 29%) and early-show
+quality recovers (0.96 at bit 1). But quality then falls through the show even with no turn (0.96 → 0.66 at 8
+bits), and it picks hurt modes as often as LinUCB (54% vs 51%). In laughs after the shift it ties LinUCB at 8
+bits (19.1 each); in steady shows it loses (18.4 vs 22.6). **Decision:** the
+demo keeps LinUCB. Steps A, B and C1 all failed the same bar, so a linear model on these inputs hasn't beaten
+LinUCB at reading a turn. That says nothing about planning in general, and the simulator's numbers are made up.
+**Bug found after the run (other session's review; I confirmed the mechanism).** `LinQRefit.update` grows `A[action]` after
+every bit, but `b` only changes at the show's end, so a mode's value drops mid-show with no new evidence. For the
+same situation after one update: −82% in show 1, −68% after 5 shows, −16% after 50, −3% after 300. So this run wasn't
+a clean test of its own design. The review's diagnostic, which I haven't reproduced (A and b both updated at show
+end, 10 seeds, paired against LinUCB): 8 bits, shifted +0.003 ± 0.044, steady −0.160 ± 0.031; 16 bits, shifted
+−0.001 ± 0.037, steady −0.149 ± 0.032. That's better, but **still fails both criteria, so the decision stands**. The
+code stays as it ran: the entry allows one run, and a fix or re-run is the user's call. A test marks the bug as a
+known failure. Also, `passes()` uses point estimates, while these paired CIs (± 0.03 to 0.07) are as wide as the +0.05 gate.
+**Why it failed (one-off measurement in steady rooms, 3 seeds, last quarter of each career, **on the buggy code**,
+so (2) and (3) and the fall in quality may be partly the bug; causes not tested separately).** (1) Little to gain: fatigue is small, so the best next bit is already close to the best plan. (2) A
+noisier target: it predicts a sum of future bits, its values run about 11% high (3.21 vs 2.88), and the gap between
+its modes' values (0.41–0.58) is about twice LinUCB's (0.26–0.32), so noise probably decides many choices. (3) It
+keeps moving to untried modes: at bit 3 it picks one 63% of the time vs LinUCB's 9%, though quality stays low after
+it stops at bit 8, so this isn't the whole story. (4) The turn is hidden: one noisy bit says little about whether
+the room changed, so this is really a POMDP (the true state is hidden), and hurt-mode picks barely move.
+Evidence: notebooks/decisions.ipynb Exp 15.
+
 ## 2026-11-01 — rJokes may also test judges, still never joke material
 Extends the 2026-10-31 rule (user). To choose the judge behind the DPO preference pairs, compare a plain judge,
 a "human taste" prompt, and that prompt with example pairs, on how often each picks the joke with more upvotes
