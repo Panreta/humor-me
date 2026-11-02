@@ -84,6 +84,13 @@ laughs. A crowd-work exchange (banter with the audience) counts as its own bit.
 | **Value function (v, q)** | Expected return from a state (v) or from taking an action in a state (q). LinUCB's θ̂ᵀx is a one-step q estimate per mode | `LinUCB.act` |
 | **Bellman equation** | Value = immediate reward + value of the state you land in. The optimal version takes the max over next actions. A bandit drops the "state you land in" term, which is why it can't value planting a hook | Step C |
 | **Q-learning** | Learns each action's value from its reward plus the best value available next, so a choice is valued for what it does later. `LinQ` is the linear version, over the bits of a show | `LinQ`, step C1 |
+| **SFT (supervised fine-tuning)** | Training a model on examples of good outputs, so it imitates them. The first training step for our joke model, and the safe checkpoint | Model track, roadmap.md |
+| **DPO (direct preference optimization)** | Training a model on pairs of outputs where one is preferred, so it moves toward the preferred kind without a separate reward model. It learns the taste of whoever chose the pairs. In depth: [study guide section 2.9](../study-guide.md#29-preferences-reward-models-dpo) | Model track, decisions.md 2026-11-01 |
+| **Preference pair** | One DPO training example: a prompt, the output that was preferred (chosen) and the one that wasn't (rejected) | Judge picks between two jokes on one of our premises |
+| **Reference model** | A frozen copy of the model from before DPO. DPO measures every change against it, so the model can't drift without limit | The SFT checkpoint |
+| **Change-point detection** | Spotting the moment a stream of numbers starts behaving differently, as evidence builds up, instead of averaging across it. One candidate for noticing a room turn | Not built yet |
+| **Propensity** | The probability the policy had of choosing the action it took. Logging it lets us judge a different policy from old logs later. A deterministic policy like LinUCB gives 0 or 1, which leaves nothing to reweight | Not logged yet |
+| **Off-policy evaluation (OPE)** | Estimating how a new policy would have done using logs from an older one, without running the new one live | Li et al. 2011 replay; study guide section 2.8 |
 | **UCB (optimism)** | Pick the arm with the highest plausible value: estimate + uncertainty bonus that shrinks with plays (UCB1: √(2 ln t / n) for rewards in [0, 1]). LinUCB is its linear-feature version | `LinUCB` |
 
 Note: **the room's truth vs the director's prior.** `sim/audience.yaml` is the *simulated
@@ -128,4 +135,9 @@ Used in the rJokes results (notebook Exp 2, 10, 11). Examples are from the 90k l
 | **Spearman ρ (rho)** | How similar two rankings are, from −1 (opposite order) through 0 (unrelated) to +1 (same order) | Humans vs judge: +0.20 to +0.37, weak agreement |
 | **Pearson correlation** | Like Spearman ρ, but uses the values instead of their ranks, so a few huge values can dominate. That's why we use Spearman on upvotes | Length vs `pct`: +0.15 |
 | **Correlation map (heatmap)** | A grid with one coloured square per pair of features. Colour = direction (red: rise together; blue: one rises as the other falls); darkness = strength; pale = little or no link | `reports/figures/rjokes_correlations.png` |
+| **Precision / recall / F1** | Precision: of the things found, the share that are real. Recall: of the real things, the share found. F1 combines the two into one score from 0 to 1 and is low if either is low | Bit boundaries on Bargatze: precision 0.83, recall 0.765, F1 0.796 |
+| **Pk** | A segmentation error score: the chance that two nearby lines are wrongly placed in the same or different segments. Lower is better | Bits: 0.146 vs 0.505 for even spacing |
+| **Wilson interval** | A confidence interval for a share that stays sensible with small samples or shares near 0% or 100% | Wordsmith precision: 11 of 11, 74 to 100% |
+| **Ridge regression** | A linear fit with a small penalty on large weights, so it stays stable with little data. LinUCB fits one per mode | `_Linear.A`, `_Linear.b` |
+| **Inter-annotator agreement** | How often separate human judges give the same answer. It shows how much of a task people themselves agree on | HumorGen's evaluators: 31.7% of pairs |
 | **Bootstrap** | Estimates uncertainty from the data alone: draw a new sample of the same size from the data, with repeats allowed (a **resample**), recompute the number, and repeat. How much it moves gives the CI | 1,000 resamples for Exp 10 |

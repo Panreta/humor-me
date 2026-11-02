@@ -259,6 +259,7 @@ Later, during the 90k extension run:
 | Mermaid diagrams blank in preview | Older third-party preview extension | Official `mermaidchart.vscode-mermaid-chart`; recommended in `.vscode/extensions.json`. All diagrams also validated with the Mermaid parser |
 | `pip install kokoro` fails on Python 3.14: `blis` won't compile (2026-11-01) | Kokoro needs spaCy, whose build dependencies don't support 3.14; `py -0p` also listed a 3.13 that was no longer installed | Backend venv on Python 3.12 from `uv python install 3.12`; recorded in `backend/requirements.txt` and its README |
 | C1b's choice quality falls through the show even with no turn (2026-11-01) | `LinQRefit.update` grew `A` after each bit but `b` only at the show's end, so values dropped mid-show with no new evidence (caught by review) | Fixed at the user's request: `A` and `b` change together at the show's end, and the refit uses values from before the show was added. Tests cover both. Lesson: test that a ridge model's `A` and `b` change together |
+| #28–#30 show as merged but `main` doesn't have them (2026-11-01) | Each stacked PR merged into its base branch, and none was retargeted to `main` as its description said it should be. Caught when `origin/main` stopped at #27 | Landed the stack through #32. Retarget a stacked PR to `main` before merging it, then confirm with `git merge-base --is-ancestor` |
 
 ---
 

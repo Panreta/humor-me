@@ -23,6 +23,24 @@ Read before working:
   **Add an entry whenever a bug, data quirk or tooling issue costs real time.**
 - [references/md/](references/md/) — markdown versions of the reference papers
 
+## Measure before cut (every decision, every agent)
+
+Applies to adopting, rejecting, keeping or cutting anything. If a choice has no measurement, write
+"judgment call, not measured" in decisions.md.
+
+1. **Name the number that would change the decision** before running. If no result would change it, don't run it.
+2. **Size the prize first.** Compute the ceiling (oracle, planning optimum, ideal observer) in laughs before
+   building a variant, and compare it with the cost in hours.
+3. **Check the code before believing the result.** Test what the method guarantees, not only its shape. A failed
+   run is a negative result only after the implementation is checked; a bug goes in dev-log.md.
+4. **Decide on paired CIs.** Compare policies on the same seeds. A gate smaller than the CI's half-width can't
+   decide anything, so add seeds or say it's inconclusive. Fix sample sizes for human votes with a power estimate.
+5. **Measure at the horizon that gets used.** The demo has about 5 shows, not 300.
+6. **Say what is made up.** State which `audience.yaml` values a sim result depends on, and vary them when the
+   decision rests on them. Real logs outrank the sim.
+
+Each session uses its own git worktree, and each PR targets `main` unless the user approves stacking.
+
 ## Invariants (do not violate without a new entry in decisions.md)
 
 1. **Never joke about bodies, appearance, or protected attributes** of people present.
