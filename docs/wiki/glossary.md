@@ -138,6 +138,11 @@ Used in the rJokes results (notebook Exp 2, 10, 11). Examples are from the 90k l
 | **Precision / recall / F1** | Precision: of the things found, the share that are real. Recall: of the real things, the share found. F1 combines the two into one score from 0 to 1 and is low if either is low | Bit boundaries on Bargatze: precision 0.83, recall 0.765, F1 0.796 |
 | **Pk** | A segmentation error score: the chance that two nearby lines are wrongly placed in the same or different segments. Lower is better | Bits: 0.146 vs 0.505 for even spacing |
 | **Wilson interval** | A confidence interval for a share that stays sensible with small samples or shares near 0% or 100% | Wordsmith precision: 11 of 11, 74 to 100% |
+| **Forest plot** | One dot per estimate with a horizontal line for its CI, stacked in rows, so you can see which estimates could really differ | Hand-check precision per mode (`notebooks/decision-plot.ipynb`) |
+| **Slope chart** | Two columns of the same items joined by lines. Steep lines changed a lot; crossing lines swapped order | Judge vs people's win rate per mode |
+| **Dumbbell chart** | Two dots per row joined by a bar, for a before and after. The bar's length is the change | % of oracle, steady vs a room that turns |
+| **Lollipop chart** | A stem from a reference line to a dot, for how far each value sits from that line | Judge win rate per mode, from 50% |
+| **Small multiples** | The same chart repeated side by side on the same scales, one per case | Choice quality in steady shows and shows that turn |
 | **Ridge regression** | A linear fit with a small penalty on large weights, so it stays stable with little data. LinUCB fits one per mode | `_Linear.A`, `_Linear.b` |
 | **Inter-annotator agreement** | How often separate human judges give the same answer. It shows how much of a task people themselves agree on | HumorGen's evaluators: 31.7% of pairs |
 | **Bootstrap** | Estimates uncertainty from the data alone: draw a new sample of the same size from the data, with repeats allowed (a **resample**), recompute the number, and repeat. How much it moves gives the CI | 1,000 resamples for Exp 10 |

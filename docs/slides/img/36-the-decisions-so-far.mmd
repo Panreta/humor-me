@@ -1,0 +1,17 @@
+%%{init:{"theme":"default","flowchart":{"nodeSpacing":14,"rankSpacing":26,"wrappingWidth":420}}}%%
+flowchart LR
+A0["Oct 20"]:::i --> B0["Audio only, bandit over modes"]:::r
+A1["Oct 21"]:::i --> B1["Callbacks first-class"]:::r
+A2["Oct 26"]:::i --> B2["Pause transcripts, simulator first"]:::r
+A3["Oct 27"]:::i --> B3["Per bit, LinUCB + uniform prior"]:::r
+A4["Oct 28"]:::i --> B4["Keep 8-bit sets, A rejected"]:::r
+A5["Oct 31"]:::i --> B5["B rejected, rJokes for stats only"]:::r
+A6["Nov 1"]:::i --> B6["Compare like with like, keep both tastes"]:::r
+A7["Nov 1"]:::i --> B7["C rejected, callbacks deferred, LinUCB stays"]:::r
+A8["Nov 1"]:::i --> B8["Trained model in M1, banter cut, demo by Dec 8"]:::r
+B0 ~~~ A5
+B1 ~~~ A6
+B2 ~~~ A7
+B3 ~~~ A8
+classDef r fill:#d4f4dd,stroke:#2e7d32,color:#000
+classDef i fill:#d6e9fb,stroke:#1565c0,color:#000
