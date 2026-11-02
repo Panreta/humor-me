@@ -353,6 +353,31 @@ the sim's human `base` keeps the Exp 10 decile values, without this adjustment, 
 (observer, cynic, absurdist) is reported as unsettled, not as a ranking.
 Evidence: notebooks/decisions.ipynb Exp 12.
 
+## 2026-11-01 — Two tastes in the sim: pass criteria (fixed before running)
+Does the Exp 4 choice (LinUCB + uniform prior) still hold if the room's taste comes from people, not the
+judge? Same setup as Exp 4: 300 shows, 10 seeds. Human `base` = `0.3 + 2*(win_rate − 0.5)` from the Exp 10
+decile win rates, without the extra adjustment. Only `base` changes.
+Under human taste, LinUCB + uniform must:
+- **P1** reach at least 95% of oracle laughs in the last 50 shows (Exp 4: 97%);
+- **P2** beat the best single fixed mode in the last 50 shows, with CIs that don't overlap. The best of
+  all six, since neurotic isn't the best under human taste;
+- **P3** not lose to ε-greedy or Thompson (uniform prior) with CIs that don't overlap.
+**All pass:** the policy choice doesn't depend on taste, so keep the judge `base` as the default and report
+both. **Any fail:** the choice depends on taste, and the user decides before anything changes.
+No third taste in between: the judge's spread is wide and upvote noise shrinks the human one, so a real room
+probably sits between them. Holding at both ends is good evidence for the middle, not proof.
+Also reported, not a criterion: LinUCB with the judge's values as its prior in a human room.
+
+## 2026-11-01 — Two tastes in the sim: outcome, the director choice holds
+All three pass under human taste. P1: 96.2% of oracle (97.0% under judge taste). P2: 45.3 ± 1.0 laughs per
+show vs the best fixed mode, absurdist, at 36.5 ± 1.1. P3: not beaten by ε-greedy (42.5 ± 0.8) or Thompson
+(45.6 ± 1.1). **Decision:** keep LinUCB + uniform prior and the judge `base` as the default, and report both
+tastes. A judge prior in a human room makes no clear difference (45.0 ± 1.0).
+**Limits:** venue and age offsets are still made up, and with a weak `base` they mostly decide the best mode,
+so part of learning's advantage comes from those made-up values. This shows the choice doesn't depend on
+`base`, not how much learning would help in a real room. Live pilots have to answer that.
+Evidence: notebooks/decisions.ipynb Exp 13; metrics.md "Two tastes in the sim".
+
 ## 2026-11-01 — Demo voice: Kokoro, local, on the CPU
 The user chose Kokoro over a cloud voice (better quality, but cost and a network dependency at the venue) and Piper
 (lighter, but more synthetic). It runs on the CPU so the 8 GB GPU stays free for the joke model. Measured: 1.9–3.7 s

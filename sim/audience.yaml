@@ -2,7 +2,8 @@
 # Not to be confused with the director's *prior* (its starting guess about this truth,
 # sim/policies.py prior_means); see docs/wiki/glossary.md.
 # THESE ARE MADE UP (except `base`), and the report must say so: the sim tests whether a policy
-# *adapts*, not whether jokes are funny. PR 3 replaces `base` with rJokes-derived values.
+# *adapts*, not whether jokes are funny. `base` stays the judge's: the director choice holds under a
+# human `base` from rJokes too (decisions.md 2026-11-01, sim/evaluate_tastes.py).
 # Units are the latent "funniness" scale: laugh level = how many `thresholds` the latent clears.
 
 modes: [neurotic, cynic, observer, wordsmith, optimist, absurdist]
