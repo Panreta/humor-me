@@ -386,3 +386,27 @@ with `pct`, on the 89,200 labeled jokes, 200 bootstrap resamples. Run:
 
 Main findings hold (C1, C3, and the sides of neurotic, optimist and wordsmith). Cynic passes observer, so the
 order of the middle modes is unsettled. Exp 10's values stay in use, because this safety label is unreliable.
+
+## Two tastes in the sim (2026-11-01)
+
+Same setup as Exp 4 (300 shows, 10 seeds), with criteria fixed before running (decisions.md 2026-11-01). Only
+`base` changes: the judge's values vs Exp 10's decile win rates, so its spread drops from 0.57 to 0.09.
+Run: `sim/evaluate_tastes.py`, notebook Exp 13.
+
+| Policy | Judge taste: laughs per show, last 50 shows | Laughs lost | Human taste: laughs per show, last 50 shows | Laughs lost |
+|---|---|---|---|---|
+| oracle | 49.4 ± 1.0 | 0 | 47.1 ± 1.0 | 0 |
+| **LinUCB, uniform prior** | **48.0 ± 1.1** | **728 ± 64** | **45.3 ± 1.0** | **886 ± 80** |
+| Thompson, uniform prior | 48.2 ± 1.0 | 907 ± 58 | 45.6 ± 1.1 | 947 ± 58 |
+| LinUCB, judge prior | 47.9 ± 1.1 | 868 ± 111 | 45.0 ± 1.0 | 917 ± 95 |
+| ε-greedy, uniform prior | 44.6 ± 1.1 | 2493 ± 143 | 42.5 ± 0.8 | 2187 ± 117 |
+| random | 39.2 ± 1.0 | 4264 ± 59 | 39.3 ± 1.0 | 3448 ± 53 |
+| best fixed mode | 40.8 ± 0.9 (neurotic) | 4026 ± 52 | 36.5 ± 1.1 (absurdist) | 4006 ± 96 |
+
+**Findings**
+1. **The director choice holds:** P1 96.2% of oracle, P2 clearly above the best fixed mode, P3 not beaten.
+2. **Sticking to one mode gets worse:** under human taste, random (39.3) beats every fixed mode, probably because no
+   mode has much of a head start and repeating one still tires the room. We didn't test that explanation.
+3. **The prior still doesn't matter much:** a judge prior in a human room stays within the CI of a uniform one.
+4. **Limit:** venue and age offsets are made up and now mostly decide the best mode, so this shows the choice
+   doesn't depend on `base`, not how much learning would help in a real room.
