@@ -124,6 +124,7 @@ How to read the numbers (laughs per show, laughs lost vs oracle, cold start, CI)
 | rJokes correlation map | Spearman ρ of each feature with `pct`, raw and within year and length group | Done (notebook Exp 12) | No flag or safety label needs an extra adjustment, so the ranking stands. Length is a weak link (ρ +0.13) but halves wordsmith's raw link; a little length remains within groups |
 | Room's `base` from human data | Change in policy ranking | Next: two-tastes run, judge vs human `base` | |
 | Long-form sets | Word budget, closer present, planned callbacks used | Planned | |
+| Demo voice | Time to render a line vs audio length | First slice done | 1.9–3.7 s per line for 5–8 s of audio on the CPU: faster than real time, but lines must be prepared ahead to meet the 1 s target |
 | Live pilots | Detector vs operator agreement; episode rating | Weeks 5–7 | |
 
 Dropped: switching-penalty ablation (per-bit decisions made it unnecessary).

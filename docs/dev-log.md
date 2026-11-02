@@ -257,6 +257,7 @@ Later, during the 90k extension run:
 | `python -m sim.evaluate_policies` → SyntaxError on main | A Python one-off patch wrote a real newline inside a string literal (the backslash-n escape was lost through a heredoc); no test imported the module, so CI-by-pytest stayed green | Fixed; `tests/test_scripts_import.py` now imports every module in sim/, pipeline/, scripts/, explorer/. Prefer the Edit tool over heredoc+Python for code patches |
 | Same escaping bug, three more times (2026-10-28 → 31): `evaluate_shift.py`, the sbatch file (a literal backslash-n broke the job's command line), and the guard test itself | **Root cause:** text sent through the agent's shell-heredoc path has `\\` collapsed to `\`, so any backslash escape written that way changes meaning. Not a Python or bash quirk | Caught by the import smoke test, then by `test_shell_scripts_have_no_literal_backslash_n`. **Rule: never write code or scripts containing backslashes via shell heredocs; use the Edit/Write tools** |
 | Mermaid diagrams blank in preview | Older third-party preview extension | Official `mermaidchart.vscode-mermaid-chart`; recommended in `.vscode/extensions.json`. All diagrams also validated with the Mermaid parser |
+| `pip install kokoro` fails on Python 3.14: `blis` won't compile (2026-11-01) | Kokoro needs spaCy, whose build dependencies don't support 3.14; `py -0p` also listed a 3.13 that was no longer installed | Backend venv on Python 3.12 from `uv python install 3.12`; recorded in `backend/requirements.txt` and its README |
 
 ---
 

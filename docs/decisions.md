@@ -352,3 +352,9 @@ Its side still depends on the estimator, but it moves from fourth to third, pass
 the sim's human `base` keeps the Exp 10 decile values, without this adjustment, and the middle-mode order
 (observer, cynic, absurdist) is reported as unsettled, not as a ranking.
 Evidence: notebooks/decisions.ipynb Exp 12.
+
+## 2026-11-01 — Demo voice: Kokoro, local, on the CPU
+The user chose Kokoro over a cloud voice (better quality, but cost and a network dependency at the venue) and Piper
+(lighter, but more synthetic). It runs on the CPU so the 8 GB GPU stays free for the joke model. Measured: 1.9–3.7 s
+per line for 5–8 s of audio, so lines must be prepared ahead to meet the 1 s target (design.md "Latency budget"). The
+user heard it working in the browser. Still unmeasured: speed while a local joke model is also running.
