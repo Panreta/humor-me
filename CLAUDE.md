@@ -19,6 +19,9 @@ Read before working:
   per experiment-backed decision, re-runnable, with ✅/❌ claim checks. **Every experiment is a
   `run(**params)` function called via `sim.cache.run_or_load`, and gets a notebook section in the
   same PR.** Run `python scripts/run_notebook.py` before committing the notebook.
+- [notebooks/decision-plot.ipynb](notebooks/decision-plot.ipynb) — **the decisions as charts.** Every experiment gets an
+  entry in its `COVERAGE` table in the same PR: its figures, or the reason it has none. A missing entry fails the
+  notebook's check. Run `python scripts/run_notebook.py notebooks/decision-plot.ipynb` before committing it.
 - [docs/dev-log.md](docs/dev-log.md) — problems hit (symptom → cause → caught by → fix).
   **Add an entry whenever a bug, data quirk or tooling issue costs real time.**
 - [references/md/](references/md/) — markdown versions of the reference papers
