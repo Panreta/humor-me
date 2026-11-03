@@ -507,3 +507,9 @@ fatigue adds only about 0.8 laughs a show (at most 2.5).
 **Limits:** no bar was fixed beforehand, and a one-off script had already shown the result. Steady shows only: the shift
 experiments (Exp 5 to 8, 14, 15) still compare against the oracle. The fatigue being planned around is made up.
 Evidence: notebooks/decisions.ipynb Exp 16; metrics.md "Oracle vs planning optimum".
+
+## 2026-11-01 — Every experiment gets a chart or a stated reason
+From the user. notebooks/decision-plot.ipynb followed the deck's slides, so Exp 16 had no chart and nothing asked a new
+experiment for one. Its `COVERAGE` table now lists each experiment's figures or why it has none, and a missing entry
+fails the notebook's check. Options: (a) require a chart for every experiment: rejected, since some results are one
+number and a chart would add nothing; **(b) a chart or a stated reason.** Judgment call, not measured.
