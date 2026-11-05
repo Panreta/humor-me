@@ -46,7 +46,7 @@ Gumbel, and picks the larger. The difference of two independent standard Gumbel 
 standard logistic, so
 
 ```math
-P(u_i > u_j) = P(\varepsilon_j - \varepsilon_i < \theta_i - \theta_j) = \sigma(\theta_i - \theta_j). \qquad\qquad (2.2)
+P(u_i \gt  u_j) = P(\varepsilon_j - \varepsilon_i \lt  \theta_i - \theta_j) = \sigma(\theta_i - \theta_j). \qquad\qquad (2.2)
 ```
 
 So Bradley–Terry is the "noisy perception, pick the max" model with one specific noise shape.
@@ -55,7 +55,7 @@ So Bradley–Terry is the "noisy perception, pick the max" model with one specif
 
 - Answers are independent given $\theta$ (no judge memory or drift).
 - No ties: every question has a winner.
-- Stochastic transitivity: if $p_{ij} > \tfrac12$ and $p_{jk} > \tfrac12$ then $p_{ik} > \tfrac12$.
+- Stochastic transitivity: if $p_{ij} \gt  \tfrac12$ and $p_{jk} \gt  \tfrac12$ then $p_{ik} \gt  \tfrac12$.
   A judge with genuinely cyclic preferences (A > B > C > A on average) cannot be fit exactly.
 - Position does not matter. This one is false for LLM judges; the algorithm (Section 7) randomizes which joke is shown first.
 
@@ -70,7 +70,7 @@ $i$ over $j$ contributes a factor $p_{ij}$). Taking logs and using
 $\log p_{ij} = \log \pi_i - \log(\pi_i + \pi_j)$:
 
 ```math
-\ell(\theta) = \sum_{i \ne j} w_{ij} \log p_{ij} = \sum_i W_i\, \theta_i - \sum_{i < j} n_{ij} \log\bigl(e^{\theta_i} + e^{\theta_j}\bigr). \qquad\qquad (3.1)
+\ell(\theta) = \sum_{i \ne j} w_{ij} \log p_{ij} = \sum_i W_i\, \theta_i - \sum_{i \lt  j} n_{ij} \log\bigl(e^{\theta_i} + e^{\theta_j}\bigr). \qquad\qquad (3.1)
 ```
 
 The first sum collects $\log \pi_i = \theta_i$ once per win; the second collects
@@ -101,7 +101,7 @@ jokes and one game per pair this happens easily: a joke that loses all 23 games 
 **The problem.** You fit the scores by maximizing the log-likelihood of the observed games:
 
 ```math
-\hat\theta = \arg\max_\theta\ \ell(\theta), \qquad \ell(\theta) = \sum_i W_i\,\theta_i - \sum_{i<j} n_{ij}\log\bigl(e^{\theta_i} + e^{\theta_j}\bigr). \qquad\qquad (4.1)
+\hat\theta = \arg\max_\theta\ \ell(\theta), \qquad \ell(\theta) = \sum_i W_i\,\theta_i - \sum_{i\lt j} n_{ij}\log\bigl(e^{\theta_i} + e^{\theta_j}\bigr). \qquad\qquad (4.1)
 ```
 
 This can fail in two ways.
@@ -124,7 +124,7 @@ squares has infinitely many solutions; with near-singularity, the estimate blows
 ```
 
 It makes the problem well-posed. Each penalty term has second derivative
-$-2\sigma(\theta_i)(1-\sigma(\theta_i)) < 0$ and tends to $-\infty$ as $|\theta_i| \to \infty$.
+$-2\sigma(\theta_i)(1-\sigma(\theta_i)) \lt  0$ and tends to $-\infty$ as $|\theta_i| \to \infty$.
 So $\ell_\alpha$ is strictly concave and goes to $-\infty$ in every direction: a maximizer
 always exists, is unique, and is finite.
 
@@ -156,7 +156,7 @@ $\sigma(-\theta_i) = \frac{1}{\pi_i + 1}$, so
 $\log\sigma(\theta_i) + \log\sigma(-\theta_i) = \log \pi_i - 2\log(\pi_i + 1)$. Together:
 
 ```math
-\ell_\alpha(\pi) = \sum_i (W_i + \alpha)\log \pi_i \;-\; \sum_{i<j} n_{ij}\log(\pi_i + \pi_j) \;-\; 2\alpha\sum_i \log(\pi_i + 1) \qquad\qquad (5.1)
+\ell_\alpha(\pi) = \sum_i (W_i + \alpha)\log \pi_i \;-\; \sum_{i\lt j} n_{ij}\log(\pi_i + \pi_j) \;-\; 2\alpha\sum_i \log(\pi_i + 1) \qquad\qquad (5.1)
 ```
 
 **Why it cannot be solved directly.** Setting $\partial \ell_\alpha / \partial \pi_i = 0$ in (5.1):
@@ -173,8 +173,8 @@ the $n$ equations are coupled and nonlinear. The culprit is the term $-\log(\pi_
 below it and touches it at the current guess $\pi^{(k)}$. Then the problem splits into one easy
 equation per joke.
 
-**The inequality.** $\log$ is concave, so it lies below its tangent line at any $y > 0$:
-$\log x \le \log y + \frac{x - y}{y}$ for all $x > 0$. Negating both sides:
+**The inequality.** $\log$ is concave, so it lies below its tangent line at any $y \gt  0$:
+$\log x \le \log y + \frac{x - y}{y}$ for all $x \gt  0$. Negating both sides:
 
 ```math
 -\log x \;\ge\; -\log y - \frac{x}{y} + 1, \qquad \text{equality iff } x = y \qquad\qquad (5.3)
@@ -194,7 +194,7 @@ $y = \pi_i^{(k)} + \pi_j^{(k)}$ (current guess, a known number):
 ```
 
 **Plug both into (5.1).** Multiply (5.4) by $n_{ij} \ge 0$ and sum over pairs, multiply (5.5) by
-$2\alpha > 0$ and sum over jokes, and substitute into (5.1). The first sum of (5.1) is kept
+$2\alpha \gt  0$ and sum over jokes, and substitute into (5.1). The first sum of (5.1) is kept
 as is. Every term that does not contain the unknown $\pi$ is collected into a number
 $C^{(k)}$:
 
@@ -205,7 +205,7 @@ $C^{(k)}$:
 where
 
 ```math
-Q(\pi \mid \pi^{(k)}) = \sum_i (W_i + \alpha)\log \pi_i \;-\; \sum_{i<j} n_{ij}\,\frac{\pi_i + \pi_j}{\pi_i^{(k)} + \pi_j^{(k)}} \;-\; 2\alpha\sum_i \frac{\pi_i}{\pi_i^{(k)} + 1} \qquad\qquad (5.7)
+Q(\pi \mid \pi^{(k)}) = \sum_i (W_i + \alpha)\log \pi_i \;-\; \sum_{i\lt j} n_{ij}\,\frac{\pi_i + \pi_j}{\pi_i^{(k)} + \pi_j^{(k)}} \;-\; 2\alpha\sum_i \frac{\pi_i}{\pi_i^{(k)} + 1} \qquad\qquad (5.7)
 ```
 
 Equality in (5.6) at $\pi = \pi^{(k)}$ holds because (5.4) and (5.5) are equalities when
@@ -251,7 +251,7 @@ D = (N / (pi[:, None] + pi[None, :])).sum(axis=1) + 2 * alpha / (pi + 1.0)   # D
 pi = wins / D                                 # (5.9)
 ```
 
-**Stopping.** The code stops when $\max_i |\log \pi_i^{(k+1)} - \log \pi_i^{(k)}| < \text{tol}$.
+**Stopping.** The code stops when $\max_i |\log \pi_i^{(k+1)} - \log \pi_i^{(k)}| \lt  \text{tol}$.
 Small steps do not strictly guarantee closeness to the optimum. A direct check is how far
 (4.3) is from holding:
 
