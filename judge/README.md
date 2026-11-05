@@ -1,117 +1,352 @@
-# judge: pairwise ranking of candidate jokes
+# Pairwise ranking of candidate jokes: model and derivations
 
-The JUDGE step of the live loop ([design.md](../docs/design.md)): the generator writes K
-candidate jokes for one prompt, and the judge ranks them from pairwise "which is funnier?"
-calls. Each call goes to a `Judge` backend (an LLM later, a simulated judge now); a
-Bradley–Terry model turns the answers into one strength per joke, and an adaptive (LUCB)
-rule picks which pair to ask about next, so calls go to the boundaries that matter (top-k,
-bottom-k) instead of to every pair. Terms: [glossary](../docs/wiki/glossary.md#judge-ranking-candidate-jokes).
+This page is the precise reference for the math behind `judge/`. Every formula comes with
+where it comes from. Scope is the current plan: **all-pairs comparisons + a Bradley–Terry fit,
+then sort.** Adaptive pair selection and Borda scores are deliberately left out until
+experiments show they are needed.
 
-Standard library + numpy only. No network calls: `LLMJudge` is a stub.
+## 1. Setup and notation
+
+For one prompt there are $n$ candidate jokes, indexed $i = 1, \dots, n$. The judge is asked
+$T$ questions. Question $t$ involves an unordered pair $\lbrace a_t, b_t \rbrace$; a fair coin
+decides which joke is shown first, $f_t$, and which second, $s_t$. The judge's answer is
+recorded as the winner.
+
+Counts derived from the log:
+
+$$ w_{ij} = \#\lbrace t : i \text{ beat } j \rbrace, \qquad n_{ij} = w_{ij} + w_{ji}, \qquad W_i = \sum_{j \ne i} w_{ij}. \tag{1.1} $$
+
+$w_{ij}$ is how often $i$ beat $j$, $n_{ij}$ how often they met, $W_i$ the total wins of $i$.
+With all-pairs asked once, $n_{ij} = 1$ for every $i \ne j$.
+
+$\sigma(x) = 1 / (1 + e^{-x})$ is the logistic function. Two facts used throughout:
+
+$$ \sigma(-x) = 1 - \sigma(x), \qquad \sigma'(x) = \sigma(x)\bigl(1 - \sigma(x)\bigr). \tag{1.2} $$
+
+The second follows from differentiating: $\sigma'(x) = e^{-x}/(1+e^{-x})^2 = \sigma(x) \cdot \tfrac{e^{-x}}{1+e^{-x}}$.
+
+## 2. The model
+
+**Bradley–Terry (Bradley & Terry, 1952).** Each joke has a real-valued score $\theta_i$, and
+answers to different questions are independent with
+
+$$ P(i \text{ beats } j) = p_{ij} = \sigma(\theta_i - \theta_j) = \frac{\pi_i}{\pi_i + \pi_j}, \qquad \pi_i = e^{\theta_i}. \tag{2.1} $$
+
+The two forms agree: $\sigma(\theta_i - \theta_j) = \frac{1}{1 + e^{\theta_j - \theta_i}} = \frac{e^{\theta_i}}{e^{\theta_i} + e^{\theta_j}}$.
+
+**Where the model comes from.** Suppose on each question the judge perceives joke $i$'s
+funniness as $u_i = \theta_i + \varepsilon_i$, with noise $\varepsilon_i$ i.i.d. standard
+Gumbel, and picks the larger. The difference of two independent standard Gumbel variables is
+standard logistic, so
+
+$$ P(u_i > u_j) = P(\varepsilon_j - \varepsilon_i < \theta_i - \theta_j) = \sigma(\theta_i - \theta_j). \tag{2.2} $$
+
+So Bradley–Terry is the "noisy perception, pick the max" model with one specific noise shape.
+
+**Assumptions this commits us to.**
+
+- Answers are independent given $\theta$ (no judge memory or drift).
+- No ties: every question has a winner.
+- Stochastic transitivity: if $p_{ij} > \tfrac12$ and $p_{jk} > \tfrac12$ then $p_{ik} > \tfrac12$.
+  A judge with genuinely cyclic preferences (A > B > C > A on average) cannot be fit exactly.
+- Position does not matter. This one is false for LLM judges; the algorithm (Section 7) randomizes which joke is shown first.
+
+**Only differences are identified.** Adding the same constant $c$ to every $\theta_i$ leaves
+every $p_{ij}$ unchanged, so the data can never pin down the overall level of $\theta$.
+Section 4 fixes this.
+
+## 3. The likelihood
+
+The probability of the observed answers is $\prod_{i \ne j} p_{ij}^{\,w_{ij}}$ (each win of
+$i$ over $j$ contributes a factor $p_{ij}$). Taking logs and using
+$\log p_{ij} = \log \pi_i - \log(\pi_i + \pi_j)$:
+
+$$ \ell(\theta) = \sum_{i \ne j} w_{ij} \log p_{ij} = \sum_i W_i\, \theta_i - \sum_{i < j} n_{ij} \log\bigl(e^{\theta_i} + e^{\theta_j}\bigr). \tag{3.1} $$
+
+The first sum collects $\log \pi_i = \theta_i$ once per win; the second collects
+$\log(\pi_i + \pi_j)$ once per game between $i$ and $j$, whoever won.
+
+**Gradient.** Differentiating, with $\partial_{\theta_i} \log(e^{\theta_i} + e^{\theta_j}) = p_{ij}$:
+
+$$ \frac{\partial \ell}{\partial \theta_i} = W_i - \sum_{j \ne i} n_{ij}\, p_{ij}. \tag{3.2} $$
+
+Actual wins minus expected wins. The maximum likelihood estimate (MLE) sets this to zero for
+every joke: **each joke's expected wins equal its actual wins.**
+
+**Concavity.** Differentiating again (Section 6 does it in full), the Hessian is
+$-L$, where $L$ is a weighted graph Laplacian, which is positive semidefinite. So $\ell$ is
+concave and any stationary point is a global maximum.
+
+**When the MLE fails to exist (Zermelo, 1929; Ford, 1957).** A finite maximizer exists, and is
+unique up to the shift in Section 2, if and only if for every split of the jokes into two
+non-empty groups, some joke in each group has beaten some joke in the other. Equivalently, the
+directed "who beat whom" graph is strongly connected. If one joke lost every game, the
+likelihood keeps increasing as its $\theta \to -\infty$, and no finite MLE exists. With 24
+jokes and one game per pair this happens easily: a joke that loses all 23 games is plausible.
+
+## 4. The prior: one dummy opponent
+
+**The problem.** You fit the scores by maximizing the log-likelihood of the observed games:
+
+$$ \hat\theta = \arg\max_\theta\ \ell(\theta), \qquad \ell(\theta) = \sum_i W_i\,\theta_i - \sum_{i<j} n_{ij}\log\bigl(e^{\theta_i} + e^{\theta_j}\bigr). \tag{4.1} $$
+
+This can fail in two ways.
+
+- *No finite answer.* If joke $i$ lost every game, each of its terms
+  $\log\sigma(\theta_j - \theta_i)$ keeps increasing as $\theta_i \to -\infty$. The likelihood
+  has no maximum, only a supremum at $-\infty$. The same happens at $+\infty$ for a joke that
+  won every game. With 24 jokes and one game per pair, this is likely to happen.
+- *No unique answer.* $\ell$ depends only on differences $\theta_i - \theta_j$, so $\theta$ and
+  $\theta + c\mathbf{1}$ fit equally well. $\ell$ is concave but not strictly concave: it is
+  flat along the direction $\mathbf{1}$.
+
+This is the same situation ridge regression addresses. When $X^\top X$ is singular, least
+squares has infinitely many solutions; with near-singularity, the estimate blows up.
+
+**Why add the penalty.**
+
+$$ \ell_\alpha(\theta) = \ell(\theta) + \alpha\sum_i \bigl[\log\sigma(\theta_i) + \log\sigma(-\theta_i)\bigr] \tag{4.2} $$
+
+It makes the problem well-posed. Each penalty term has second derivative
+$-2\sigma(\theta_i)(1-\sigma(\theta_i)) < 0$ and tends to $-\infty$ as $|\theta_i| \to \infty$.
+So $\ell_\alpha$ is strictly concave and goes to $-\infty$ in every direction: a maximizer
+always exists, is unique, and is finite.
+
+**Stationarity condition.** The prior term's derivative is
+$\alpha(1 - \sigma(\theta_i)) - \alpha\,\sigma(\theta_i) = \alpha - 2\alpha\,\sigma(\theta_i)$.
+Writing $p_{i0} = \sigma(\theta_i)$ (the probability of beating the dummy), the maximizer
+satisfies, for every $i$:
+
+$$ W_i + \alpha = \sum_{j \ne i} n_{ij}\, p_{ij} + 2\alpha\, p_{i0}. \tag{4.3} $$
+
+Same rule as before, with the pseudo-games counted: actual wins (real + virtual) equal
+expected wins (against real jokes + against the dummy).
+
+**Centering.** The reported score is $\tilde\theta_i = \hat\theta_i - \bar{\hat\theta}$. This
+changes no difference $\theta_i - \theta_j$, hence no $p_{ij}$ and no ranking. It is a
+display convention: "above 0" means "better than this prompt's average joke." Anything that
+involves the dummy (Section 6) must use the uncentered $\hat\theta$.
+
+## 5. Computing the estimate: the MM algorithm (Hunter, 2004)
+
+**Goal.** Find the $\theta$ that satisfies the stationarity condition (4.3) for every joke.
+This section shows why (4.3) cannot be solved directly, and derives the update the code uses.
+
+**Rewrite the objective in $\pi$.** Substitute $\theta_i = \log \pi_i$ into (4.2). The data
+part is (3.1). For the penalty part, $\sigma(\theta_i) = \frac{\pi_i}{\pi_i + 1}$ and
+$\sigma(-\theta_i) = \frac{1}{\pi_i + 1}$, so
+$\log\sigma(\theta_i) + \log\sigma(-\theta_i) = \log \pi_i - 2\log(\pi_i + 1)$. Together:
+
+$$ \ell_\alpha(\pi) = \sum_i (W_i + \alpha)\log \pi_i \;-\; \sum_{i<j} n_{ij}\log(\pi_i + \pi_j) \;-\; 2\alpha\sum_i \log(\pi_i + 1) \tag{5.1} $$
+
+**Why it cannot be solved directly.** Setting $\partial \ell_\alpha / \partial \pi_i = 0$ in (5.1):
+
+$$ \frac{W_i + \alpha}{\pi_i} = \sum_{j \ne i} \frac{n_{ij}}{\pi_i + \pi_j} + \frac{2\alpha}{\pi_i + 1} \tag{5.2} $$
+
+This is (4.3) written in $\pi$. Every $\pi_j$ appears inside the denominators on the right, so
+the $n$ equations are coupled and nonlinear. The culprit is the term $-\log(\pi_i + \pi_j)$ in
+(5.1): a log of a sum mixes two unknowns.
+
+**The idea.** Replace each $-\log(\text{sum})$ in (5.1) by something linear in $\pi$ that lies
+below it and touches it at the current guess $\pi^{(k)}$. Then the problem splits into one easy
+equation per joke.
+
+**The inequality.** $\log$ is concave, so it lies below its tangent line at any $y > 0$:
+$\log x \le \log y + \frac{x - y}{y}$ for all $x > 0$. Negating both sides:
+
+$$ -\log x \;\ge\; -\log y - \frac{x}{y} + 1, \qquad \text{equality iff } x = y \tag{5.3} $$
+
+**Apply (5.3) to the pair terms**, with $x = \pi_i + \pi_j$ (unknown) and
+$y = \pi_i^{(k)} + \pi_j^{(k)}$ (current guess, a known number):
+
+$$ -\log(\pi_i + \pi_j) \;\ge\; -\log\bigl(\pi_i^{(k)} + \pi_j^{(k)}\bigr) - \frac{\pi_i + \pi_j}{\pi_i^{(k)} + \pi_j^{(k)}} + 1 \tag{5.4} $$
+
+**Apply (5.3) to the penalty terms**, with $x = \pi_i + 1$ and $y = \pi_i^{(k)} + 1$:
+
+$$ -\log(\pi_i + 1) \;\ge\; -\log\bigl(\pi_i^{(k)} + 1\bigr) - \frac{\pi_i + 1}{\pi_i^{(k)} + 1} + 1 \tag{5.5} $$
+
+**Plug both into (5.1).** Multiply (5.4) by $n_{ij} \ge 0$ and sum over pairs, multiply (5.5) by
+$2\alpha > 0$ and sum over jokes, and substitute into (5.1). The first sum of (5.1) is kept
+as is. Every term that does not contain the unknown $\pi$ is collected into a number
+$C^{(k)}$:
+
+$$ \ell_\alpha(\pi) \;\ge\; Q(\pi \mid \pi^{(k)}) + C^{(k)}, \qquad \text{equality at } \pi = \pi^{(k)} \tag{5.6} $$
+
+where
+
+$$ Q(\pi \mid \pi^{(k)}) = \sum_i (W_i + \alpha)\log \pi_i \;-\; \sum_{i<j} n_{ij}\,\frac{\pi_i + \pi_j}{\pi_i^{(k)} + \pi_j^{(k)}} \;-\; 2\alpha\sum_i \frac{\pi_i}{\pi_i^{(k)} + 1} \tag{5.7} $$
+
+Equality in (5.6) at $\pi = \pi^{(k)}$ holds because (5.4) and (5.5) are equalities when
+$x = y$.
+
+**Regroup (5.7) by joke.** In the middle sum, the pair $\lbrace i, j \rbrace$ contributes
+$\pi_i$ to joke $i$ and $\pi_j$ to joke $j$, so it can be rewritten as a sum over jokes:
+
+$$ Q(\pi \mid \pi^{(k)}) = \sum_i \Bigl[(W_i + \alpha)\log \pi_i - \pi_i\, D_i^{(k)}\Bigr], \qquad D_i^{(k)} = \sum_{j \ne i} \frac{n_{ij}}{\pi_i^{(k)} + \pi_j^{(k)}} + \frac{2\alpha}{\pi_i^{(k)} + 1} \tag{5.8} $$
+
+$D_i^{(k)}$ is a known number: it uses only the current guess.
+
+**Maximize (5.8).** Each bracket depends on one $\pi_i$ only and is concave in it. Setting its
+derivative $\frac{W_i + \alpha}{\pi_i} - D_i^{(k)}$ to zero:
+
+$$ \pi_i^{(k+1)} = \frac{W_i + \alpha}{D_i^{(k)}} \tag{5.9} $$
+
+This is the update. Compare with (5.2): it is the same equation, with the right side of (5.2)
+evaluated at the current guess instead of the unknown. At convergence,
+$\pi^{(k+1)} = \pi^{(k)}$, and (5.9) becomes (5.2) exactly.
+
+**Why each step improves the fit.**
+
+$$ \ell_\alpha(\pi^{(k+1)}) \;\ge\; Q(\pi^{(k+1)} \mid \pi^{(k)}) + C^{(k)} \;\ge\; Q(\pi^{(k)} \mid \pi^{(k)}) + C^{(k)} \;=\; \ell_\alpha(\pi^{(k)}) \tag{5.10} $$
+
+The first $\ge$ is (5.6). The second $\ge$ holds because $\pi^{(k+1)}$ maximizes (5.8). The $=$
+is the equality case of (5.6). Since (4.2) has a unique maximizer (Section 4), the iterates
+converge to it (Hunter, 2004).
+
+**In the code.** Since (5.8) splits by joke, (5.9) updates all jokes at once from the old
+values:
 
 ```python
-import numpy as np
-from judge import SimulatedJudge, rank, write_judgments
-
-jokes = [f"candidate joke {i}" for i in range(24)]
-theta_true = np.random.default_rng(0).normal(size=24)           # hidden funniness
-judge = SimulatedJudge(theta_true, jokes, seed=0, first_bias=0.5)  # likes whatever it reads first
-
-r = rank("airport security", jokes, judge, method="adaptive", budget=80,
-         top_cutoffs=(5, 10), bottom_cutoffs=(5,), seed=0)
-print(r.n_calls, r.stop_reason)       # e.g. 80 budget
-print(r.top(5), r.bottom(5))          # joke indices: funniest first / least funny first
-print(r.theta.round(2), r.se.round(2))
-write_judgments("judgments.jsonl", r.comparisons)   # one JSON object per call
+N = W + W.T                                   # n_ij
+wins = W.sum(axis=1) + alpha                  # W_i + alpha, numerator of (5.9)
+D = (N / (pi[:, None] + pi[None, :])).sum(axis=1) + 2 * alpha / (pi + 1.0)   # D_i^(k), (5.8)
+pi = wins / D                                 # (5.9)
 ```
 
-| File | What it holds |
-|---|---|
-| `types.py` | `Comparison` (one judge call), `Ranking` (fit + every comparison) |
-| `backends.py` | `Judge` protocol, `SimulatedJudge`, `LLMJudge` stub |
-| `bt.py` | `fit_bt`, `bt_se`, `borda_scores` |
-| `select.py` | `warm_start_pairs`, `all_pairs`, `adaptive_next` |
-| `rank.py` | `rank()`, the one place the judge is called; `write_judgments` |
+**Stopping.** The code stops when $\max_i |\log \pi_i^{(k+1)} - \log \pi_i^{(k)}| < \text{tol}$.
+Small steps do not strictly guarantee closeness to the optimum. A direct check is how far
+(4.3) is from holding:
 
-Tests: `tests/test_judge.py`.
+$$ r_i = W_i + \alpha - \sum_{j \ne i} n_{ij}\, p_{ij} - 2\alpha\, p_{i0} \tag{5.11} $$
 
-## Model
+which is exactly 0 at the optimum. Reporting $\max_i |r_i|$ after the fit costs one line.
 
-Each joke $i$ has a latent funniness $\theta_i$, with $\pi_i = e^{\theta_i}$, and
+## 6. Uncertainty
 
-$$
-P(i \text{ beats } j) = \sigma(\theta_i - \theta_j) = \frac{\pi_i}{\pi_i + \pi_j}.
-$$
+**Hessian.** The Hessian is the matrix of second derivatives of the objective (4.2),
+$H_{im} = \partial^2 \ell_\alpha / \partial\theta_i\,\partial\theta_m$. It measures how sharply the
+objective curves around the optimum, which is what the uncertainty below is built from. It is
+obtained in three steps: write the gradient, find the derivatives of the probabilities in it,
+then differentiate the gradient once more.
 
-## Fit (MM algorithm, Hunter 2004) with a prior
+*The gradient.* The data part's derivative is (3.2). The penalty part's derivative, using
+$\frac{d}{dx}\log\sigma(x) = 1 - \sigma(x)$ from (1.2), is
+$\alpha(1 - \sigma(\theta_i)) - \alpha\,\sigma(\theta_i) = \alpha - 2\alpha\,\sigma(\theta_i)$.
+Adding them, with $p_{i0} = \sigma(\theta_i)$:
 
-Every joke gets $\alpha$ virtual wins and $\alpha$ virtual losses against a dummy item with
-$\pi_0 = 1$. With $W_i$ the real wins of $i$ and $n_{ij}$ the number of comparisons between
-$i$ and $j$, iterate until $\max_i |\log \pi_i^{\text{new}} - \log \pi_i^{\text{old}}| < \text{tol}$:
+$$ g_i = \frac{\partial \ell_\alpha}{\partial \theta_i} = W_i + \alpha - \sum_{j \ne i} n_{ij}\, p_{ij} - 2\alpha\, p_{i0} \tag{6.1} $$
 
-$$
-\pi_i \leftarrow \frac{W_i + \alpha}{\displaystyle\sum_{j \ne i} \frac{n_{ij}}{\pi_i + \pi_j} + \frac{2\alpha}{\pi_i + 1}}
-$$
+Setting $g_i = 0$ gives the stationarity condition (4.3).
 
-Return $\theta = \log \pi$, centered to mean 0. The prior keeps every $\theta$ finite when a joke
-has zero wins, and fixes the scale (no renormalization step is needed).
+*Derivatives of the probabilities.* $p_{ij} = \sigma(\theta_i - \theta_j)$ depends only on
+$\theta_i$ and $\theta_j$. By the chain rule and $\sigma' = \sigma(1 - \sigma)$ from (1.2), the
+inner derivative of $\theta_i - \theta_j$ is $+1$ with respect to $\theta_i$ and $-1$ with
+respect to $\theta_j$:
 
-## Standard errors
+$$ \frac{\partial p_{ij}}{\partial \theta_i} = p_{ij}(1 - p_{ij}), \qquad \frac{\partial p_{ij}}{\partial \theta_j} = -\,p_{ij}(1 - p_{ij}), \qquad \frac{\partial p_{ij}}{\partial \theta_m} = 0 \ \ (m \ne i, j) \tag{6.2} $$
 
-Diagonal Fisher approximation, with $p_{ij} = \sigma(\theta_i - \theta_j)$ and
-$p_{i0} = \sigma(\theta_i)$, using the *uncentered* $\theta$ from the fit (the dummy item pins
-the location):
+Likewise $p_{i0} = \sigma(\theta_i)$ depends only on $\theta_i$:
 
-$$
-I_i = \sum_{j \ne i} n_{ij}\, p_{ij} (1 - p_{ij}) + 2\alpha\, p_{i0} (1 - p_{i0}),
-\qquad
-\mathrm{se}_i = \frac{1}{\sqrt{I_i}}
-$$
+$$ \frac{\partial p_{i0}}{\partial \theta_i} = p_{i0}(1 - p_{i0}), \qquad \frac{\partial p_{i0}}{\partial \theta_m} = 0 \ \ (m \ne i) \tag{6.3} $$
 
-## Empirical Borda score
+*Diagonal entries: differentiate (6.1) with respect to $\theta_i$.* Go term by term. $W_i$ and
+$\alpha$ are constants, so their derivative is 0. Each $-n_{ij}\,p_{ij}$ gives
+$-n_{ij}\,p_{ij}(1 - p_{ij})$ by the first part of (6.2). The term $-2\alpha\,p_{i0}$ gives
+$-2\alpha\,p_{i0}(1 - p_{i0})$ by (6.3). Adding:
 
-$$
-b_i = \frac{1}{|O_i|} \sum_{j \in O_i} \frac{\text{wins of } i \text{ over } j}{n_{ij}}
-$$
+$$ H_{ii} = \frac{\partial g_i}{\partial \theta_i} = -\sum_{j \ne i} n_{ij}\, p_{ij}(1 - p_{ij}) - 2\alpha\, p_{i0}(1 - p_{i0}) \tag{6.4} $$
 
-where $O_i$ is the set of opponents $i$ has played. Jokes with no games get NaN. Reported next
-to $\theta$ as a model-free check; it isn't used for selection.
+*Off-diagonal entries: differentiate (6.1) with respect to $\theta_j$, $j \ne i$.* In the sum,
+only the term with this particular $j$ contains $\theta_j$; all others have derivative 0 by
+the third part of (6.2). That one term gives $-n_{ij} \cdot \bigl(-p_{ij}(1 - p_{ij})\bigr)$ by
+the second part of (6.2). The term $-2\alpha\,p_{i0}$ does not contain $\theta_j$, by (6.3). So:
 
-## Adaptive selection (top-k identification, LUCB style)
+$$ H_{ij} = \frac{\partial g_i}{\partial \theta_j} = n_{ij}\, p_{ij}(1 - p_{ij}) \qquad (i \ne j) \tag{6.5} $$
 
-$$
-\mathrm{LCB}_i = \theta_i - \beta\, \mathrm{se}_i, \qquad \mathrm{UCB}_i = \theta_i + \beta\, \mathrm{se}_i
-$$
+*Why the observed and expected information are equal.* The Fisher information is the expected
+negative Hessian, $\mathcal{I} = -\mathbb{E}[H]$, where the expectation is over the judge's
+random answers. The data enters (6.1) only through $W_i$, the win counts, and $W_i$ is a
+constant term that vanished when differentiating. So (6.4) and (6.5) contain no data, only the
+fitted probabilities, the expectation changes nothing, and
 
-Each cut-off is a position $m$: "the current top $m$ by $\theta$". A top cut-off $k$ gives
-$m = k$; a bottom cut-off $k$ gives $m = n - k$. For each $m$, with $T$ the current top $m$:
+$$ \mathcal{I} = -H \tag{6.6} $$
 
-$$
-h = \arg\min_{i \in T} \mathrm{LCB}_i, \qquad l = \arg\max_{i \notin T} \mathrm{UCB}_i
-$$
+**Covariance.** Near the optimum $\ell_\alpha$ is approximately quadratic, so the posterior is
+approximately Gaussian (Laplace approximation), equivalently the large-sample distribution of
+the estimate:
 
-The cut-off is **separated** if $\mathrm{LCB}_h > \mathrm{UCB}_l$; its overlap is
-$\mathrm{UCB}_l - \mathrm{LCB}_h$. If every cut-off is separated, stop. Otherwise compare the
-pair $(h, l)$ of the cut-off with the largest overlap, refit, and repeat.
+$$ \hat\theta \approx \mathcal{N}\bigl(\theta,\ \Sigma\bigr), \qquad \Sigma = \mathcal{I}^{-1}. \tag{6.7} $$
 
-**Warm start:** `warm_rounds` random perfect matchings of the $n$ jokes (if $n$ is odd, one
-random joke sits out each round), so every joke has a few games before LUCB starts.
+$\mathcal{I}$ in (6.6) is positive definite: by (6.4) and (6.5) it is a weighted graph Laplacian
+plus a positive diagonal from the prior, so the inverse in (6.7) exists. Without the prior it would not: every row of the Laplacian sums to zero.
 
-## Position randomization
+**Exact versus diagonal standard errors.**
 
-LLM judges tend to prefer the joke they read first (or second). Selection only returns an
-unordered pair $(a, b)$; for every call, `rank()` flips a fair coin from its seeded RNG to
-decide which is shown first, calls `judge.compare`, maps the answer back to `a`/`b`, and
-records `shown_first` in the `Comparison`. This is the only place order is randomized, so a
-bias averages out of $\theta$ and can be measured from the log (win rate of `shown_first`).
+- Exact: $\mathrm{se}_i = \sqrt{\Sigma_{ii}}$.
+- Diagonal approximation (current code): $\mathrm{se}_i \approx 1 / \sqrt{\mathcal{I}_{ii}}$.
 
-## Stopping
+For any positive definite matrix $A$, Cauchy–Schwarz gives
+$1 = (e_i^\top A^{1/2} A^{-1/2} e_i)^2 \le A_{ii}\,[A^{-1}]_{ii}$, so
+$[A^{-1}]_{ii} \ge 1 / A_{ii}$: **the diagonal version always underestimates the uncertainty.**
+It treats every opponent's score as known exactly. With $n = 24$, inverting a $24 \times 24$
+matrix is negligible, so the exact version costs nothing.
 
-| `stop_reason` | When |
-|---|---|
-| `separated` | adaptive: every cut-off is separated |
-| `budget` | `n_calls` reached `budget` first |
-| `exhausted` | all_pairs: every pair compared once |
+**What ranking actually needs: uncertainty of differences.** Whether joke $i$ is really better
+than joke $j$ depends on $\hat\theta_i - \hat\theta_j$, whose variance
 
-`method="all_pairs"` compares every unordered pair once in random order (`budget=None` = no
-limit). `method="adaptive"` requires a budget, since exactly tied jokes never separate.
+$$ \mathrm{Var}(\hat\theta_i - \hat\theta_j) = \Sigma_{ii} + \Sigma_{jj} - 2\,\Sigma_{ij} \tag{6.8} $$
+
+needs the off-diagonal covariance $\Sigma_{ij}$. The diagonal approximation cannot provide it.
+
+**Centered scores.** Centering is the linear map $C = I - \tfrac{1}{n}\mathbf{1}\mathbf{1}^\top$,
+so $\mathrm{Cov}(\tilde\theta) = C\,\Sigma\,C^\top$. Differences are unaffected by centering.
+
+## 7. The algorithm in pseudo-code
+
+Pseudo-code for one prompt, written to explain the method, not to run. Each step names the
+equation it computes.
+
+```text
+RANK(prompt, jokes 1..n, judge, alpha):
+
+    # collect the games
+    w[i][j] = 0 for all i, j                         # wins of i over j            (1.1)
+    for each pair {i, j}, in random order:
+        flip a fair coin to choose which of i, j is shown first
+        ask the judge which joke is funnier
+        w[winner][loser] += 1
+
+    n[i][j] = w[i][j] + w[j][i]                      # games between i and j       (1.1)
+    W[i]    = sum over j of w[i][j]                  # total wins of i             (1.1)
+
+    # fit the scores (Section 5)
+    pi[i] = 1 for every joke                         # start: every joke average
+    repeat:
+        for every joke i, using the current pi:
+            D[i] = sum over j != i of n[i][j] / (pi[i] + pi[j])
+                   + 2*alpha / (pi[i] + 1)           #                             (5.8)
+        for every joke i:
+            pi[i] = (W[i] + alpha) / D[i]            # update all jokes at once    (5.9)
+    until no log(pi[i]) changed by more than tol
+    theta[i] = log(pi[i])                            # still uncentered
+
+    # uncertainty (Section 6)
+    p[i][j] = sigma(theta[i] - theta[j])             # win probabilities           (2.1)
+    p0[i]   = sigma(theta[i])                        # vs the dummy at 0
+    I[i][j] = - n[i][j] * p[i][j] * (1 - p[i][j])    # off-diagonal of -H          (6.5)
+    I[i][i] = sum over j != i of n[i][j] * p[i][j] * (1 - p[i][j])
+              + 2*alpha * p0[i] * (1 - p0[i])        # diagonal of -H              (6.4)
+    Sigma   = inverse of I                           #                             (6.7)
+    se[i]   = sqrt(Sigma[i][i])
+
+    # report
+    theta[i] = theta[i] - mean(theta)                # centering, for display only
+    return jokes sorted by theta (best first), with theta and se
+```
+
+Two points the pseudo-code makes visible:
+
+- The fitting loop updates every joke from the **old** values, then replaces them all at once. This is
+  allowed because the surrogate (5.8) splits into one independent term per joke.
+- The uncertainty block uses the **uncentered** scores, because the dummy is at exactly 0 only before
+  centering. Centering waits until the report.
