@@ -7,9 +7,9 @@ from typing import Sequence
 import numpy as np
 
 from .backends import Judge
-from .bt import borda_scores, bt_se, fit_bt, games_matrix
+from .functions import borda_scores, bt_se, fit_bt, games_matrix
 from .select import adaptive_next, all_pairs, warm_start_pairs
-from .types import Comparison, Ranking
+from .orders import Comparison, Ranking
 
 METHODS = ("adaptive", "all_pairs")
 

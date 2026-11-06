@@ -340,7 +340,7 @@ plus a positive diagonal from the prior, so the inverse in (6.7) exists. Without
 - Diagonal approximation (current code): $\mathrm{se}_i \approx 1 / \sqrt{\mathcal{I}_{ii}}$.
 
 For any positive definite matrix $A$, Cauchy–Schwarz gives
-$1 = (e_i^\top A^{1/2} A^{-1/2} e_i)^2 \le A_{ii}\,[A^{-1}]_{ii}$, so
+$1 = (e_i^\top e_i)^2 \le A_{ii}\,[A^{-1}]_{ii}$, so
 $[A^{-1}]_{ii} \ge 1 / A_{ii}$: **the diagonal version always underestimates the uncertainty.**
 It treats every opponent's score as known exactly. With $n = 24$, inverting a $24 \times 24$
 matrix is negligible, so the exact version costs nothing.

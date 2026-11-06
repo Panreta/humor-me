@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from judge import LLMJudge, SimulatedJudge, fit_bt, rank, write_judgments
-from judge.bt import borda_scores
+from judge.functions import borda_scores
 from judge.select import adaptive_next
 
 N_JOKES = 24
