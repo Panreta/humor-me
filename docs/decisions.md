@@ -574,3 +574,10 @@ new entry (old bar, new bar, this result). The miss is a stress room: doubled ju
 route to offline evaluation. Judgment call on which way to go, not measured.
 **Limits:** the gaps are made up apart from `base`'s source; rooms are the uniform 27, not the live ones. Real per-bit noise is still the sim's 0.15, which T11 measures.
 Evidence: notebooks/decisions.ipynb Exp 18; metrics.md "Cost of exploring at ε".
+
+## 2026-11-08 — Keep ε = 0.2; the cost bar no longer covers the doubled-judge stress room
+From the user: 0.2 gives better exploration. **Old bar:** at 5 shows, ε = 0.2 loses at most 1 laugh per show at the far end of the 95% CI, in every variant.
+**New bar:** the same limit in every variant except judge taste with doubled gaps. **Result behind the change:** Exp 18 passes the other five rooms (far ends -0.26 to -0.60) and misses that one at -1.00 ± 0.14,
+far end -1.13; an independent recomputation gave -0.92 ± 0.18, far end -1.10. That room doubles gaps that are already the largest and puts wordsmith's `base` below zero, so it's a stress test, not a measured room.
+**Cost accepted:** a real room with gaps that wide would lose about 1 laugh a show at 5 shows and 1.36 at 30. Exp 18's notebook check still records the miss against the old bar.
+Revisit once T11 measures real per-bit noise. Evidence: notebooks/decisions.ipynb Exp 18.
