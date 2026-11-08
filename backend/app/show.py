@@ -1,4 +1,4 @@
-"""The show loop. For now it speaks fixed lines; the generator and director replace LINES later."""
+"""The show loop. `run_show` is the full loop; `play_lines` is the fixed-lines demo the websocket still uses until T5."""
 import asyncio
 import time
 from dataclasses import dataclass

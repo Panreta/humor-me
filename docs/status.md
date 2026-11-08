@@ -24,7 +24,7 @@ Learning the material from scratch (RL foundations → our experiments → Explo
 | Report | [report.md](report.md): overview written (user + AI), results table filled for Exp 1–7 |
 | Slides | [Story deck](https://docs.google.com/presentation/d/1xfH1YYanHXuAsJoo5ZYPF2OOkr8EKGbYLoE5kKo_UE0/edit) (Google Slides, owner-only): 59 slides through Exp 16, all visible for a detailed two-presenter talk, with native result tables and the plot graphs; no live demo yet. `docs/slides/humor-me.pptx` has the same story in 39 slides with the plot graphs and full Q&A notes |
 | Wiki | [docs/wiki/](wiki/README.md) + [glossary](wiki/glossary.md), mirrored to the GitHub wiki by `scripts/sync_wiki.py` after merges |
-| **Backend / frontend (demo)** | **First slice built:** fixed lines → Kokoro on the CPU → browser audio and frequency display, with session logs. Generator, director, safety filter, reaction keys: not started, planned as tasks T1–T11 in [plans/live-loop.md](plans/live-loop.md). Rewards come from operator keys first; a laugh detector follows in stages, with keys as the fallback. Biggest risk to Dec 8 |
+| **Backend / frontend (demo)** | **First slice built:** fixed lines → Kokoro on the CPU → browser audio and frequency display, with session logs. **The full loop runs headless** against the simulated room (`run_show`), with the director rebuilt from logs. Not connected to the browser yet; generator, safety filter and reaction keys are next, as tasks in [plans/live-loop.md](plans/live-loop.md). Rewards come from operator keys first; a laugh detector follows in stages, with keys as the fallback. Biggest risk to Dec 8 |
 
 ## Open PRs
 
