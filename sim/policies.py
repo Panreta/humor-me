@@ -310,7 +310,7 @@ class EpsilonSoft:
     the inner policy is deterministic (LinUCB is, LinTS is not).
     """
 
-    def __init__(self, inner, eps: float, n_arms: int, seed: int = 0):
+    def __init__(self, inner, eps: float, n_arms: int, seed: int | None = 0):
         if not 0 <= eps <= 1:
             raise ValueError(f"eps {eps} not in [0, 1]")
         self.inner, self.eps, self.n = inner, eps, n_arms
