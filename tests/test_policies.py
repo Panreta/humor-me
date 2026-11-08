@@ -173,8 +173,25 @@ def test_epsilon_soft_probs_put_the_mass_on_the_inner_greedy_mode():
     for _ in range(6):
         a = inner.act(o)
         assert pol.probs(o).argmax() == a
-        o, r, *_ = env.step(a)
+        nxt, r, *_ = env.step(a)
         inner.update(o, a, r)
+        o = nxt
+
+
+def test_epsilon_soft_decide_reports_one_consistent_decision_with_a_stochastic_inner_policy():
+    env = AudienceEnv()
+    pol = EpsilonSoft(LinTS(prior_means(env, "uniform"), seed=3), 0.2, K, seed=4)
+    o = env.reset(BAR, seed=0)
+    greedy_seen = set()
+    for _ in range(8):
+        action, greedy, probs = pol.decide(o)
+        greedy_seen.add(greedy)
+        assert probs.argmax() == greedy
+        assert probs[greedy] == pytest.approx(1 - 0.2 + 0.2 / K) and probs.sum() == pytest.approx(1)
+        nxt, r, *_ = env.step(action)
+        pol.update(o, action, r)
+        o = nxt
+    assert len(greedy_seen) > 1  # the inner policy really is stochastic, so a second query would have disagreed
 
 
 def test_epsilon_zero_is_exactly_plain_linucb():

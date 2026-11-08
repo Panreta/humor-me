@@ -585,7 +585,7 @@ judge taste with doubled gaps** (change -1.00 ± 0.14, far end -1.13). Reported,
    Human taste costs -0.19, -0.16 and -0.22, flat, because its modes are close together.
 4. **ε = 0.1 costs about half:** -0.06, -0.21, -0.44 under judge taste, and -0.04, -0.01, -0.09 under human taste.
 5. **A career of 5 shows has about 6.7 non-greedy picks** (40 bits x 0.2 x 5/6), so offline evaluation from live logs needs about 30 shows, as decisions.md says.
-6. **30 shows:** the changes at ε = 0.2 run from -0.06 to -1.36 laughs a show, with CIs of about ±0.14 that overlap the 5-show CIs. No bar was fixed, so this is descriptive.
+6. **30 shows:** the changes at ε = 0.2 run from -0.06 to -1.36 laughs a show, with CIs of about ±0.14. In the doubled-judge room the cost per show is larger at 30 shows and the CIs don't overlap (5 shows spans -1.14 to -0.86, 30 shows -1.52 to -1.20); in the other five rooms they overlap. No bar was fixed, so this is descriptive.
 
 **Limits.** Mode gaps in the sim are made up apart from `base`'s source. Doubled judge gaps put wordsmith's `base` below zero and are a stress test, not a measured room.
 Shows are drawn from the 27 rooms uniformly, not from the rooms the live shows will be in.

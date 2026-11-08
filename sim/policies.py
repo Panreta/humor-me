@@ -304,6 +304,10 @@ class EpsilonSoft:
     A deterministic policy can't say how likely it was to pick anything else, so its logs can't score another
     director offline. This one can: the greedy mode has probability 1 − ε + ε/K and every other mode ε/K.
     Exploration draws come from the wrapper's own RNG, so ε = 0 never touches the inner policy's and is exactly it.
+
+    `decide(obs)` queries the inner policy once and returns the action, the greedy mode and the probabilities of that
+    one decision; log those. `probs(obs)` alone re-queries the inner policy, so it only agrees with a later `act` when
+    the inner policy is deterministic (LinUCB is, LinTS is not).
     """
 
     def __init__(self, inner, eps: float, n_arms: int, seed: int = 0):
@@ -321,11 +325,14 @@ class EpsilonSoft:
     def probs(self, obs) -> np.ndarray:
         return self._probs(self.inner.act(obs))
 
-    def act(self, obs) -> int:
+    def decide(self, obs) -> tuple[int, int, np.ndarray]:
         greedy = self.inner.act(obs)
         action = int(self.rng.integers(self.n)) if self.rng.random() < self.eps else greedy
         self.explored += action != greedy
-        return action
+        return action, greedy, self._probs(greedy)
+
+    def act(self, obs) -> int:
+        return self.decide(obs)[0]
 
     def update(self, obs, action, reward):
         self.inner.update(obs, action, reward)

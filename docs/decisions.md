@@ -567,7 +567,7 @@ Adds to the ε entry above, which stays as written; this replaces its scratch nu
 (`base` scaled around its mean) halved, as they are and doubled; paired on seeds, 1,000 seeds at 5 shows and 200 at 30.
 **Result:** met in five rooms (changes -0.16 to -0.48, far ends -0.26 to -0.60). **Missed in judge taste with doubled gaps: -1.00 ± 0.14, far end -1.13.**
 Judge taste as it is reproduces the scratch number: -0.48 ± 0.12 (1.1%). ε = 0.1 costs about half as much (-0.01 to -0.44). 30 shows had no bar:
--0.06 to -1.36 at ε = 0.2, CIs overlapping the 5-show ones.
+-0.06 to -1.36 at ε = 0.2. In the doubled-judge room the cost per show is larger at 30 shows and the CIs don't overlap (-1.14 to -0.86 at 5 shows, -1.52 to -1.20 at 30); in the other five rooms they overlap.
 **Not decided here.** The bar is the builder's to report, not to move; the user decides whether to keep ε = 0.2, drop to 0.1 or re-tune the bar through a
 new entry (old bar, new bar, this result). The miss is a stress room: doubled judge gaps put wordsmith's `base` below zero, and the human-taste rooms, which Exp 10 and
 13 treat as the closer match to people, cost only 0.16 to 0.22. The cost of dropping to ε = 0.1 is fewer non-greedy picks (3.4 against 6.7 per 5-show career), so a slower
