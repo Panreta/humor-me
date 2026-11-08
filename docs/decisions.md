@@ -560,3 +560,19 @@ From the user. Each task in docs/plans/live-loop.md is small enough for a Sonnet
 re-derives a number, and sends fixes back before opening the PR. The checklist is `.github/pull_request_template.md`. Experiments that need the cluster, a mic or
 a live room are run by the user. The plan's pass bars are first estimates (user): builders never move one, but the user can re-tune a bar when an experiment shows it was wrong,
 with a new entry giving the old bar, the new bar and the result behind it. Judgment call, not measured.
+
+## 2026-11-08 — Scraps from the Loft permission, on record
+**Log.** On 2026-10-20 the user asked the site, through its contact form, to use about 30 to 50 specials as a local research corpus for this course project: not redistributed, not published, not used
+commercially, fetched slowly, and the site credited in the report. On 2026-10-23 the site admin (Chris, from the scrapsfromtheloft.com admin address) replied: "you have the permission to use the stand-up
+transcripts for your reinforcement learning project under the conditions you outlined." The screenshot is kept locally at `data/permissions/` and gitignored, because this repo is public and it shows personal email addresses.
+**What this settles:** the site's terms for our access, and the conditions above are now binding. The report credits the site.
+**What it doesn't:** the site doesn't hold the rights to the specials, and the request itself said not published. So the 2026-10-20 rule stands: transcripts are for structure and reward labels, only numbers
+leave the laptop, and no joke text is committed or used to write lines. Replaces "deferred, check ToS" in data-sources.md.
+
+## 2026-11-08 — One decisions notebook per project section
+From the user: `notebooks/decisions.ipynb` keeps growing (Exp 1 to 18 in one file). Options: (a) one notebook; (b) one per experiment: dozens of files, and related experiments lose their shared story; **(c) one per section (user):** data, director, live loop, model.
+`decisions.ipynb` stays as a short index, so existing links work, and experiment numbers stay global. Judgment call, not measured. Task T12 in docs/plans/live-loop.md.
+
+## 2026-11-08 — Joke bank gets bit structure, transcript statistics stay undecided
+From the user: the test bank should have some structure. Bank bits become opener, three tags and a closer that calls back to the opener, hand-written from the form in docs/wiki/standup-structure.md, with no transcript input. Whether to compute per-bit statistics
+from transcripts for T9's prompt is still open (user). Judgment call, not measured.

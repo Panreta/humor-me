@@ -118,6 +118,7 @@ Runs in parallel once T0 is merged: T1, T2, T7, T8.
 | T9 | Gemini generator, render-ahead, Exp 20 | T4, T7, T8 |
 | T10 | Consent and raw audio, Exp 21 | T6 |
 | T11 | Rating and acceptance run | T6, T9, T10 |
+| T12 | One decisions notebook per section | T1 |
 
 ### T1: ε director and Exp 18
 
@@ -215,6 +216,16 @@ Runs in parallel once T0 is merged: T1, T2, T7, T8.
 - **Build:** a 1–5 rating at the end of a show, logged as `rating`.
 - **Pass:** 3 simulated shows in a row with no intervention, and 1 full live show with all rows valid. After the first real show, report the label spread: if one key takes more than 60% of presses, stop and fix the rubric or generator (judgment call).
   Measure real per-bit reward noise against the sim's 0.15, and rerun Exp 18 if it differs by more than half.
+
+### T12: One decisions notebook per section
+
+- **Goal:** the evidence notebook stops growing without limit. No result changes.
+- **Files:** new `notebooks/decisions-data.ipynb` (Exp 1, 2, 9 to 12), `notebooks/decisions-director.ipynb` (Exp 3 to 8, 13 to 16, 18), `notebooks/decisions-live.ipynb` (from Exp 19), new `notebooks/decisions_common.py`, `scripts/run_notebook.py`, `notebooks/decision-plot.ipynb`, and every doc that points at the notebook.
+  `notebooks/decisions.ipynb` shrinks to the index: the decision table, with links into each section notebook. Judge, SFT and DPO get `decisions-model.ipynb` when their first experiment lands.
+- **Build:** move cells unchanged, keeping experiment numbers. Shared setup (`ROOT`, `show`, `check`) moves to the common module. `run_notebook.py` with no path runs all of them. `COVERAGE` reads experiments from every `decisions-*.ipynb`. Update `CLAUDE.md`, the PR template, the plan's brief, `README.md`, `docs/status.md` and `docs/study-guide.md`. Leave historical decisions.md entries as written.
+- **Tests:** a test that each Exp number appears in exactly one notebook, and that every index entry resolves.
+- **Experiment:** none. **Pass:** the same set of checks before and after (name and count), and no file under `reports/metrics/` changes.
+- **Order:** starts after T1 merges, and before T8's rework, so the notebooks don't conflict.
 
 ## Later stages (planned after T11)
 
