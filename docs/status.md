@@ -1,6 +1,6 @@
 # Status (read this first in a new session)
 
-Last updated: 2026-11-01. Update this file whenever the state below changes.
+Last updated: 2026-11-08. Update this file whenever the state below changes.
 
 Learning the material from scratch (RL foundations → our experiments → Explorer runbook):
 [study-guide.md](study-guide.md).
@@ -24,13 +24,13 @@ Learning the material from scratch (RL foundations → our experiments → Explo
 | Report | [report.md](report.md): overview written (user + AI), results table filled for Exp 1–7 |
 | Slides | [Story deck](https://docs.google.com/presentation/d/1xfH1YYanHXuAsJoo5ZYPF2OOkr8EKGbYLoE5kKo_UE0/edit) (Google Slides, owner-only): 59 slides through Exp 16, all visible for a detailed two-presenter talk, with native result tables and the plot graphs; no live demo yet. `docs/slides/humor-me.pptx` has the same story in 39 slides with the plot graphs and full Q&A notes |
 | Wiki | [docs/wiki/](wiki/README.md) + [glossary](wiki/glossary.md), mirrored to the GitHub wiki by `scripts/sync_wiki.py` after merges |
-| **Backend / frontend (demo)** | **First slice built:** fixed lines → Kokoro on the CPU → browser audio and frequency display, with session logs. Generator, director, safety filter, laugh button, laugh detection: not started. Biggest risk to Dec 8 |
+| **Backend / frontend (demo)** | **First slice built:** fixed lines → Kokoro on the CPU → browser audio and frequency display, with session logs. Generator, director, safety filter, reaction keys: not started, planned as tasks T1–T11 in [plans/live-loop.md](plans/live-loop.md). Rewards come from operator keys first; a laugh detector follows in stages, with keys as the fallback. Biggest risk to Dec 8 |
 
 ## Open PRs
 
 | PR | What |
 |---|---|
-| – | none (#16–#20 merged) |
+| T0 | Live loop plan, PR standard and the Nov 8 decisions |
 
 ## Models and providers
 
@@ -55,8 +55,8 @@ Learning the material from scratch (RL foundations → our experiments → Explo
 
 1. **Model track (Explorer):** own premises → 6-mode candidates → judge comparison → SFT → DPO, latest
    Nov 22 (decisions.md 2026-11-01). The trained model speaks in the Dec 8 demo.
-2. **Demo track from Monday Nov 2:** voice loop → waveform UI → operator laugh button (roadmap
-   weeks 3–4), then laugh detection (week 5).
+2. **Demo track:** tasks T1–T11 in [plans/live-loop.md](plans/live-loop.md), each PR built by a Sonnet agent and reviewed before
+   it reaches the user. Raw audio (T10) must merge before the first real show. Laugh detection follows T11.
 3. Week 6: final sim figures for the report.
 4. Callbacks (C2) after the demo and DPO. C1 is closed as a negative result unless the user reopens it.
 

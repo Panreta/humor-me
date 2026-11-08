@@ -513,3 +513,50 @@ From the user. notebooks/decision-plot.ipynb followed the deck's slides, so Exp 
 experiment for one. Its `COVERAGE` table now lists each experiment's figures or why it has none, and a missing entry
 fails the notebook's check. Options: (a) require a chart for every experiment: rejected, since some results are one
 number and a chart would add nothing; **(b) a chart or a stated reason.** Judgment call, not measured.
+
+## 2026-11-08 — Live loop: one process, with an append-only log as the contract
+Options: (a) **JSONL per show, offline scripts read it**; (b) SQLite: real queries, but migrations for no current need;
+(c) event bus and feature store: no benefit at 5–30 shows. **Chose (a)** (user). Offline datasets are built when a consumer
+exists, so the log must record every candidate with its exact prompt and generator. A later model swap is `base_url` + `model`
+on one OpenAI-compatible client, rejected alternative in-process `transformers` (a crash ends the show, and it competes for the
+GPU). Judgment call, not measured. Plan: docs/plans/live-loop.md.
+
+## 2026-11-08 — Director state is rebuilt from logs at show start
+Options: (a) **replay finished live bits**, cost: milliseconds, needs complete logs; (b) save `A` and `b`: less code, but locks in
+the old reward and sim data can leak in. **Chose (a)** (user). Replay lets a changed reward re-score old shows. Judgment call, not measured.
+
+## 2026-11-08 — Live reward comes from operator keys, on frozen laugh levels
+`W` = 3, `K` = 2, `Space` = 1, `D` = 0, per joke; no press is `null`, not 0. One operator for every show. Reward v1 is the mean level ÷ 3
+per bit, with no update under 3 of 5 labels. A "laugh" is level ≥ 2, matching the transcript rule.
+**Supersedes for live shows:** the 2026-10-20 groan channel. Groans are level 1 on `Space`, and no separate key exists (user, for
+consistency). Cost: groans and chuckles can't be told apart, so no mode-dependent groan reward is possible on live data.
+**Differs from transcripts:** applause without laughter is `K` live and level 0 in transcripts (user). A detector can't hear it as a laugh.
+**Invariant 5:** keys replace the room-baseline formula. The rubric defines each key as a share of the room, so room size doesn't
+inflate the label. Not validated; one operator's judgment. Levels 0–3 assume equal steps, as the sim does. Judgment call, not measured.
+
+## 2026-11-08 — Explore at ε = 0.2 and pick candidates uniformly, with logged probabilities
+LinUCB is deterministic, so its logs can't evaluate another director offline. ε-soft LinUCB logs an exact probability per pick (user).
+Scratch result, paired over 1,000 seeds at 5 shows: −0.47 ± 0.11 laughs per show (−1.1% of 42.6), 6.7 non-greedy picks in total, so offline
+evaluation needs about 30 shows. Depends on the made-up mode gaps in `audience.yaml`, not yet varied. Exp 18 (task T1) replaces this number.
+Candidates are picked uniformly until the judge exists, which costs nothing and leaves an unbiased record to test it on later.
+
+## 2026-11-08 — Record raw show audio, with consent
+From the user: buttons first, and keep the mic audio so a detector can later be trained and tested on the button-labeled shows. Recording
+must therefore start with the first real show (Stage 0), not at the detector. Options: (a) derived features only: a better detector
+can't be re-scored on old shows; **(b) raw audio with consent, local and gitignored.** Off unless the operator confirms the room was told and
+agreed. Consistent with design.md's Safety section, extended from training mode to any show with consent. Judgment call, not measured.
+
+## 2026-11-08 — Laugh detector arrives in stages, with buttons as the fallback
+Button → detector logged only → detector driving reward with keys still overriding. Automatic fallback to buttons if it fails. Gate, fixed
+before any run: at least 80% agreement on laugh vs no laugh and Cohen's kappa at least 0.6 on shows it wasn't tuned on, plus a replay
+counting changed mode choices. About 246 jokes give ±0.05, so this is a stretch for Dec 8. Kappa bar is a judgment call.
+
+## 2026-11-08 — M1 shows validate the judge and DPO; training waits for about 30 shows
+A live show plays one candidate, so the room never compares two jokes from the same prompt, which DPO needs. About 200 rows at 5 shows can
+validate (±0.10 on agreement). From about 30 shows they can train a reward model that scores candidates. Split by show, latest 20% held out. Judgment call, not measured.
+
+## 2026-11-08 — PR standard: one task, reviewed before it reaches the user
+From the user. Each task in docs/plans/live-loop.md is small enough for a Sonnet agent to build from a short brief. An Opus reviewer reads it, runs it,
+re-derives a number, and sends fixes back before opening the PR. The checklist is `.github/pull_request_template.md`. Experiments that need the cluster, a mic or
+a live room are run by the user. The plan's pass bars are first estimates (user): builders never move one, but the user can re-tune a bar when an experiment shows it was wrong,
+with a new entry giving the old bar, the new bar and the result behind it. Judgment call, not measured.
