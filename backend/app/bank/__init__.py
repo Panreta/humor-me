@@ -25,7 +25,7 @@ class BankGenerator:
             raise KeyError(f"unknown mode: {mode}")
         slot = self._slot(mode, bit)
         jokes = self.bank[mode][slot]["jokes"]
-        return [jokes[joke]]
+        return [jokes[joke]["text"]]
 
     def _slot(self, mode: str, bit: int) -> int:
         held = self._assigned.get(bit)
