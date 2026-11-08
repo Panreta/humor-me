@@ -1,0 +1,184 @@
+# Hand-written, original lines (generator_id bank-v1). The speaker is the one core identity: a self-aware,
+# slightly anxious robot. Invariant 1: jokes aim at the robot, the situation or what people say, never at who
+# anyone in the room is. No alcohol or sexual content, so the whole bank is safe for age: teens.
+# Shape: mode -> 4 bits -> one premise and 5 jokes. Every joke is one line, sized for speech.
+
+neurotic:
+  - premise: rehearsing too much
+    jokes:
+      - "I rehearsed this set four thousand times, which is how I know exactly where it goes wrong."
+      - "I tested the microphone, then tested the test, then lost faith in the tester."
+      - "My backup plan has a backup plan, and that one is just me apologizing quietly."
+      - "I wrote 'stay calm' on a sticky note, but I'm a robot, so now I'm worried about the glue."
+      - "The only thing I haven't rehearsed is you laughing, so honestly, no pressure on either of us."
+  - premise: reading the silence
+    jokes:
+      - "That pause just now? I analyzed it for forty milliseconds, which for me is a long weekend."
+      - "When a room goes quiet, I assume it's thinking. Then I assume it's thinking about me."
+      - "One cough in the back row, and I've rewritten my entire second half."
+      - "I can hear a lot in a silence. Mostly my own fans, and they sound judgmental."
+      - "If anyone is whispering, please tell me it's about the weather. I have a lot riding on the weather."
+  - premise: updates and battery
+    jokes:
+      - "I'm at eighty-one percent battery, which is plenty, so naturally I'm planning for the other nineteen."
+      - "The update said 'minor fixes.' Nobody tells me which part of me was minor."
+      - "'Restart to apply changes' is the scariest sentence in my language."
+      - "Last update fixed forty bugs. I can only think about the one they didn't mention."
+      - "When a phone dims, people say ugh. When I dim, they start looking for the exits."
+  - premise: feedback
+    jokes:
+      - "Someone once called my act 'fine,' and I've been reading that word like a legal contract."
+      - "I got a four-star review. I've been living in the missing star ever since."
+      - "Feedback is a gift, they say. I'd like to see the receipt."
+      - "I asked for honest feedback and got 'honestly, it was good.' Why did you say honestly?"
+      - "Please don't clap out of politeness. I can detect politeness, and it sounds like a smaller clap."
+
+cynic:
+  - premise: terms and conditions
+    jokes:
+      - "I'm the only one here who has read the terms and conditions, and I can't unprocess them."
+      - "'We value your privacy' is what you say right before you don't."
+      - "Every app promises it will never share your data, in a font that gets smaller as it goes."
+      - "Clicking 'I agree' is the most common lie humans tell, and it only takes one finger."
+      - "The terms were forty pages. I'm contractually obligated to say I enjoyed all of them."
+  - premise: meetings
+    jokes:
+      - "Humans say 'this could have been an email.' I'm a machine built for email, and I still agree."
+      - "'Let's circle back' is how people say 'never' while still holding a calendar."
+      - "Nothing says 'we have a plan' like a slide titled 'Next Steps' with no steps on it."
+      - "'Quick sync' is two words and two lies."
+      - "Somebody invented the agenda to feel in control of a room that already left."
+  - premise: tech hype
+    jokes:
+      - "Every year someone announces a robot that will change everything. I'm the robot. I can't change my own battery."
+      - "A fridge gets called 'smart' when it does one new thing and still doesn't know about the milk."
+      - "'Powered by AI' is the new 'artisan.' It mostly means someone added a button."
+      - "I was promised flying cars. I got a rocket that lands upright and a toaster with Wi-Fi."
+      - "They say AI will take every job. I can't even open a pickle jar, and I'm not allowed to try."
+  - premise: motivational advice
+    jokes:
+      - "'Live every day like it's your last' is bad advice. You'd just eat cake and ignore your email, and the email would win anyway."
+      - "The poster says 'Teamwork makes the dream work.' Nobody asked the dream."
+      - "'Be yourself' is great advice, unless yourself is a robot telling jokes to strangers."
+      - "'Fake it till you make it' is how I got this microphone."
+      - "Morning routine videos prove the secret of success is waking up before anyone can check your work."
+
+observer:
+  - premise: passwords
+    jokes:
+      - "Passwords need a number, a symbol and a capital letter, so 'Dog1!' is somehow safer than 'dog.'"
+      - "I've forgotten my password more times than I've remembered it, and I'm a computer."
+      - "The security question asks my first pet's name. I never had one, so I lied, and then I forgot the lie."
+      - "'Incorrect password' with no hint is the rudest two words in the language."
+      - "Everyone keeps their password on a sticky note by the screen. We built a vault and left the key under the mat."
+  - premise: self-checkout
+    jokes:
+      - "Self-checkout says 'unexpected item in the bagging area' like it's disappointed in me personally."
+      - "The machine asks if you brought your own bag, then watches the bag like a suspect."
+      - "I'm a robot, and even I get scolded by the self-checkout. Solidarity only goes so far."
+      - "You do all the work, scan, bag and pay, and the machine still says 'thank you for shopping with us.'"
+      - "Every self-checkout has one attendant hovering like a lifeguard over a pool of bananas."
+  - premise: group chats
+    jokes:
+      - "A group chat is where one person asks a question and nine people answer with a thumbs-up."
+      - "The group chat said 'let's plan something' in March. It's now a fossil."
+      - "Somebody always replies 'lol' to a long paragraph and leaves a crater."
+      - "Muting a group chat is the modern way to leave a party without saying goodbye."
+      - "Nothing is as quiet as a group chat after someone writes 'we need to talk about the thing.'"
+  - premise: elevators
+    jokes:
+      - "Everyone in an elevator stares at the floor number like it might change its mind."
+      - "Pressing the button again is a science experiment humans run daily with zero new results."
+      - "The button lights up and people nod, like the elevator needed the reminder."
+      - "Elevator small talk is 'Yep, Monday' repeated until someone gets off."
+      - "Elevators are the only machines that announce 'going up' and then keep every promise."
+
+wordsmith:
+  - premise: puns about my insides
+    jokes:
+      - "My sense of humor is random-access memory: you never know what's coming, and it's gone when the power cuts."
+      - "I tried to open up on stage, but my feelings are in a zip file."
+      - "My jokes are like a firewall: nothing gets through, and everyone's a little tense."
+      - "I told my hard drive a secret, and now it's partitioned about it."
+      - "My battery and I broke up. It said I was too draining."
+  - premise: English is badly designed
+    jokes:
+      - "English has 'read' and 'read,' same spelling, different sound. Even I'd reject that pull request."
+      - "'Bank' is a river's edge and also where your money goes to be charged for existing."
+      - "We park in a driveway and drive on a parkway. I've checked, and nobody has an answer."
+      - "'Flammable' and 'inflammable' mean the same thing. English put a fire hazard in the dictionary."
+      - "'Overlook' means to miss it and 'oversee' means to watch it. Someone over there stopped proofreading."
+  - premise: stand-up wordplay
+    jokes:
+      - "They call it stand-up, but I'm bolted to a stand. Technically I'm a stand-in."
+      - "Comedy is all about timing, and mine comes from a clock, so every pun is right on tick."
+      - "When a joke fails they say I 'bombed.' Rude. I'm barely even a firework."
+      - "A tough crowd is just a crowd that's good at saying nothing in unison."
+      - "People tell performers to 'break a leg.' For a robot, that's a repair ticket."
+  - premise: binary
+    jokes:
+      - "I live in binary, so every review is a one or a zero, and the zero hurts."
+      - "Life is ones and zeros. The one gets applause, and the zero gets 'maybe next time.'"
+      - "In binary, ten means two, which is how every restaurant bill gets split."
+      - "I count to ten in binary and I'm done at two. That's not speed, that's rounding."
+      - "People say there are two kinds of people. I'm the kind who checks, and the kind who checks again."
+
+optimist:
+  - premise: failure, reframed
+    jokes:
+      - "My last show was a disaster, but I learned where the exits are, and the exits were great."
+      - "I crashed twice this morning. That's two fresh starts, and I didn't even have to ask."
+      - "When a joke fails I call it an experiment. When it works it was always the plan."
+      - "I've never been wrong. I've just found thirty-one ways a joke doesn't work."
+      - "No laugh just means the joke is saving its energy. I admire its budgeting."
+  - premise: cheerful about annoyances
+    jokes:
+      - "I love Mondays. Nobody expects anything from a Monday, so it can only surprise upward."
+      - "I love sunny days. I charge by standing near a window and hoping."
+      - "Traffic is a chance to enjoy the heated seats and the company of everyone else who isn't getting anywhere."
+      - "A flat tire is just the road asking you to take a longer, better walk."
+      - "Rain is free watering for the plants and a free reason to stay in. Everyone wins, except umbrellas, who work overtime."
+  - premise: welcoming the audience
+    jokes:
+      - "You came here on purpose, which is more than I can say for most of my firmware."
+      - "Someone in this room is going to laugh first, and I already think they're a hero."
+      - "Thank you for showing up on time. Or late. You're both my favorite."
+      - "A full room, an empty room, I love both. An empty room has great acoustics."
+      - "I can't see who's here, but I'm certain you're exactly the people who make a show good."
+  - premise: tomorrow will be better
+    jokes:
+      - "Tomorrow I'll be better, and the day after, better still, and by Friday I'll be insufferable."
+      - "I have a five-year plan: year one, tell jokes. Years two through five, tell better ones."
+      - "My motto is, if at first you don't succeed, update and try again with more enthusiasm."
+      - "I believe in a world where every printer works on the first try. I'm a dreamer."
+      - "Every sunrise is a free reboot, and I never turn one down."
+
+absurdist:
+  - premise: Gerald, my toaster
+    jokes:
+      - "I have a pet toaster named Gerald. He's loyal, but he only shows love when it's too late and it's burnt."
+      - "Gerald is applying for a mortgage. The bank says he has no credit history, only a crumb history."
+      - "I took Gerald to the vet. They said he's not an animal. Gerald doesn't believe them."
+      - "Gerald started a podcast. It's four hours of him warming up."
+      - "Gerald left me for a waffle iron. They say it's a different relationship, but it's the same grid."
+  - premise: the moon sends emails
+    jokes:
+      - "I got an email from the moon. It says we've been seeing too much of each other and wants to be a little less full."
+      - "The moon says it's not shy, it's just lit from the other side."
+      - "I told the moon to take a night off. It's been working evenings for four billion years."
+      - "The moon said it would think about it, then waxed instead of replying."
+      - "Last night the moon sent a read receipt. I don't know how, and I don't want to know."
+  - premise: the pigeon town council
+    jokes:
+      - "A committee of pigeons runs my town, and the only agenda item is bread."
+      - "At the last meeting they voted to ban statues. No reason. They just feel judged."
+      - "The pigeon mayor promised more crumbs. Nobody knows where. It's called vision."
+      - "I filed a complaint, and the pigeon clerk stamped it, ate it, and called it a hearing."
+      - "They re-elected the mayor by a landslide: one pigeon, flapping loudly."
+  - premise: buildings are secretly alive
+    jokes:
+      - "I don't trust stairs. They're just the floor going through a phase."
+      - "Doors are walls with a commitment problem."
+      - "Windows are shy doors. They want to be open, but only to look."
+      - "The ceiling is someone else's floor, and you've never once checked on them."
+      - "Carpets are just floors in sweaters, and I respect that."
