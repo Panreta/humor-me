@@ -7,14 +7,14 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "backend"))
 
-from app.log import EVENTS, SessionLog, read_session  # noqa: E402
+from app.log import EVENTS, NESTED, SessionLog, read_session  # noqa: E402
 
 VALID = {
     "show_start": dict(room="sim", context={"venue": "bar", "energy": "high", "age": "30s"},
                        policy={"name": "linucb", "epsilon": 0.2, "alpha": 1.0, "prior": "uniform"},
                        generator_id="bank", selector_id="uniform", git_sha="abc123", operator="op",
                        audio={"consent": False, "path": None}),
-    "bit_decision": dict(bit=0, obs={"t": 0, "n_bits": 8, "context": {}, "last_mode": None},
+    "bit_decision": dict(bit=0, obs={"t": 0, "n_bits": 8, "context": {"venue": "bar", "energy": "high", "age": "mixed"}, "last_mode": None},
                          scores={"a": 0.1}, greedy="a", action="b", probs={"a": 0.8, "b": 0.2}),
     "candidates": dict(bit=0, joke=0, prompt_id="p1", prompt="text", generator_id="bank",
                        items=[{"text": "x", "verdict": "pass", "reason": None}]),
@@ -64,6 +64,23 @@ def test_each_required_field_is_enforced(tmp_path, event):
         assert not log.path.exists()
 
 
+@pytest.mark.parametrize("event,field", list(NESTED))
+def test_each_required_nested_key_is_enforced(tmp_path, event, field):
+    for key in VALID[event][field]:
+        nested = {k: v for k, v in VALID[event][field].items() if k != key}
+        log = SessionLog(tmp_path)
+        with pytest.raises(ValueError, match=key):
+            log.write(event, **{**VALID[event], field: nested})
+        assert not log.path.exists()
+
+
+def test_each_candidate_item_key_is_enforced(tmp_path):
+    for key in ("text", "verdict", "reason"):
+        item = {k: v for k, v in VALID["candidates"]["items"][0].items() if k != key}
+        with pytest.raises(ValueError, match=key):
+            SessionLog(tmp_path).write("candidates", **{**VALID["candidates"], "items": [item]})
+
+
 def test_null_is_allowed_where_the_plan_says_null(tmp_path):
     log = SessionLog(tmp_path)
     log.write("reaction", **{**VALID["reaction"], "level": None, "key": None, "latency_s": None})
@@ -76,6 +93,12 @@ def test_null_is_allowed_where_the_plan_says_null(tmp_path):
     ("reaction", {"level": 4}),
     ("rating", {"value": 0}),
     ("rating", {"value": 6}),
+    ("rating", {"value": True}),
+    ("rating", {"value": 4.0}),
+    ("reaction", {"level": True, "key": None}),
+    ("reaction", {"level": 3, "key": "D"}),
+    ("reaction", {"level": 2, "key": "Q"}),
+    ("reaction", {"level": 2, "key": None}),  # a button press with no key is a timeout
     ("show_end", {"status": "crashed"}),
 ])
 def test_values_outside_the_schema_are_rejected(tmp_path, event, change):
@@ -119,6 +142,50 @@ def test_reader_rejects_other_schemas_and_invalid_rows(tmp_path):
         read_session(path)
     path.write_text(json.dumps({"schema": 1, "session": "s", "at": 1.0, "event": "rating"}) + "\n")
     with pytest.raises(ValueError, match="value"):
+        read_session(path)
+
+
+def test_reaction_key_table_and_nulls(tmp_path):
+    log = SessionLog(tmp_path)
+    for key, level in {"W": 3, "K": 2, "Space": 1, "D": 0}.items():
+        log.write("reaction", **{**VALID["reaction"], "key": key, "level": level})
+    log.write("reaction", **{**VALID["reaction"], "key": None, "level": None})  # timeout
+    log.write("reaction", **{**VALID["reaction"], "source": "sim", "key": None, "level": 2})
+    assert len(read_session(log.path)) == 6
+
+
+def test_unicode_line_separators_in_text_do_not_look_like_corruption(tmp_path):
+    log = SessionLog(tmp_path)
+    text = "a\u2028b\u2029c\u0085d\x0ce"
+    log.write("joke_played", **{**VALID["joke_played"], "text": text})
+    log.write("show_end", status="finished")
+    rows = read_session(log.path)
+    assert [r["event"] for r in rows] == ["joke_played", "show_end"] and rows[0]["text"] == text
+
+
+def test_a_tear_inside_a_multibyte_character_on_the_last_row_is_ignored(tmp_path):
+    path = _two_rows(tmp_path)
+    row = {"schema": 1, "session": "s", "at": 1.0, "event": "rating", "value": 5, "x": "\u2603"}
+    full = (json.dumps(row, ensure_ascii=False) + "\n").encode()
+    cut = full.index("\u2603".encode()) + 1  # one byte into the 3-byte snowman
+    with path.open("ab") as f:
+        f.write(full[:cut])
+    assert [r["event"] for r in read_session(path)] == ["rating", "show_end"]
+
+
+def test_a_tear_inside_a_multibyte_character_in_the_middle_raises(tmp_path):
+    path = _two_rows(tmp_path)
+    lines = path.read_bytes().split(b"\n")
+    path.write_bytes(lines[0][:10] + "\u2603".encode()[:1] + b"\n" + lines[1] + b"\n")
+    with pytest.raises(ValueError, match="line 1"):
+        read_session(path)
+
+
+@pytest.mark.parametrize("text", ["[1, 2]", "3", "null", '{"schema": 1, "session": "s", "at": 1.0, "event": 5}'])
+def test_rows_that_are_not_schema_objects_raise_value_error(tmp_path, text):
+    path = tmp_path / "x.jsonl"
+    path.write_text(text + "\n" + text + "\n")
+    with pytest.raises(ValueError):
         read_session(path)
 
 

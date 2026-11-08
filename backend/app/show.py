@@ -26,10 +26,10 @@ async def play_lines(lines, tts: TTS, send_json: Callable[[dict], Awaitable], se
         wav = await asyncio.to_thread(tts.synthesize, text)  # the websocket stays responsive while it renders
         tts_seconds = time.perf_counter() - started
         audio_seconds = wav_seconds(wav)
-        log.write_demo("line",index=index, text=text, tts_seconds=round(tts_seconds, 3), audio_seconds=round(audio_seconds, 3))
+        log.write_demo("line", index=index, text=text, tts_seconds=round(tts_seconds, 3), audio_seconds=round(audio_seconds, 3))
         await send_json({"type": "line", "index": index, "text": text})
         await send_audio(wav)
         await wait_played()  # the next line starts only after the browser finishes this one
-        log.write_demo("line_played",index=index)
+        log.write_demo("line_played", index=index)
     log.write_demo("show_end")
     await send_json({"type": "show_end"})

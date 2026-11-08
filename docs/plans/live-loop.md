@@ -29,6 +29,8 @@ to need something else, stop and say so.
 - **Tests:** test what the code guarantees, not its shape. Synthetic data only.
 - **Run both test suites:** `.venv/Scripts/python -m pytest tests -q` skips backend tests because the root venv has no
   FastAPI, so also run `backend/.venv/Scripts/python -m pytest ../tests/test_show_loop.py -q` from `backend/`.
+  The backend venv must be Python 3.12 (see `backend/README.md`): the plan assumed `backend/.venv` was one, and it was a stale
+  3.14 venv with no numpy or kokoro (dev-log, 2026-11-08).
 - **Experiments:** a `run(**params)` called through `sim.cache.run_or_load`, a section in `notebooks/decisions.ipynb`
   with ✅/❌ checks, an entry in the `COVERAGE` table of `notebooks/decision-plot.ipynb`, results in `docs/metrics.md`.
   Run `python scripts/run_notebook.py` for both notebooks. Exp 17 is reserved for issue #38, so numbering here starts at 18.
