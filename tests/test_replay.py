@@ -1,6 +1,8 @@
 """Replay rebuilds the director from logs: A and b must equal what the show learned online, bit for bit."""
 import copy
+import os
 import pathlib
+import subprocess
 import sys
 
 import numpy as np
@@ -301,3 +303,29 @@ def test_an_unknown_mode_name_is_rejected(tmp_path):
     rows = show(tmp_path, [("juggler", [3, 3, 3, 3, 3])])
     with pytest.raises(ValueError, match="juggler"):
         load_director([rows])
+
+
+# exploration seed --------------------------------------------------------------------------------------------
+
+def draws(director, n=50):
+    return [director.rng.random() for _ in range(n)]
+
+
+def test_each_load_explores_differently_by_default():
+    assert draws(load_director([])) != draws(load_director([]))
+
+
+def test_an_explicit_seed_reproduces_exploration():
+    assert draws(load_director([], seed=3)) == draws(load_director([], seed=3))
+    assert draws(load_director([], seed=3)) != draws(load_director([], seed=4))
+
+
+# importing ---------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("module", ["app.reward", "app.director"])
+def test_each_app_module_imports_alone_from_backend(module):
+    backend = pathlib.Path(__file__).resolve().parents[1] / "backend"
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONHOME")}
+    result = subprocess.run([sys.executable, "-c", f"import {module}"], cwd=backend, env=env,
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

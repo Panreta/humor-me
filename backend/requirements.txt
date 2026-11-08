@@ -6,4 +6,4 @@ python-dotenv==1.1.0
 kokoro==0.9.4
 soundfile==0.14.0
 numpy==2.5.4
-pyyaml==6.0.3
+PyYAML==6.0.3

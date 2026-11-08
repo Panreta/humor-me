@@ -1,16 +1,10 @@
 """Rebuild the director from session logs: replay every finished bit of live shows, in order, through the same
-`update` calls the show made. Reward is recomputed from the reaction rows, never read from `bit_end.reward`."""
-import pathlib
-import sys
-
-# sim/ sits at the repo root; uvicorn runs from backend/.
-ROOT = pathlib.Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from app.reward import reward_v1  # noqa: E402
-from sim.env import AudienceEnv, Context  # noqa: E402
-from sim.policies import EpsilonSoft, LinUCB, prior_means  # noqa: E402
+`update` calls the show made. Reward is recomputed from the reaction rows, never read from `bit_end.reward`.
+A reaction row counts toward the reward whenever it is in the log, so the live loop must not write reaction rows
+for a window that has closed."""
+from app.reward import reward_v1
+from sim.env import AudienceEnv, Context
+from sim.policies import EpsilonSoft, LinUCB, prior_means
 
 EPSILON = 0.2
 
@@ -52,11 +46,14 @@ def finished_bits(sessions: list[list[dict]], room: str = "live", reward_fn=rewa
     return out
 
 
-def load_director(sessions: list[list[dict]], room: str = "live", reward_fn=reward_v1) -> EpsilonSoft:
-    """A fresh uniform-prior LinUCB in an ε = 0.2 wrapper, updated once per finished bit that has a reward."""
+def load_director(sessions: list[list[dict]], room: str = "live", reward_fn=reward_v1,
+                  seed: int | None = None) -> EpsilonSoft:
+    """A fresh uniform-prior LinUCB in an ε = 0.2 wrapper, updated once per finished bit that has a reward.
+    `seed` is for the wrapper's exploration draws only (replay uses logged actions); None draws fresh entropy, so
+    each show explores differently and the logged pick probabilities stay true across shows."""
     env = AudienceEnv()  # mode order and the prior come from the room config, as in the sim
     modes = {name: i for i, name in enumerate(env.modes)}
-    director = EpsilonSoft(LinUCB(prior_means(env, "uniform")), EPSILON, env.n_modes)
+    director = EpsilonSoft(LinUCB(prior_means(env, "uniform")), EPSILON, env.n_modes, seed)
 
     def index(name):
         if name is not None and name not in modes:
