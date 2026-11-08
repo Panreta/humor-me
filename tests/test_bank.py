@@ -62,7 +62,7 @@ def test_no_duplicate_lines_or_premises():
 def test_lines_are_single_speakable_lines():
     for bits in load_bank().values():
         for b in bits:
-            for j in b["jokes"]:
+            for j in texts(b):
                 assert "\n" not in j and 20 <= len(j) <= 140, j
 
 
