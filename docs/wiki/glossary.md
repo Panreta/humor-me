@@ -54,6 +54,7 @@ laughs. A crowd-work exchange (banter with the audience) counts as its own bit.
 |---|---|---|
 | **Context** | What the director knows about the room before choosing: venue, energy, age, plus the last bit's mode and how it landed | `obs["context"]`, `features()` |
 | **Arm / action** | One choice the director can make: a mode for the next bit (6 arms) | `env.step(mode_index)` |
+| **Replay** | Rebuilding the director's memory from saved show logs: start from a blank director and feed it every finished bit again, in the order it happened, with rewards worked out fresh from the operator's button presses. The result must match what the director learned live, number for number | `backend/app/director.py` `load_director` |
 | **Reward** | How well the bit landed: mean laugh level of its jokes ÷ 3, in [0, 1] | `reward` from `env.step` |
 | **Policy** | The rule that turns context into an action | `sim/policies.py` |
 | **Bandit / contextual bandit** | Choose an arm, see only that arm's reward, learn; "contextual" = the best arm depends on the context | [Contextual bandits](contextual-bandits.md) |
