@@ -31,9 +31,9 @@ to need something else, stop and say so.
   FastAPI, so also run `backend/.venv/Scripts/python -m pytest ../tests/test_show_loop.py -q` from `backend/`.
   The backend venv must be Python 3.12 (see `backend/README.md`): the plan assumed `backend/.venv` was one, and it was a stale
   3.14 venv with no numpy or kokoro (dev-log, 2026-11-08).
-- **Experiments:** a `run(**params)` called through `sim.cache.run_or_load`, a section in `notebooks/decisions.ipynb`
+- **Experiments:** a `run(**params)` called through `sim.cache.run_or_load`, a section in the right `notebooks/decisions-*.ipynb` (director, data or live; the index is `decisions.ipynb`)
   with ✅/❌ checks, an entry in the `COVERAGE` table of `notebooks/decision-plot.ipynb`, results in `docs/metrics.md`.
-  Run `python scripts/run_notebook.py` for both notebooks. Exp 17 is reserved for issue #38, so numbering here starts at 18.
+  Run `python scripts/run_notebook.py` (every decisions notebook and decision-plot). Exp 17 is reserved for issue #38, so numbering here starts at 18.
 - **The pass criterion in the task is fixed for builders.** If a result misses it, report the miss and don't move the bar. The bars are
   a first estimate: the user may re-tune one when an experiment shows it was wrong, through a new decisions.md entry giving the old bar, the new bar and the result behind the change.
 - **Records:** decisions go in `docs/decisions.md` (append only). Any bug or quirk that cost time goes in `docs/dev-log.md`.
