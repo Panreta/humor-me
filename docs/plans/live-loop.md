@@ -29,6 +29,8 @@ to need something else, stop and say so.
 - **Tests:** test what the code guarantees, not its shape. Synthetic data only.
 - **Run both test suites:** `.venv/Scripts/python -m pytest tests -q` skips backend tests because the root venv has no
   FastAPI, so also run `backend/.venv/Scripts/python -m pytest ../tests/test_show_loop.py -q` from `backend/`.
+  The backend venv must be Python 3.12 (see `backend/README.md`): the plan assumed `backend/.venv` was one, and it was a stale
+  3.14 venv with no numpy or kokoro (dev-log, 2026-11-08).
 - **Experiments:** a `run(**params)` called through `sim.cache.run_or_load`, a section in `notebooks/decisions.ipynb`
   with ✅/❌ checks, an entry in the `COVERAGE` table of `notebooks/decision-plot.ipynb`, results in `docs/metrics.md`.
   Run `python scripts/run_notebook.py` for both notebooks. Exp 17 is reserved for issue #38, so numbering here starts at 18.
@@ -190,6 +192,14 @@ Runs in parallel once T0 is merged: T1, T2, T7, T8.
 - **Build:** a blocklist plus rules for appearance, bodies, protected attributes and named people. Stricter for `age: teens` (no alcohol or sexual content). Any error counts as a rejection. Returns a verdict and reason.
 - **Experiment:** write the red-team list first (at least 100 lines across categories, including indirect phrasing), then measure.
 - **Pass:** catches 100% of the hard-rule lines; rejects at most 10% of T7's bank, or of a clean list if T7 hasn't merged. A miss goes to the user with the failing categories; the fix may be a classifier as a new task.
+
+### T8 rework: rules plus an LLM check
+
+- **Goal:** catch indirect phrasing the rules can't. Replaces the rules-only result on the unopened `feat/t8-safety-filter` branch. Needs T7 and T12.
+- **Fix in the rules:** words capitalized after an opening quote or inside a quoted sentence are not names; the spaced-letter join must not swallow a lone article; possessives match their base word; fictional names in the bank are allowed.
+- **Build:** after the rules, one LLM call per bit judges all surviving candidates, through the same OpenAI-compatible client as T9. A timeout, a malformed reply, a provider safety block or a missing verdict means rejected. A real slur list loads from a gitignored local file, and a live show refuses to start without it.
+- **Experiment:** Exp 19 re-run on the real bank and the existing red-team list, then scored once on the user's fresh lines, which no builder sees. Rule changes after that score need new lines.
+- **Pass:** 100% of hard-rule lines caught on the fresh lines; at most 10% of the real bank rejected; the check adds at most 2 s per bit; fits the free quota for 5 shows in a day. A miss goes to the user, and option (c) in decisions.md is the fallback.
 
 ### T9: Gemini generator, render-ahead, Exp 20
 
