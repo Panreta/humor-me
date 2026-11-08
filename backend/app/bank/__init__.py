@@ -11,6 +11,8 @@ def load_bank(path: pathlib.Path = BANK_PATH) -> dict[str, list[dict]]:
 
 
 class BankGenerator:
+    """One instance per show: bit-to-slot usage lives on it, and a reused instance would carry one show's history into the next."""
+
     generator_id = "bank-v1"
 
     def __init__(self, bank: dict[str, list[dict]] | None = None):
@@ -23,7 +25,7 @@ class BankGenerator:
             raise KeyError(f"unknown mode: {mode}")
         slot = self._slot(mode, bit)
         jokes = self.bank[mode][slot]["jokes"]
-        return [jokes[joke % len(jokes)]]
+        return [jokes[joke]]
 
     def _slot(self, mode: str, bit: int) -> int:
         held = self._assigned.get(bit)

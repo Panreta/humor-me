@@ -68,3 +68,9 @@ def test_bit_stays_on_one_premise_and_mixed_show_runs():
 def test_unknown_mode_raises():
     with pytest.raises(KeyError):
         BankGenerator().candidates("grumpy", 0, 0)
+
+
+def test_out_of_range_joke_index_raises():
+    gen = BankGenerator()
+    with pytest.raises(IndexError):
+        gen.candidates("neurotic", 0, JOKES_PER_BIT)

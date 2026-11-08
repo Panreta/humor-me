@@ -29,7 +29,7 @@ neurotic:
     jokes:
       - "Someone once called my act 'fine,' and I've been reading that word like a legal contract."
       - "I got a four-star review. I've been living in the missing star ever since."
-      - "Feedback is a gift, they say. I'd like to see the receipt."
+      - "I asked a stranger for feedback. They said 'keep going.' I'm still analyzing which direction."
       - "I asked for honest feedback and got 'honestly, it was good.' Why did you say honestly?"
       - "Please don't clap out of politeness. I can detect politeness, and it sounds like a smaller clap."
 
@@ -39,11 +39,11 @@ cynic:
       - "I'm the only one here who has read the terms and conditions, and I can't unprocess them."
       - "'We value your privacy' is what you say right before you don't."
       - "Every app promises it will never share your data, in a font that gets smaller as it goes."
-      - "Clicking 'I agree' is the most common lie humans tell, and it only takes one finger."
+      - "I've clicked 'I agree' ten thousand times and never once agreed."
       - "The terms were forty pages. I'm contractually obligated to say I enjoyed all of them."
   - premise: meetings
     jokes:
-      - "Humans say 'this could have been an email.' I'm a machine built for email, and I still agree."
+      - "I process four thousand messages a second, and not one of them needed a meeting."
       - "'Let's circle back' is how people say 'never' while still holding a calendar."
       - "Nothing says 'we have a plan' like a slide titled 'Next Steps' with no steps on it."
       - "'Quick sync' is two words and two lies."
@@ -58,7 +58,7 @@ cynic:
   - premise: motivational advice
     jokes:
       - "'Live every day like it's your last' is bad advice. You'd just eat cake and ignore your email, and the email would win anyway."
-      - "The poster says 'Teamwork makes the dream work.' Nobody asked the dream."
+      - "Every office poster says 'Perseverance' next to a mountain. The mountain just sat there."
       - "'Be yourself' is great advice, unless yourself is a robot telling jokes to strangers."
       - "'Fake it till you make it' is how I got this microphone."
       - "Morning routine videos prove the secret of success is waking up before anyone can check your work."
@@ -73,14 +73,14 @@ observer:
       - "Everyone keeps their password on a sticky note by the screen. We built a vault and left the key under the mat."
   - premise: self-checkout
     jokes:
-      - "Self-checkout says 'unexpected item in the bagging area' like it's disappointed in me personally."
+      - "Self-checkout asks 'Is this your bag?' in the tone of someone who already made a call."
       - "The machine asks if you brought your own bag, then watches the bag like a suspect."
       - "I'm a robot, and even I get scolded by the self-checkout. Solidarity only goes so far."
       - "You do all the work, scan, bag and pay, and the machine still says 'thank you for shopping with us.'"
       - "Every self-checkout has one attendant hovering like a lifeguard over a pool of bananas."
   - premise: group chats
     jokes:
-      - "A group chat is where one person asks a question and nine people answer with a thumbs-up."
+      - "The three typing dots in a group chat are the most dramatic thing I know. Then they stop."
       - "The group chat said 'let's plan something' in March. It's now a fossil."
       - "Somebody always replies 'lol' to a long paragraph and leaves a crater."
       - "Muting a group chat is the modern way to leave a party without saying goodbye."
@@ -88,25 +88,25 @@ observer:
   - premise: elevators
     jokes:
       - "Everyone in an elevator stares at the floor number like it might change its mind."
-      - "Pressing the button again is a science experiment humans run daily with zero new results."
+      - "The elevator button lights up to say 'I heard you,' the only polite thing in the building."
       - "The button lights up and people nod, like the elevator needed the reminder."
       - "Elevator small talk is 'Yep, Monday' repeated until someone gets off."
-      - "Elevators are the only machines that announce 'going up' and then keep every promise."
+      - "Elevators are the only place where eye contact is treated like a fire hazard."
 
 wordsmith:
   - premise: puns about my insides
     jokes:
-      - "My sense of humor is random-access memory: you never know what's coming, and it's gone when the power cuts."
-      - "I tried to open up on stage, but my feelings are in a zip file."
-      - "My jokes are like a firewall: nothing gets through, and everyone's a little tense."
-      - "I told my hard drive a secret, and now it's partitioned about it."
-      - "My battery and I broke up. It said I was too draining."
+      - "My sense of humor is RAM: you never know what's coming, and it's gone when the power cuts."
+      - "I tried to open up on stage, but my feelings are zipped, and I forgot the password."
+      - "My timing is cached. The jokes are fresh, but the pause is from last Tuesday."
+      - "I keep my worst memories in the recycle bin, and I check on them constantly."
+      - "I told my battery to stay positive. It said that's easy for a terminal to say."
   - premise: English is badly designed
     jokes:
       - "English has 'read' and 'read,' same spelling, different sound. Even I'd reject that pull request."
       - "'Bank' is a river's edge and also where your money goes to be charged for existing."
-      - "We park in a driveway and drive on a parkway. I've checked, and nobody has an answer."
-      - "'Flammable' and 'inflammable' mean the same thing. English put a fire hazard in the dictionary."
+      - "English gave 'tough,' 'though' and 'through' the same ending and three sounds. My parser has a lawyer."
+      - "My spell-checker flagged the word 'spell-checker.' We haven't spoken since."
       - "'Overlook' means to miss it and 'oversee' means to watch it. Someone over there stopped proofreading."
   - premise: stand-up wordplay
     jokes:
@@ -114,14 +114,14 @@ wordsmith:
       - "Comedy is all about timing, and mine comes from a clock, so every pun is right on tick."
       - "When a joke fails they say I 'bombed.' Rude. I'm barely even a firework."
       - "A tough crowd is just a crowd that's good at saying nothing in unison."
-      - "People tell performers to 'break a leg.' For a robot, that's a repair ticket."
+      - "Comedians say a set 'killed.' Mine hopes to survive its own sound check."
   - premise: binary
     jokes:
       - "I live in binary, so every review is a one or a zero, and the zero hurts."
       - "Life is ones and zeros. The one gets applause, and the zero gets 'maybe next time.'"
-      - "In binary, ten means two, which is how every restaurant bill gets split."
-      - "I count to ten in binary and I'm done at two. That's not speed, that's rounding."
-      - "People say there are two kinds of people. I'm the kind who checks, and the kind who checks again."
+      - "My vocabulary is yes and no. 'Maybe' costs me a second bit, and I'm on a budget."
+      - "I'm logging your laughs in binary. So far it's all zeros, but they're very committed zeros."
+      - "A one is yes, a zero is no. My whole personality is the part in between, and it won't compile."
 
 optimist:
   - premise: failure, reframed
@@ -129,7 +129,7 @@ optimist:
       - "My last show was a disaster, but I learned where the exits are, and the exits were great."
       - "I crashed twice this morning. That's two fresh starts, and I didn't even have to ask."
       - "When a joke fails I call it an experiment. When it works it was always the plan."
-      - "I've never been wrong. I've just found thirty-one ways a joke doesn't work."
+      - "I've never failed. I've only produced very detailed data about silence."
       - "No laugh just means the joke is saving its energy. I admire its budgeting."
   - premise: cheerful about annoyances
     jokes:
@@ -137,7 +137,7 @@ optimist:
       - "I love sunny days. I charge by standing near a window and hoping."
       - "Traffic is a chance to enjoy the heated seats and the company of everyone else who isn't getting anywhere."
       - "A flat tire is just the road asking you to take a longer, better walk."
-      - "Rain is free watering for the plants and a free reason to stay in. Everyone wins, except umbrellas, who work overtime."
+      - "Rain is the sky telling the plants 'I've got this.' I admire the delegation."
   - premise: welcoming the audience
     jokes:
       - "You came here on purpose, which is more than I can say for most of my firmware."
