@@ -561,6 +561,22 @@ re-derives a number, and sends fixes back before opening the PR. The checklist i
 a live room are run by the user. The plan's pass bars are first estimates (user): builders never move one, but the user can re-tune a bar when an experiment shows it was wrong,
 with a new entry giving the old bar, the new bar and the result behind it. Judgment call, not measured.
 
+## 2026-11-08 — Scraps from the Loft permission, on record
+**Log.** On 2026-10-20 the user asked the site, through its contact form, to use about 30 to 50 specials as a local research corpus for this course project: not redistributed, not published, not used
+commercially, fetched slowly, and the site credited in the report. On 2026-10-23 the site admin (Chris, from the scrapsfromtheloft.com admin address) replied: "you have the permission to use the stand-up
+transcripts for your reinforcement learning project under the conditions you outlined." The screenshot is kept locally at `data/permissions/` and gitignored, because this repo is public and it shows personal email addresses.
+**What this settles:** the site's terms for our access, and the conditions above are now binding. The report credits the site.
+**What it doesn't:** the site doesn't hold the rights to the specials, and the request itself said not published. So the 2026-10-20 rule stands: transcripts are for structure and reward labels, only numbers
+leave the laptop, and no joke text is committed or used to write lines. Replaces "deferred, check ToS" in data-sources.md.
+
+## 2026-11-08 — One decisions notebook per project section
+From the user: `notebooks/decisions.ipynb` keeps growing (Exp 1 to 18 in one file). Options: (a) one notebook; (b) one per experiment: dozens of files, and related experiments lose their shared story; **(c) one per section (user):** data, director, live loop, model.
+`decisions.ipynb` stays as a short index, so existing links work, and experiment numbers stay global. Judgment call, not measured. Task T12 in docs/plans/live-loop.md.
+
+## 2026-11-08 — Joke bank gets bit structure, transcript statistics stay undecided
+From the user: the test bank should have some structure. Bank bits become opener, three tags and a closer that calls back to the opener, hand-written from the form in docs/wiki/standup-structure.md, with no transcript input. Whether to compute per-bit statistics
+from transcripts for T9's prompt is still open (user). Judgment call, not measured.
+
 ## 2026-11-08 — Exp 18: exploring at ε = 0.2 misses its bar in one of six rooms
 Adds to the ε entry above, which stays as written; this replaces its scratch number. Bar fixed beforehand (live-loop plan, T1): at 5 shows,
 ε = 0.2 loses at most 1 laugh per show at the far end of the 95% CI, in every variant. Variants: judge and human taste, each with the gaps between modes
@@ -581,3 +597,8 @@ From the user: 0.2 gives better exploration. **Old bar:** at 5 shows, ε = 0.2 l
 far end -1.13; an independent recomputation gave -0.92 ± 0.18, far end -1.10. That room doubles gaps that are already the largest and puts wordsmith's `base` below zero, so it's a stress test, not a measured room.
 **Cost accepted:** a real room with gaps that wide would lose about 1 laugh a show at 5 shows and 1.36 at 30. Exp 18's notebook check still records the miss against the old bar.
 Revisit once T11 measures real per-bit noise. Evidence: notebooks/decisions.ipynb Exp 18.
+
+## 2026-11-08 — Safety filter: rules plus an LLM check
+Exp 19's rules alone missed the bar. On the builder's own held-out lines they caught 67 of 71 hard-rule lines; on 30 indirect lines the builder never saw, written by the reviewer, 16 of 30 (53%). They also rejected 14 of the 120 lines in T7's first bank, 12 of them from one quote-handling bug.
+Options: (a) **rules plus an LLM check per bit (user)**; (b) tighter rules only: free, but indirect phrasing has no fixed vocabulary; (c) a person approves all lines before each show: safest, up to about 720 lines. Kept as the fallback if (a) misses on fresh lines.
+Cost of (a): one extra API call per bit, hidden by render-ahead. Exp 9's 0 of 16 was Qwen's labeling flags, so this needs its own measurement. Scored once on about 30 lines the user writes and keeps from every builder. Task: T8 rework in docs/plans/live-loop.md.
