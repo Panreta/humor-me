@@ -43,7 +43,7 @@ def health() -> dict[str, str]:
 
 
 async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.SimpleNamespace) -> None:
-    seed = secrets.randbits(32)  # one draw: the director's exploration and the logged policy seed are the same
+    seed = secrets.randbits(32)  # the director's seed, logged as policy.seed; selector and sim draw their own
     try:
         sessions, sha, tts = await asyncio.gather(asyncio.to_thread(load_sessions, sessions_dir),
                                                   asyncio.to_thread(git_sha), asyncio.to_thread(get_tts))
@@ -55,7 +55,7 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
             source = AnnouncedSim(ws.send_json, msg["context"], secrets.randbits(32))
         voice = Voice(tts)
         await run_show(director, msg["room"], msg["context"], generator=BankGenerator(), safety=BankOnlySafety(),
-                       selector=UniformSelector(seed), tts=voice,
+                       selector=UniformSelector(secrets.randbits(32)), tts=voice,
                        player=WebSocketPlayer(voice, ws.send_json, ws.send_bytes, played), source=source,
                        clock=clock, log=SessionLog(sessions_dir), explore_seed=seed, operator=msg["operator"],
                        git_sha=sha, config=reaction_config)

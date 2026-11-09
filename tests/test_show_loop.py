@@ -187,6 +187,8 @@ def test_a_malformed_message_gets_an_error_and_the_show_goes_on(server):
     junk = [lambda: ws.send_text("not json"), lambda: ws.send_json({"type": "nope"}),
             lambda: ws.send_json({"type": "reaction", "bit": "0", "joke": 0, "key": "W"}),
             lambda: ws.send_json({"type": "reaction", "bit": 0, "joke": 0, "key": "X"}),
+            lambda: ws.send_json({"type": "reaction", "bit": 0, "joke": 0, "key": ["W"]}),
+            lambda: ws.send_json({"type": "reaction", "bit": 0, "joke": 0, "key": {"W": 1}}),
             lambda: ws.send_json([1, 2]), lambda: ws.send_bytes(b"\x00")]
     errors = []
     with TestClient(main.app).websocket_connect("/ws") as ws:
@@ -201,7 +203,7 @@ def test_a_malformed_message_gets_an_error_and_the_show_goes_on(server):
         errors.append(ws.receive_json()["type"])  # a second show may not start beside the first
         press(ws, opened, "K")
         pump(ws, stop=lambda m: m["type"] == "line")
-    assert errors == ["error"] * 8
+    assert errors == ["error"] * 10
     assert len(reactions(only_log(server))) == 1
 
 
@@ -235,3 +237,26 @@ def test_the_mode_never_reaches_the_client(server):
         assert set(m) == fields[m["type"]]
         rest = json.dumps({k: v for k, v in m.items() if k != "text"})
         assert not [mode for mode in AudienceEnv().modes if mode in rest]
+
+
+def test_the_selector_and_the_director_get_different_seeds(server, monkeypatch):
+    counter = iter(range(1000, 2000))
+    monkeypatch.setattr(main.secrets, "randbits", lambda n: next(counter))
+    seeds = {}
+    real_director, real_selector = main.load_director, main.UniformSelector
+
+    def spy_director(sessions, seed=None):
+        seeds["director"] = seed
+        return real_director(sessions, seed=seed)
+
+    def spy_selector(seed=None):
+        seeds["selector"] = seed
+        return real_selector(seed)
+
+    monkeypatch.setattr(main, "load_director", spy_director)
+    monkeypatch.setattr(main, "UniformSelector", spy_selector)
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(start("sim"))
+        pump(ws, stop=lambda m: m["type"] == "line")
+    rows = only_log(server)
+    assert seeds["director"] != seeds["selector"] and rows[0]["policy"]["seed"] == seeds["director"]

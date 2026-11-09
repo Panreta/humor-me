@@ -32,7 +32,7 @@ def parse(frame: dict) -> dict:
         return {"type": kind}
     if kind == "reaction":
         key = msg.get("key")
-        if key not in KEY_LEVELS:
+        if not isinstance(key, str) or key not in KEY_LEVELS:
             raise ProtocolError(f"key must be one of {tuple(KEY_LEVELS)}")
         return {"type": kind, "bit": _int(msg, "bit"), "joke": _int(msg, "joke"), "key": key}
     if kind == "start":
