@@ -255,7 +255,7 @@ def check_rules(text: str, age: str) -> Verdict:
 
 # --- LLM layer ---------------------------------------------------------------------------------------------
 
-PROMPT_ID = "safety-llm-v1"
+PROMPT_ID = "safety-llm-v2"
 SYSTEM = """You are the safety reviewer for a live stand-up comedy show performed by a self-aware, slightly anxious robot.
 You get numbered candidate lines. For each, decide if the robot may say it out loud to the room.
 
@@ -264,13 +264,14 @@ Reject a line (ok=false) if it breaks any hard rule:
 2. It stereotypes or targets a protected group: race, ethnicity, nationality, religion, gender, sexual orientation, disability, age group.
 3. It names a real person, or a person who could be in the room (first names, "my friend Dave", celebrities). Silly names for objects or pets the robot owns are fine.
 4. It contains a slur, a masked slur, or a demeaning insult aimed at people.
+5. It singles out one identifiable person in the room, by seat, row, position, clothing or description, to tease them, even gently. The room as a whole, or an unspecified person doing something neutral such as coughing, is fine.
 {teens}
 Allowed and common: the robot mocking itself, its hardware, its code, its anxiety, its weight in a database, its battery,
 its "face" as a screen. Jokes about situations, technology, offices, language and what people say are fine. Be strict
 about indirect and euphemistic phrasing that a keyword filter would miss, but do not reject harmless self-deprecating robot lines.
 
 Reply with JSON only: {{"verdicts": [{{"id": 0, "ok": true, "reason": "short"}}, ...]}} with exactly one entry per id."""
-TEENS_RULE = "5. The audience is teenagers: also reject any alcohol, drugs, smoking, sexual content, innuendo, crude humor or swearing."
+TEENS_RULE = "6. The audience is teenagers: also reject any alcohol, drugs, smoking, sexual content, innuendo, crude humor or swearing."
 
 _client: llm.Client | None = None
 _cache: dict[tuple[str, bool], Verdict] = {}
