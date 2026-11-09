@@ -1,8 +1,7 @@
 # backend/
 
-FastAPI server for the live show loop. It speaks fixed lines for now, through Kokoro on the CPU;
-it grows into the director → generator → safety → TTS loop described in
-[docs/design.md](../docs/design.md#architecture).
+FastAPI server for the live show loop: director, bank generator, safety filter, Kokoro voice on the CPU and a
+reward source (operator keys or the simulated room), as described in [docs/design.md](../docs/design.md#architecture).
 
 ## Setup
 
@@ -30,8 +29,25 @@ cd backend
 ```
 
 - `GET /health` → `{"status": "ok"}`
-- `WS /ws`: currently echoes JSON. Will carry operator events (context, laugh button) in, and
-  joke text + audio chunks out.
+- `WS /ws`, JSON text frames plus binary WAV frames from the server. A show runs beside the receive loop.
+
+| Client sends | Fields | Meaning |
+|---|---|---|
+| `start` | `context` (`venue`, `energy`, `age`), `room` (`sim`\|`live`), `operator` | Start a show. One at a time |
+| `played` | none | The browser finished playing the last audio |
+| `reaction` | `bit`, `joke`, `key` (`W`, `K`, `Space`, `D`) | A key press. Counts only while that joke's window is open |
+
+| Server sends | Fields | Meaning |
+|---|---|---|
+| `line` | `text` | The next line; the WAV follows as a binary frame. Send `played` when it ends |
+| `reaction_window` | `state` (`open`\|`closed`), `bit`, `joke` | Opens when audio ends, closes at the end of the hold (or on timeout) |
+| `sim_reaction` | `bit`, `joke`, `key` | `sim` room only: the key the simulated room "pressed" |
+| `show_end` | `status` (`finished`\|`aborted`) | The show is over |
+| `error` | `message` | A bad client message or a failed start or show. A bad message never ends the show |
+
+The mode the director picked is never sent. Presses outside their window are not logged as reactions (replay counts every
+row), only noted by the Python logger. Within a hold the last press wins and each change is a `reaction` row.
+Until the real safety filter (T8/T9) lands, only text literally in the bank passes (`BankOnlySafety`).
 
 ## Pick a provider first
 

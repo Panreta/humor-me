@@ -189,13 +189,6 @@ def test_rows_that_are_not_schema_objects_raise_value_error(tmp_path, text):
         read_session(path)
 
 
-def test_demo_rows_are_not_schema_v1(tmp_path):
-    log = SessionLog(tmp_path)
-    log.write_demo("line", index=0)
-    with pytest.raises(ValueError, match="schema"):
-        read_session(log.path)
-
-
 def test_log_module_does_not_import_fastapi():
     source = (pathlib.Path(__file__).resolve().parents[1] / "backend" / "app" / "log.py").read_text(encoding="utf-8")
     assert "fastapi" not in source

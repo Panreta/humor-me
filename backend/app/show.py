@@ -1,8 +1,7 @@
-"""The show loop. `run_show` is the full loop; `play_lines` is the fixed-lines demo the websocket still uses until T5."""
+"""The show loop: `run_show` runs one show against whatever voice, room and clock it is given."""
 import asyncio
-import time
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Protocol
+from typing import Protocol
 
 import numpy as np
 
@@ -12,33 +11,8 @@ from app.rooms import REACTION
 from app.tts import wav_seconds
 from sim.env import AudienceEnv, Context
 
-# Written by hand to test the audio path. Generated text must pass the safety filter before it gets here.
-LINES = (
-    "Good evening. I'm a robot, and I've been told this is a safe space, which is what people say right before unplugging you.",
-    "I learned comedy from data. Now I know exactly why a joke is funny, and I can ruin it in under a second.",
-    "If you didn't laugh, that's fine. I'll just log it, and think about it forever.",
-)
-
-
 class TTS(Protocol):
     def synthesize(self, text: str) -> bytes: ...
-
-
-async def play_lines(lines, tts: TTS, send_json: Callable[[dict], Awaitable], send_audio: Callable[[bytes], Awaitable],
-                     wait_played: Callable[[], Awaitable], log: SessionLog) -> None:
-    log.write_demo("show_start", lines=len(lines))
-    for index, text in enumerate(lines):
-        started = time.perf_counter()
-        wav = await asyncio.to_thread(tts.synthesize, text)  # the websocket stays responsive while it renders
-        tts_seconds = time.perf_counter() - started
-        audio_seconds = wav_seconds(wav)
-        log.write_demo("line", index=index, text=text, tts_seconds=round(tts_seconds, 3), audio_seconds=round(audio_seconds, 3))
-        await send_json({"type": "line", "index": index, "text": text})
-        await send_audio(wav)
-        await wait_played()  # the next line starts only after the browser finishes this one
-        log.write_demo("line_played", index=index)
-    log.write_demo("show_end")
-    await send_json({"type": "show_end"})
 
 
 @dataclass(frozen=True)
@@ -78,6 +52,10 @@ class RewardSource(Protocol):
 
     def begin_bit(self, action: int) -> None: ...
     async def reaction(self, bit: int, joke: int, timeout: float) -> tuple[int | None, str | None, float]: ...
+
+    async def hold(self, bit: int, joke: int, seconds: float, clock: Clock) -> tuple[int | None, str | None, float] | None:
+        """Wait out the hold. Returns a corrected (level, key, latency_s) if the operator changed their mind, else None."""
+        ...
 
 
 class UniformSelector:
@@ -119,9 +97,14 @@ async def _joke(bit, joke, mode, context, *, generator, safety, selector, tts, p
               tts_seconds=start - asked, audio_seconds=wav_seconds(wav), audio_start_at=start, audio_end_at=end)
     level, key, latency = await source.reaction(bit, joke, config.timeout_s)
     log.write("reaction", bit=bit, joke=joke, source=source.source, level=level, key=key, latency_s=latency)
-    hold = config.holds[level]
     before = clock.now()
-    await clock.sleep(hold)
+    while True:
+        hold = config.holds[level]
+        fix = await source.hold(bit, joke, hold, clock)
+        if fix is None:
+            break
+        level, key, latency = fix  # last press wins; the hold restarts at the new level's length
+        log.write("reaction", bit=bit, joke=joke, source=source.source, level=level, key=key, latency_s=latency)
     log.write("gap", bit=bit, joke=joke, planned_hold_s=hold, actual_gap_s=clock.now() - before)
     return level
 
