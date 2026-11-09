@@ -3,6 +3,8 @@ import pathlib
 
 import yaml
 
+from app.show import Batch
+
 BANK_PATH = pathlib.Path(__file__).with_name("bank-v1.yaml")
 
 
@@ -26,6 +28,9 @@ class BankGenerator:
         slot = self._slot(mode, bit)
         jokes = self.bank[mode][slot]["jokes"]
         return [jokes[joke]["text"]]
+
+    def generate(self, mode: str, bit: int, joke: int, context: dict) -> Batch:
+        return Batch(f"{self.generator_id}:{mode}:{bit}:{joke}", BANK_PATH.name, self.candidates(mode, bit, joke))
 
     def _slot(self, mode: str, bit: int) -> int:
         held = self._assigned.get(bit)

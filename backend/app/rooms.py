@@ -41,5 +41,9 @@ class SimRoom:
         level = self._levels[joke]
         return level, KEY_FOR_LEVEL[level], self.latency_s
 
+    async def hold(self, bit: int, joke: int, seconds: float, clock):
+        await clock.sleep(seconds)
+        return None
+
 
 REACTION = ReactionConfig()

@@ -107,11 +107,6 @@ class SessionLog:
         validate(record)
         self._append(record)
 
-    def write_demo(self, event: str, **fields) -> None:
-        """The fixed-lines demo's events, outside schema v1 (marked `schema: 0`, so read_session rejects them).
-        T4 replaces the demo loop with real events; delete this then."""
-        self._append({"schema": 0, "session": self.session_id, "at": time.time(), "event": event, **fields})
-
 
 def read_session(path: pathlib.Path) -> list[dict]:
     """Rows of one show. A torn final line (crash mid-write, possibly inside a multi-byte character) is dropped;

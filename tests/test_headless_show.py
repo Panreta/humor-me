@@ -90,6 +90,10 @@ class Scripted:
         key = {3: "W", 2: "K", 1: "Space", 0: "D"}.get(level)
         return level, key, 0.4 if level is not None else timeout
 
+    async def hold(self, bit, joke, seconds, clock):
+        await clock.sleep(seconds)
+        return None
+
 
 def director(seed=1):
     return EpsilonSoft(LinUCB(prior_means(ENV, "uniform")), EPSILON, len(MODES), seed=seed)
