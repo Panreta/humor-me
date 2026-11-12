@@ -54,6 +54,7 @@ laughs. A crowd-work exchange (banter with the audience) counts as its own bit.
 |---|---|---|
 | **Context** | What the director knows about the room before choosing: venue, energy, age, plus the last bit's mode and how it landed | `obs["context"]`, `features()` |
 | **Arm / action** | One choice the director can make: a mode for the next bit (6 arms) | `env.step(mode_index)` |
+| **Replay** | Rebuilding the director's memory from saved show logs: start from a blank director and feed it every finished bit again, in the order it happened, with rewards worked out fresh from the operator's button presses. The result must match what the director learned live, number for number | `backend/app/director.py` `load_director` |
 | **Reward** | How well the bit landed: mean laugh level of its jokes ÷ 3, in [0, 1] | `reward` from `env.step` |
 | **Policy** | The rule that turns context into an action | `sim/policies.py` |
 | **Bandit / contextual bandit** | Choose an arm, see only that arm's reward, learn; "contextual" = the best arm depends on the context | [Contextual bandits](contextual-bandits.md) |
@@ -68,6 +69,8 @@ laughs. A crowd-work exchange (banter with the audience) counts as its own bit.
 | **Wrong prior** | HumorGen's values shuffled across modes: a confident but wrong starting guess, to measure what a bad prior costs | `prior_means(env, "wrong")` |
 | **Pooling** | Sharing what was learned in one context with similar ones (a lesson from one bar helps at every bar) | LinUCB/LinTS features; ε-greedy doesn't pool |
 | **ε-greedy / LinUCB / Thompson (LinTS)** | The three learning policies compared | [Contextual bandits](contextual-bandits.md) |
+| **ε-soft policy** | A policy that, with probability ε, ignores its own favourite and picks any option at random (the favourite included), otherwise picks the favourite. Because the chances are known exactly, a log of its picks can later be used to judge a different policy. ε = 0 is the plain policy | `EpsilonSoft` wraps LinUCB; the live director uses ε = 0.2 (Exp 18) |
+| **Pick probability** | The exact chance the policy had of choosing the option it chose. With 6 modes and ε = 0.2, the favourite has 1 − 0.2 + 0.2/6 ≈ 0.83 and every other mode 0.2/6 ≈ 0.033. Logged with every pick | `EpsilonSoft.probs(obs)` |
 | **Fatigue** | The room tires of a mode used in the last 2 bits | `audience.yaml: fatigue` |
 | **Novelty** | Early-set bonus ("a robot is talking!") that fades | `audience.yaml: novelty` |
 | **Shift** | The room's taste changes mid-set (after bit 4 of 8): the modes that were working drop, others rise. The director isn't told | `AudienceEnv(shift_at=4)`, `audience.yaml: shift` |
@@ -157,3 +160,4 @@ Used in the rJokes results (notebook Exp 2, 10, 11). Examples are from the 90k l
 | **Ridge regression** | A linear fit with a small penalty on large weights, so it stays stable with little data. LinUCB fits one per mode | `_Linear.A`, `_Linear.b` |
 | **Inter-annotator agreement** | How often separate human judges give the same answer. It shows how much of a task people themselves agree on | HumorGen's evaluators: 31.7% of pairs |
 | **Bootstrap** | Estimates uncertainty from the data alone: draw a new sample of the same size from the data, with repeats allowed (a **resample**), recompute the number, and repeat. How much it moves gives the CI | 1,000 resamples for Exp 10 |
+| **Cohen's kappa** | How well two labelers agree after subtracting the agreement they'd reach by chance. 1 is perfect and 0 is no better than chance. Raw agreement can mislead: if most jokes get no laugh, always answering "no laugh" looks accurate, but its kappa is 0 | Laugh detector vs the operator's keys |

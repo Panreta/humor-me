@@ -40,7 +40,15 @@ export function useShow() {
     socketRef.current = socket;
     let finished = false;
 
-    socket.onopen = () => socket.send(JSON.stringify({ type: "start" }));
+    socket.onopen = () =>
+      socket.send(
+        JSON.stringify({
+          type: "start",
+          context: { venue: "bar", energy: "normal", age: "mixed" },
+          room: "sim",
+          operator: "demo",
+        }),
+      );
     socket.onerror = () => setState("error");
     socket.onclose = () => setState((s) => (finished || s === "error" ? s : "idle"));
     socket.onmessage = async (event) => {

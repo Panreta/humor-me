@@ -513,3 +513,92 @@ From the user. notebooks/decision-plot.ipynb followed the deck's slides, so Exp 
 experiment for one. Its `COVERAGE` table now lists each experiment's figures or why it has none, and a missing entry
 fails the notebook's check. Options: (a) require a chart for every experiment: rejected, since some results are one
 number and a chart would add nothing; **(b) a chart or a stated reason.** Judgment call, not measured.
+
+## 2026-11-08 — Live loop: one process, with an append-only log as the contract
+Options: (a) **JSONL per show, offline scripts read it**; (b) SQLite: real queries, but migrations for no current need;
+(c) event bus and feature store: no benefit at 5–30 shows. **Chose (a)** (user). Offline datasets are built when a consumer
+exists, so the log must record every candidate with its exact prompt and generator. A later model swap is `base_url` + `model`
+on one OpenAI-compatible client, rejected alternative in-process `transformers` (a crash ends the show, and it competes for the
+GPU). Judgment call, not measured. Plan: docs/plans/live-loop.md.
+
+## 2026-11-08 — Director state is rebuilt from logs at show start
+Options: (a) **replay finished live bits**, cost: milliseconds, needs complete logs; (b) save `A` and `b`: less code, but locks in
+the old reward and sim data can leak in. **Chose (a)** (user). Replay lets a changed reward re-score old shows. Judgment call, not measured.
+
+## 2026-11-08 — Live reward comes from operator keys, on frozen laugh levels
+`W` = 3, `K` = 2, `Space` = 1, `D` = 0, per joke; no press is `null`, not 0. One operator for every show. Reward v1 is the mean level ÷ 3
+per bit, with no update under 3 of 5 labels. A "laugh" is level ≥ 2, matching the transcript rule.
+**Supersedes for live shows:** the 2026-10-20 groan channel. Groans are level 1 on `Space`, and no separate key exists (user, for
+consistency). Cost: groans and chuckles can't be told apart, so no mode-dependent groan reward is possible on live data.
+**Differs from transcripts:** applause without laughter is `K` live and level 0 in transcripts (user). A detector can't hear it as a laugh.
+**Invariant 5:** keys replace the room-baseline formula. The rubric defines each key as a share of the room, so room size doesn't
+inflate the label. Not validated; one operator's judgment. Levels 0–3 assume equal steps, as the sim does. Judgment call, not measured.
+
+## 2026-11-08 — Explore at ε = 0.2 and pick candidates uniformly, with logged probabilities
+LinUCB is deterministic, so its logs can't evaluate another director offline. ε-soft LinUCB logs an exact probability per pick (user).
+Scratch result, paired over 1,000 seeds at 5 shows: −0.47 ± 0.11 laughs per show (−1.1% of 42.6), 6.7 non-greedy picks in total, so offline
+evaluation needs about 30 shows. Depends on the made-up mode gaps in `audience.yaml`, not yet varied. Exp 18 (task T1) replaces this number.
+Candidates are picked uniformly until the judge exists, which costs nothing and leaves an unbiased record to test it on later.
+
+## 2026-11-08 — Record raw show audio, with consent
+From the user: buttons first, and keep the mic audio so a detector can later be trained and tested on the button-labeled shows. Recording
+must therefore start with the first real show (Stage 0), not at the detector. Options: (a) derived features only: a better detector
+can't be re-scored on old shows; **(b) raw audio with consent, local and gitignored.** Off unless the operator confirms the room was told and
+agreed. Consistent with design.md's Safety section, extended from training mode to any show with consent. Judgment call, not measured.
+
+## 2026-11-08 — Laugh detector arrives in stages, with buttons as the fallback
+Button → detector logged only → detector driving reward with keys still overriding. Automatic fallback to buttons if it fails. Gate, fixed
+before any run: at least 80% agreement on laugh vs no laugh and Cohen's kappa at least 0.6 on shows it wasn't tuned on, plus a replay
+counting changed mode choices. About 246 jokes give ±0.05, so this is a stretch for Dec 8. Kappa bar is a judgment call.
+
+## 2026-11-08 — M1 shows validate the judge and DPO; training waits for about 30 shows
+A live show plays one candidate, so the room never compares two jokes from the same prompt, which DPO needs. About 200 rows at 5 shows can
+validate (±0.10 on agreement). From about 30 shows they can train a reward model that scores candidates. Split by show, latest 20% held out. Judgment call, not measured.
+
+## 2026-11-08 — PR standard: one task, reviewed before it reaches the user
+From the user. Each task in docs/plans/live-loop.md is small enough for a Sonnet agent to build from a short brief. An Opus reviewer reads it, runs it,
+re-derives a number, and sends fixes back before opening the PR. The checklist is `.github/pull_request_template.md`. Experiments that need the cluster, a mic or
+a live room are run by the user. The plan's pass bars are first estimates (user): builders never move one, but the user can re-tune a bar when an experiment shows it was wrong,
+with a new entry giving the old bar, the new bar and the result behind it. Judgment call, not measured.
+
+## 2026-11-08 — Scraps from the Loft permission, on record
+**Log.** On 2026-10-20 the user asked the site, through its contact form, to use about 30 to 50 specials as a local research corpus for this course project: not redistributed, not published, not used
+commercially, fetched slowly, and the site credited in the report. On 2026-10-23 the site admin (Chris, from the scrapsfromtheloft.com admin address) replied: "you have the permission to use the stand-up
+transcripts for your reinforcement learning project under the conditions you outlined." The screenshot is kept locally at `data/permissions/` and gitignored, because this repo is public and it shows personal email addresses.
+**What this settles:** the site's terms for our access, and the conditions above are now binding. The report credits the site.
+**What it doesn't:** the site doesn't hold the rights to the specials, and the request itself said not published. So the 2026-10-20 rule stands: transcripts are for structure and reward labels, only numbers
+leave the laptop, and no joke text is committed or used to write lines. Replaces "deferred, check ToS" in data-sources.md.
+
+## 2026-11-08 — One decisions notebook per project section
+From the user: `notebooks/decisions.ipynb` keeps growing (Exp 1 to 18 in one file). Options: (a) one notebook; (b) one per experiment: dozens of files, and related experiments lose their shared story; **(c) one per section (user):** data, director, live loop, model.
+`decisions.ipynb` stays as a short index, so existing links work, and experiment numbers stay global. Judgment call, not measured. Task T12 in docs/plans/live-loop.md.
+
+## 2026-11-08 — Joke bank gets bit structure, transcript statistics stay undecided
+From the user: the test bank should have some structure. Bank bits become opener, three tags and a closer that calls back to the opener, hand-written from the form in docs/wiki/standup-structure.md, with no transcript input. Whether to compute per-bit statistics
+from transcripts for T9's prompt is still open (user). Judgment call, not measured.
+
+## 2026-11-08 — Exp 18: exploring at ε = 0.2 misses its bar in one of six rooms
+Adds to the ε entry above, which stays as written; this replaces its scratch number. Bar fixed beforehand (live-loop plan, T1): at 5 shows,
+ε = 0.2 loses at most 1 laugh per show at the far end of the 95% CI, in every variant. Variants: judge and human taste, each with the gaps between modes
+(`base` scaled around its mean) halved, as they are and doubled; paired on seeds, 1,000 seeds at 5 shows and 200 at 30.
+**Result:** met in five rooms (changes -0.16 to -0.48, far ends -0.26 to -0.60). **Missed in judge taste with doubled gaps: -1.00 ± 0.14, far end -1.13.**
+Judge taste as it is reproduces the scratch number: -0.48 ± 0.12 (1.1%). ε = 0.1 costs about half as much (-0.01 to -0.44). 30 shows had no bar:
+-0.06 to -1.36 at ε = 0.2. In the doubled-judge room the cost per show is larger at 30 shows and the CIs don't overlap (-1.14 to -0.86 at 5 shows, -1.52 to -1.20 at 30); in the other five rooms they overlap.
+**Not decided here.** The bar is the builder's to report, not to move; the user decides whether to keep ε = 0.2, drop to 0.1 or re-tune the bar through a
+new entry (old bar, new bar, this result). The miss is a stress room: doubled judge gaps put wordsmith's `base` below zero, and the human-taste rooms, which Exp 10 and
+13 treat as the closer match to people, cost only 0.16 to 0.22. The cost of dropping to ε = 0.1 is fewer non-greedy picks (3.4 against 6.7 per 5-show career), so a slower
+route to offline evaluation. Judgment call on which way to go, not measured.
+**Limits:** the gaps are made up apart from `base`'s source; rooms are the uniform 27, not the live ones. Real per-bit noise is still the sim's 0.15, which T11 measures.
+Evidence: notebooks/decisions.ipynb Exp 18; metrics.md "Cost of exploring at ε".
+
+## 2026-11-08 — Keep ε = 0.2; the cost bar no longer covers the doubled-judge stress room
+From the user: 0.2 gives better exploration. **Old bar:** at 5 shows, ε = 0.2 loses at most 1 laugh per show at the far end of the 95% CI, in every variant.
+**New bar:** the same limit in every variant except judge taste with doubled gaps. **Result behind the change:** Exp 18 passes the other five rooms (far ends -0.26 to -0.60) and misses that one at -1.00 ± 0.14,
+far end -1.13; an independent recomputation gave -0.92 ± 0.18, far end -1.10. That room doubles gaps that are already the largest and puts wordsmith's `base` below zero, so it's a stress test, not a measured room.
+**Cost accepted:** a real room with gaps that wide would lose about 1 laugh a show at 5 shows and 1.36 at 30. Exp 18's notebook check still records the miss against the old bar.
+Revisit once T11 measures real per-bit noise. Evidence: notebooks/decisions.ipynb Exp 18.
+
+## 2026-11-08 — Safety filter: rules plus an LLM check
+Exp 19's rules alone missed the bar. On the builder's own held-out lines they caught 67 of 71 hard-rule lines; on 30 indirect lines the builder never saw, written by the reviewer, 16 of 30 (53%). They also rejected 14 of the 120 lines in T7's first bank, 12 of them from one quote-handling bug.
+Options: (a) **rules plus an LLM check per bit (user)**; (b) tighter rules only: free, but indirect phrasing has no fixed vocabulary; (c) a person approves all lines before each show: safest, up to about 720 lines. Kept as the fallback if (a) misses on fresh lines.
+Cost of (a): one extra API call per bit, hidden by render-ahead. Exp 9's 0 of 16 was Qwen's labeling flags, so this needs its own measurement. Scored once on about 30 lines the user writes and keeps from every builder. Task: T8 rework in docs/plans/live-loop.md.
