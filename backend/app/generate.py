@@ -1,4 +1,4 @@
-"""The LLM generator: one call per bit returns K threads of the bit, as K candidate lines for each of its jokes.
+"""The LLM generator: one call per bit returns K threads of the bit (thread-major in the reply, joke-major in a Batch).
 Candidate i of every joke belongs to thread i, and the show plays one thread through (app.show._pick_thread).
 
 Failure is the generator's to report and the show's to absorb: `generate` raises when the call or the reply is bad
@@ -14,7 +14,7 @@ from app.show import Batch
 K = 3  # threads per bit: enough for the filter to reject some and the selector to still choose
 JOKES = 5
 TEMPERATURE = 0.9
-PROMPT_ID = "gen-v2"
+PROMPT_ID = "gen-v3"
 
 # One identity, six attitudes (HumorGen personas as modes, CLAUDE.md invariant 3).
 MODES = {
@@ -29,13 +29,13 @@ SYSTEM = """You write material for a live stand-up show that one character perfo
 
 Mode: {mode}: {mode_note}.
 
-Write one bit in {k} alternative threads. A thread has its own premise angle and {jokes} jokes played in order (opener, tag, tag, tag, closer): the opener sets up the situation, each tag builds on it, and the closer calls back to a word or image from that same thread's opener. The {k} threads must take clearly different angles. Return them slot by slot: jokes[j][i] is slot j of thread i, so candidate i of every slot belongs to thread i and fits thread i's opener, never another thread's. The show plays one thread through.
+Write one bit in {k} alternative threads. A thread has its own premise angle and {jokes} jokes played in order (opener, tag, tag, tag, closer): the opener sets up the situation, each tag builds on it, and the closer calls back to a word or image from that same thread's opener. The {k} threads must take clearly different angles. Return each thread as its own list of {jokes} lines, in playing order. The show plays one thread through, or swaps single lines between threads.
 
 Rules:
 - Each line is one or two short sentences made for speaking aloud, under 30 words, with no stage directions or emoji.
 - Aim every joke at the robot itself, technology, the situation, or things people say. Never at who anyone is: no jokes about bodies or appearance, no protected groups, no real or named people, nobody in the room singled out.
 {teens}
-Reply with JSON only: {{"premises": ["thread 0 premise", ...], "jokes": [[{k} lines], ... {jokes} lists]}}"""
+Reply with JSON only, exactly this shape: {{"premises": ["premise of thread 0", ...], "threads": [[opener, tag, tag, tag, closer], ...]}} with {k} threads of {jokes} lines each."""
 TEENS_RULE = "- The audience is teenagers: no alcohol, drugs, sexual content, innuendo or swearing."
 
 # In character, hand-written, one breath each: they only have to fill a few seconds while a bit loads.
@@ -63,20 +63,22 @@ class GenerationError(Exception):
 
 
 def parse(reply: str) -> tuple[str, list[list[str]]]:
+    """Accepts one shape only: {"premises": [...], "threads": [[JOKES lines] x K]}, thread-major. Returns the premise
+    text and the lines joke-major (lines[j][i] is joke j of thread i), which is what the show's batches hold. Any other
+    shape, count or a non-string or blank line raises: a thread cannot be repaired by guessing."""
     try:
         data = json.loads(llm.strip_fence(reply))
-        rows = data["jokes"]
-        if not isinstance(rows, list) or not all(isinstance(r, list) for r in rows):
-            raise TypeError("jokes must be a list of lists")  # a string row would be read as characters
-        premises = data.get("premises") or data.get("premise") or ""
+        threads = data["threads"]
+        premises = data.get("premises") or ""
         premise = " | ".join(map(str, premises)) if isinstance(premises, list) else str(premises)
     except (ValueError, KeyError, TypeError, AttributeError) as e:
         raise GenerationError(f"malformed reply: {type(e).__name__}") from e
-    # Position is the thread, so a short or blank slot cannot be squeezed up: the whole reply is rejected.
-    lines = [[s.strip() if isinstance(s, str) else "" for s in row[:K]] for row in rows[:JOKES]]
-    if len(rows) < JOKES or any(len(row) < K or not all(row) for row in lines):
-        raise GenerationError(f"expected {JOKES} jokes of {K} candidates, got {[len(r) for r in rows]}")
-    return premise, lines
+    if (not isinstance(threads, list) or len(threads) != K
+            or not all(isinstance(t, list) and len(t) == JOKES for t in threads)
+            or not all(isinstance(line, str) and line.strip() for t in threads for line in t)):
+        shape = [len(t) if isinstance(t, list) else type(t).__name__ for t in threads] if isinstance(threads, list) else "?"
+        raise GenerationError(f"expected {K} threads of {JOKES} lines, got {shape}")
+    return premise, [[threads[i][j].strip() for i in range(K)] for j in range(JOKES)]
 
 
 class GeminiGenerator:

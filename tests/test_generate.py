@@ -26,7 +26,11 @@ FAST = ReactionConfig(holds={3: 0.01, 2: 0.01, 1: 0.01, 0: 0.01, None: 0.0}, tim
 
 
 def reply(n_jokes=5, k=3, tag="x"):
-    return json.dumps({"premise": "p", "jokes": [[f"{tag} line {j}.{i}" for i in range(k)] for j in range(n_jokes)]})
+    """The one accepted shape: thread-major, threads[i][j] is joke j of thread i."""
+    return json.dumps({"premises": ["p"], "threads": [[f"{tag} line {j}.{i}" for j in range(n_jokes)] for i in range(k)]})
+
+
+JOKE_MAJOR = json.dumps({"premises": ["p"], "jokes": [[f"line {j}.{i}" for i in range(3)] for j in range(5)]})
 
 
 def completion(text, finish="stop"):
@@ -127,9 +131,12 @@ def test_a_second_bit_is_a_second_call_and_remembers_the_first_premise():
     assert len(seen) == 2 and "p" in json.loads(seen[1]["messages"][1]["content"])["premises_already_told"]
 
 
-@pytest.mark.parametrize("bad", [json.dumps({"jokes": ["Line one.", "Line two.", "Line three.", "Line four.", "Line five."]}),
-                                 "not json", reply(n_jokes=4), reply(k=0), json.dumps({"jokes": "x"}),
-                                 json.dumps({"jokes": [[1, 2]] * 5}), json.dumps([1, 2])])
+@pytest.mark.parametrize("bad", [JOKE_MAJOR,  # the old shape is rejected, not guessed at
+                                 json.dumps({"threads": ["Line one.", "Line two.", "Line three."]}),  # string rows
+                                 json.dumps({"threads": "xyz"}), json.dumps({"threads": [[1] * 5] * 3}),
+                                 "not json", reply(n_jokes=4), reply(n_jokes=6), reply(k=0), reply(k=2), reply(k=4),
+                                 json.dumps({"threads": [["a"] * 5, ["b"] * 5, ["", "b", "b", "b", "b"]]}),
+                                 json.dumps([1, 2])])
 def test_a_malformed_reply_raises_for_every_joke_without_a_second_call(bad):
     c, seen = client((200, completion(bad)))
     g = generate.GeminiGenerator(c)
@@ -155,9 +162,11 @@ def test_fence_stripping_is_shared_with_the_safety_parser():
     assert safety._parse(fenced, 1)[0].ok
 
 
-def test_fenced_json_and_extra_candidates_are_handled():
-    _, lines = generate.parse("```json\n" + reply(k=5) + "\n```")
-    assert [len(r) for r in lines] == [3] * 5
+def test_a_thread_major_reply_becomes_joke_major_batches_with_thread_i_at_index_i():
+    fence = chr(96) * 3
+    premise, lines = generate.parse(fence + "json" + chr(10) + reply() + chr(10) + fence)
+    assert premise == "p" and [len(r) for r in lines] == [3] * 5
+    assert lines[4] == ["x line 4.0", "x line 4.1", "x line 4.2"] and lines[0][2] == "x line 0.2"
 
 
 def test_the_prompt_holds_the_identity_the_rules_and_teens_only_for_teens():
