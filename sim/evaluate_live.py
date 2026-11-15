@@ -87,6 +87,11 @@ def silences(rows: list[dict], plays: list[dict]) -> dict:
     return out
 
 
+def bank_reason(reason: str) -> str:
+    """Why the bank was used, from a fallback row's reason: 'bank fallback (<why>); rules: <verdict>'."""
+    return reason.removeprefix("bank fallback (").split("); rules:")[0]
+
+
 def one_show(tts, age: str, seed: int, n_bits: int) -> dict:
     gen, flt, fallback, bridges = generate.llm_stack("sim")
     gen_calls, safe_calls, player = [], [], TimedPlayer()
@@ -108,7 +113,7 @@ def one_show(tts, age: str, seed: int, n_bits: int) -> dict:
             **silences(rows, player.plays),
             "bridges": sum(p["text"] in generate.BRIDGES for p in player.plays),
             "jokes_played": sum(r["event"] == "joke_played" for r in rows),
-            "bank_jokes": len(fb), "bank_reasons": sorted({r["items"][0]["reason"].split(": ", 1)[1] for r in fb}),
+            "bank_jokes": len(fb), "bank_reasons": sorted({bank_reason(r["items"][0]["reason"]) for r in fb}),
             "generator": {"attempts": gen.client.attempts, "retried": gen.client.retried, "failed": gen.client.failed,
                           "seconds": [c["seconds"] for c in gen_calls]},
             "filter": {"attempts": flt.client.attempts, "retried": flt.client.retried, "failed": flt.client.failed,

@@ -521,3 +521,9 @@ def test_a_hold_whose_timestamp_equals_the_next_start_is_not_counted_as_silence(
 def test_peak_requests_per_minute_counts_the_busiest_window():
     from sim import evaluate_live as ev
     assert ev.peak_per_minute([0, 10, 59, 61, 200]) == 3 and ev.peak_per_minute([]) == 0
+
+
+def test_bank_reason_is_read_from_the_fallback_row_format():
+    from sim import evaluate_live as ev
+    assert ev.bank_reason("bank fallback (every candidate rejected); rules: ok") == "every candidate rejected"
+    assert ev.bank_reason("bank fallback (generation failed: GenerationError: x: y); rules: ok") == "generation failed: GenerationError: x: y"
