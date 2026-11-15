@@ -1,6 +1,7 @@
 """The show loop: `run_show` runs one show against whatever voice, room and clock it is given."""
 import asyncio
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -73,9 +74,20 @@ class UniformSelector:
         return int(self.rng.integers(len(passing_texts))), 1 / len(passing_texts)
 
 
-def _judge(safety: SafetyFilter, text: str, age: str) -> dict:
+class _SerialVoice:
+    """Kokoro's pipeline is not promised to be thread-safe, and the show synthesizes from several threads at once."""
+
+    def __init__(self, tts: TTS):
+        self.tts, self.lock = tts, threading.Lock()
+
+    def synthesize(self, text: str) -> bytes:
+        with self.lock:
+            return self.tts.synthesize(text)
+
+
+def _judge(check, text: str, age: str) -> dict:
     try:
-        verdict = safety.check(text, age)
+        verdict = check(text, age)
         ok, reason = bool(verdict.ok), verdict.reason
     except Exception as e:  # a filter that cannot decide must not let the joke through
         ok, reason = False, f"filter error: {type(e).__name__}: {e}"
@@ -110,13 +122,18 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
         except Exception as e:  # a bad reply or a dead provider must not stop the show
             batches.append(None)
             reasons.append(f"generation failed: {type(e).__name__}: {e}")
+            if not fallback:  # nothing will play for this joke, so the log must still say why (invariant 6)
+                _log.warning("bit %s joke %s: %s; no fallback, skipping", bit, joke, reasons[-1])
+                log.write("candidates", bit=bit, joke=joke, prompt_id=f"{generator.generator_id}:failed", prompt="",
+                          generator_id=generator.generator_id,
+                          items=[{"text": "", "verdict": "reject", "reason": reasons[-1]}])
     if prefetch := getattr(safety, "prefetch", None):  # the LLM layer judges the whole bit in one call
         await asyncio.to_thread(prefetch, [t for b in batches if b for t in b.texts], age)
     plans: list[_Plan | None] = []
     for joke, batch in enumerate(batches):
         plan = None
         if batch:
-            items = [_judge(safety, t, age) for t in batch.texts]
+            items = [_judge(safety.check, t, age) for t in batch.texts]
             log.write("candidates", bit=bit, joke=joke, prompt_id=batch.prompt_id, prompt=batch.prompt,
                       generator_id=generator.generator_id, items=items)
             passing = [i for i, item in enumerate(items) if item["verdict"] == "pass"]
@@ -128,11 +145,17 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
         if plan is None and fallback:
             _log.warning("bit %s joke %s: %s; using %s", bit, joke, reasons[joke], fallback.generator_id)
             batch = await asyncio.to_thread(fallback.generate, mode, bit, joke, context)
-            items = [{"text": t, "verdict": "pass", "reason": f"hand-checked bank: {reasons[joke]}"} for t in batch.texts]
+            # The bank is hand-checked, so only the rules run on it: no API call while the provider is failing.
+            rules = getattr(safety, "check_rules", safety.check)
+            items = [_judge(rules, t, age) for t in batch.texts]
+            for item in items:
+                item["reason"] = f"bank fallback ({reasons[joke]}); rules: {item['reason']}"
             log.write("candidates", bit=bit, joke=joke, prompt_id=batch.prompt_id, prompt=batch.prompt,
                       generator_id=fallback.generator_id, items=items)
-            pick, prob = selector.pick(batch.texts)
-            plan = _Plan(batch, pick, prob)
+            passing = [i for i, item in enumerate(items) if item["verdict"] == "pass"]
+            if passing:
+                pick, prob = selector.pick([batch.texts[i] for i in passing])
+                plan = _Plan(batch, passing[pick], prob)
         plans.append(plan)
     _start_render(plans, 0, tts, clock, spawn)
     if first := next((p for p in plans if p), None):
@@ -178,13 +201,14 @@ async def _joke(bit, joke, plans, *, tts, player, source, clock, log, config, sp
 MAX_BRIDGES = 3  # a bit that is still loading after three bridge lines is a provider problem, not a pause
 
 
-async def _bridge(prep: asyncio.Task, bridges: asyncio.Task, player, used: list) -> None:
-    """Fill the wait for the next bit with in-character lines, so the room never hears dead air."""
-    lines = await bridges
+async def _bridge(prep: asyncio.Task, rendered: list, player, used: list) -> None:
+    """Fill the wait for the next bit with in-character lines, so the room never hears dead air. Uses whatever has
+    rendered so far and never blocks on the rest; a line is not repeated while an unused one remains."""
     for _ in range(MAX_BRIDGES):
-        if prep.done():
+        if prep.done() or not rendered:
             return
-        text, wav = lines[len(used) % len(lines)]
+        unused = [b for b in rendered if b[0] not in used]
+        text, wav = unused[0] if unused else rendered[len(used) % len(rendered)]
         used.append(text)
         await player.play(wav, text)
 
@@ -204,11 +228,16 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
         tasks.append(asyncio.ensure_future(coro))
         return tasks[-1]
 
-    async def render_bridges():
-        return [(t, await asyncio.to_thread(tts.synthesize, t)) for t in bridge_lines]
-
-    bridges = spawn(render_bridges()) if bridge_lines else None  # renders while bit 0 loads; first needed at bit 1
+    tts = _SerialVoice(tts)
+    rendered: list[tuple[str, bytes]] = []  # bridge lines that are ready; a failed one is just not here
     bridges_used: list[str] = []
+
+    async def render_bridges():
+        for text in bridge_lines:
+            try:
+                rendered.append((text, await asyncio.to_thread(tts.synthesize, text)))
+            except Exception:  # filler must never stop the show
+                _log.warning("bridge line did not render: %r", text, exc_info=True)
     log.write("show_start", room=room, context=context,
               policy={"name": "linucb", "epsilon": director.eps, "alpha": inner.alpha, "prior": "uniform",
                       "seed": explore_seed},
@@ -230,9 +259,11 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
             prep = spawn(_prepare(bit, modes[action], context, generator=generator, fallback=fallback, safety=safety,
                                   selector=selector, tts=tts, clock=clock, log=log, jokes_per_bit=jokes_per_bit,
                                   spawn=spawn))
-            if bridges and bit > 0:
-                await _bridge(prep, bridges, player, bridges_used)
+            if bridge_lines and bit > 0:
+                await _bridge(prep, rendered, player, bridges_used)
             plans = await prep
+            if bridge_lines and bit == 0:
+                spawn(render_bridges())  # after bit 0's first line, so the voice is not busy when the show opens
             levels = [await _joke(bit, joke, plans, tts=tts, player=player, source=source, clock=clock, log=log,
                                   config=config, spawn=spawn) for joke in range(jokes_per_bit)]
             reward = reward_v1(levels)

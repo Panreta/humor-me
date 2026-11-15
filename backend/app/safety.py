@@ -292,11 +292,8 @@ def _key(text: str, age: str) -> tuple[str, bool]:
 
 def _parse(reply: str, n: int) -> dict[int, Verdict]:
     """Only a well-formed `ok: true` passes; anything unparseable raises and rejects the whole batch."""
-    reply = reply.strip()
-    if reply.startswith("```"):
-        reply = reply.strip("`").removeprefix("json").strip()
     out = {}
-    for item in json.loads(reply)["verdicts"]:
+    for item in json.loads(llm.strip_fence(reply))["verdicts"]:
         i = item["id"]
         if isinstance(i, int) and not isinstance(i, bool) and 0 <= i < n and i not in out:
             ok = item.get("ok") is True

@@ -14,6 +14,15 @@ import httpx
 
 # Overloaded or rate-limited: the same request can succeed a moment later. 29% of Exp 19's attempts were 429 or 503.
 RETRY_STATUS = frozenset({429, 500, 502, 503, 504})
+MIN_ATTEMPT_S = 0.5  # an attempt with less time than this left cannot finish, so it is not started
+
+
+def strip_fence(reply: str) -> str:
+    """The text of a reply that the model wrapped in a markdown code fence."""
+    reply = reply.strip()
+    if reply.startswith("```"):
+        reply = reply.strip("`").removeprefix("json").strip()
+    return reply
 
 
 class LLMError(Exception):
@@ -32,7 +41,7 @@ class Client:
     transport: httpx.BaseTransport | None = None  # tests pass a fake transport; production leaves it None
     retries: int = 0
     backoff_s: float = 0.5
-    deadline_s: float | None = None  # wall time across all attempts; a retry that would pass it is not made
+    deadline_s: float | None = None  # wall time across all attempts, each attempt's timeout included
     sleep: Callable[[float], None] = time.sleep
     # Quota bookkeeping: a 429 still counts against the provider's limit, so every request is an attempt.
     attempts: int = 0
@@ -43,25 +52,28 @@ class Client:
         start = time.monotonic()
         for attempt in range(self.retries + 1):
             self.attempts += 1
+            left = None if self.deadline_s is None else self.deadline_s - (time.monotonic() - start)
             try:
-                return self._once(system, user, json_reply, temperature)
+                return self._once(system, user, json_reply, temperature,
+                                  self.timeout if left is None else max(min(self.timeout, left), 0.1))
             except LLMError as e:
                 wait = self.backoff_s * 2 ** attempt
-                late = self.deadline_s is not None and time.monotonic() - start + wait > self.deadline_s
+                late = (self.deadline_s is not None
+                        and time.monotonic() - start + wait + MIN_ATTEMPT_S > self.deadline_s)
                 if not e.retryable or attempt == self.retries or late:
                     self.failed += 1
                     raise
                 self.retried += 1
                 self.sleep(wait)
 
-    def _once(self, system: str, user: str, json_reply: bool, temperature: float) -> str:
+    def _once(self, system: str, user: str, json_reply: bool, temperature: float, timeout: float) -> str:
         body = {"model": self.model, "temperature": temperature,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
         if json_reply:
             body["response_format"] = {"type": "json_object"}
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         try:
-            with httpx.Client(timeout=self.timeout, transport=self.transport) as http:
+            with httpx.Client(timeout=timeout, transport=self.transport) as http:
                 resp = http.post(f"{self.base_url.rstrip('/')}/chat/completions", json=body, headers=headers)
             resp.raise_for_status()
             choice = resp.json()["choices"][0]

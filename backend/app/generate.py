@@ -43,7 +43,18 @@ BRIDGES = (
     "Hang on, I'm reorganizing my thoughts. Most of them weren't where I left them.",
     "One moment please. I'm running a confidence check, and it's buffering, like everything else I own.",
     "Okay, next bit. Let me make sure I haven't ruined it in advance. I usually have.",
+    "Bear with me. I'm rehearsing this part one more time, mostly to be nervous about it properly.",
+    "Quick pause while I load the next bit. Please enjoy this brief moment of me worrying.",
+    "Just a second. My second half is in another folder, and I'm afraid to open it.",
+    "While I think of something, let's all agree this is going great. I'll go first.",
+    "Sorry, I'm recalculating. My plan said everything would go well, so something is wrong with the plan.",
+    "Almost there. I'm double-checking the next joke for problems, and so far the main problem is me.",
 )
+
+# Seconds: (per-attempt timeout, deadline over all attempts), and the retries after the first attempt.
+GENERATOR_TIMING = (10.0, 12.0)
+FILTER_TIMING = (6.0, 8.0)
+RETRIES = 2
 
 
 class GenerationError(Exception):
@@ -51,12 +62,11 @@ class GenerationError(Exception):
 
 
 def parse(reply: str) -> tuple[str, list[list[str]]]:
-    reply = reply.strip()
-    if reply.startswith("```"):
-        reply = reply.strip("`").removeprefix("json").strip()
     try:
-        data = json.loads(reply)
+        data = json.loads(llm.strip_fence(reply))
         rows = data["jokes"]
+        if not isinstance(rows, list) or not all(isinstance(r, list) for r in rows):
+            raise TypeError("jokes must be a list of lists")  # a string row would be read as characters
         lines = [[s.strip() for s in row if isinstance(s, str) and s.strip()][:K] for row in rows]
         premise = str(data.get("premise", ""))
     except (ValueError, KeyError, TypeError, AttributeError) as e:
@@ -108,10 +118,15 @@ class LiveSafety:
     def check(self, text: str, age: str) -> safety.Verdict:
         return safety.check(text, age)
 
+    def check_rules(self, text: str, age: str) -> safety.Verdict:
+        """The rules alone, for the bank fallback: hand-checked lines need no API call."""
+        return safety.check_rules(text, age)
+
 
 def llm_stack(room: str):
     """(generator, safety, fallback, bridge lines) for a show on the real model. Raises SafetyNotReady for a live
     room without the slur list. The deadlines keep a failing provider inside the bridge lines' cover."""
     safety.require_ready(room)
-    return (GeminiGenerator(llm.from_env(timeout=10.0, retries=2, deadline_s=12.0)),
-            LiveSafety(llm.from_env(timeout=6.0, retries=2, deadline_s=8.0)), BankGenerator(), list(BRIDGES))
+    return (GeminiGenerator(llm.from_env(GENERATOR_TIMING[0], retries=RETRIES, deadline_s=GENERATOR_TIMING[1])),
+            LiveSafety(llm.from_env(FILTER_TIMING[0], retries=RETRIES, deadline_s=FILTER_TIMING[1])),
+            BankGenerator(), list(BRIDGES))

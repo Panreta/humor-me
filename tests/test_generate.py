@@ -87,6 +87,19 @@ def test_the_deadline_stops_a_retry_that_would_overrun_it():
     assert len(seen) == 1  # the first backoff alone (2 s) is past the 1 s deadline
 
 
+def test_a_hanging_server_cannot_run_past_the_deadline():
+    def handler(request):  # a server that never answers: the request's own timeout is what ends it
+        time.sleep(request.extensions["timeout"]["read"])
+        raise httpx.ReadTimeout("hung")
+    c = llm.Client("http://fake", "k", "m", timeout=0.6, retries=3, backoff_s=0.05, deadline_s=1.2,
+                   transport=httpx.MockTransport(handler))
+    start = time.monotonic()
+    with pytest.raises(llm.LLMError):
+        c.chat("s", "u")
+    assert time.monotonic() - start <= 1.2 + 0.2  # before the fix each retry got the full 0.6 s
+    assert c.attempts >= 2  # it did retry, with the second attempt's timeout clipped to what was left
+
+
 def test_default_client_never_retries():
     c, seen = client((503, {}))
     with pytest.raises(llm.LLMError):
@@ -114,7 +127,8 @@ def test_a_second_bit_is_a_second_call_and_remembers_the_first_premise():
     assert len(seen) == 2 and "p" in json.loads(seen[1]["messages"][1]["content"])["premises_already_told"]
 
 
-@pytest.mark.parametrize("bad", ["not json", reply(n_jokes=4), reply(k=0), json.dumps({"jokes": "x"}),
+@pytest.mark.parametrize("bad", [json.dumps({"jokes": ["Line one.", "Line two.", "Line three.", "Line four.", "Line five."]}),
+                                 "not json", reply(n_jokes=4), reply(k=0), json.dumps({"jokes": "x"}),
                                  json.dumps({"jokes": [[1, 2]] * 5}), json.dumps([1, 2])])
 def test_a_malformed_reply_raises_for_every_joke_without_a_second_call(bad):
     c, seen = client((200, completion(bad)))
@@ -132,6 +146,13 @@ def test_a_timeout_raises_for_every_joke_without_a_second_call():
         with pytest.raises(llm.LLMError):
             g.generate("cynic", 0, joke, CTX)
     assert len(seen) == 1
+
+
+def test_fence_stripping_is_shared_with_the_safety_parser():
+    fence = chr(96) * 3
+    assert llm.strip_fence(fence + "json" + chr(10) + "{}" + chr(10) + fence) == "{}" and llm.strip_fence("  {}  ") == "{}"
+    fenced = fence + "json" + chr(10) + json.dumps({"verdicts": [{"id": 0, "ok": True}]}) + chr(10) + fence
+    assert safety._parse(fenced, 1)[0].ok
 
 
 def test_fenced_json_and_extra_candidates_are_handled():
@@ -185,8 +206,12 @@ class FakePlayer:
 class Filter:
     """Passes lines containing 'ok'; records the order of prefetch and check calls."""
 
-    def __init__(self, rule=lambda t: "ok" in t):
-        self.rule, self.calls = rule, []
+    def __init__(self, rule=lambda t: "ok" in t, bank_rule=lambda t: True):
+        self.rule, self.bank_rule, self.calls = rule, bank_rule, []
+
+    def check_rules(self, text, age):  # what the bank fallback runs: the rules alone, no API call
+        ok = self.bank_rule(text)
+        return safety.Verdict(ok, "ok" if ok else "rule")
 
     def prefetch(self, texts, age):
         self.calls.append(("prefetch", list(texts)))
@@ -266,14 +291,37 @@ def test_all_candidates_rejected_falls_back_to_the_bank_for_that_joke_only(tmp_p
     by_joke = {(r["bit"], r["joke"]): r for r in rows if r["event"] == "candidates"}
     assert [r["generator_id"] for r in rows if r["event"] == "candidates" and r["bit"] == 0 and r["joke"] == 2][-2:] == [
         "gen-ok", "bank-v1"]
-    assert by_joke[(0, 2)]["items"][0]["reason"].endswith("every candidate rejected")
+    assert by_joke[(0, 2)]["items"][0]["reason"].startswith("bank fallback (every candidate rejected)")
     assert all(r["generator_id"] == "gen-ok" for k, r in by_joke.items() if k != (0, 2))
     assert len(played(rows)) == 15
 
 
-def test_without_a_fallback_a_failed_bit_is_skipped_and_the_show_goes_on(tmp_path):
+def test_without_a_fallback_a_failed_bit_is_skipped_but_the_log_says_why(tmp_path, caplog):
     rows, _ = show(tmp_path, Gen(fail=True), Filter())
     assert played(rows) == [] and rows[-1]["status"] == "finished"
+    cands = [r for r in rows if r["event"] == "candidates"]
+    assert len(cands) == 15  # every joke of every bit has a row (invariant 6)
+    assert all(r["items"][0]["verdict"] == "reject" and "generation failed: LLMError: http 503" in r["items"][0]["reason"]
+               for r in cands)
+    assert "no fallback" in caplog.text
+
+
+def test_bank_fallback_lines_go_through_the_rules_and_a_rejected_one_is_skipped(tmp_path):
+    flt = Filter(bank_rule=lambda t: False)  # stands in for a rule hit on the bank's line
+    rows, _ = show(tmp_path, Gen(fail=True), flt, fallback=BankGenerator(), n_bits=1)
+    assert played(rows) == [] and rows[-1]["status"] == "finished"
+    assert all(r["items"][0]["verdict"] == "reject" and "rules: rule" in r["items"][0]["reason"]
+               for r in rows if r["event"] == "candidates")
+    assert not [c for c in flt.calls if c[0] == "check"]  # the LLM-backed check never ran on a bank line
+
+
+def test_the_real_rules_pass_every_line_of_the_bank():
+    bank = BankGenerator()
+    for mode in bank.bank:
+        for bit in range(4):
+            for joke in range(5):
+                text = bank.generate(mode, bit, joke, CTX).texts[0]
+                assert all(safety.check_rules(text, age).ok for age in ("mixed", "teens")), text
 
 
 def test_bridge_plays_between_bits_but_never_before_the_first(tmp_path):
@@ -305,10 +353,50 @@ def test_the_first_line_is_rendered_before_the_bridge_hands_over(tmp_path):
     assert first_line_start - last_bridge_end < 0.15  # a 0.5 s render must not show up as dead air
 
 
-def test_bridge_lines_cycle_instead_of_repeating(tmp_path):
-    _, voice = show(tmp_path, Gen(), Filter(), bridges=["b1", "b2", "b3"], n_bits=4)
+def test_bridge_lines_are_not_repeated_while_unused_ones_remain(tmp_path):
+    lines = [f"b{i}" for i in range(8)]
+    _, voice = show(tmp_path, Gen(delay=0.2), Filter(), bridges=lines, n_bits=3)
     bridges = [t for kind, t in voice.events if kind == "start" and t.startswith("b")]
-    assert bridges[:3] == ["b1", "b2", "b3"]
+    assert len(bridges) > 2 and len(set(bridges)) == len(bridges) and bridges == lines[:len(bridges)]
+
+
+def test_a_bridge_line_that_fails_to_render_never_stops_the_show(tmp_path):
+    class BadBridgeVoice(FakeVoice):
+        def synthesize(self, text):
+            if text.startswith("b"):
+                raise RuntimeError("tts down")
+            return super().synthesize(text)
+    rows, voice = show(tmp_path, Gen(delay=0.1), Filter(), voice=BadBridgeVoice(), bridges=["b1", "b2"], n_bits=3)
+    assert rows[-1]["status"] == "finished" and len(played(rows)) == 15
+    assert not [e for e in voice.events if e[0] == "start" and e[1].startswith("b")]
+
+
+def test_only_one_thread_synthesizes_at_a_time(tmp_path):
+    class Counting(FakeVoice):
+        active = peak = 0
+
+        def synthesize(self, text):
+            with self.lock:
+                Counting.active += 1
+                Counting.peak = max(Counting.peak, Counting.active)
+            time.sleep(0.02)
+            with self.lock:
+                Counting.active -= 1
+            return to_wav(np.zeros(240))
+    show(tmp_path, Gen(), Filter(), voice=Counting(), bridges=["b1", "b2", "b3"], n_bits=3)
+    assert Counting.peak == 1
+
+
+def test_bridge_lines_are_ten_distinct_and_the_cache_key_notices_a_change(monkeypatch):
+    from sim import evaluate_live as ev
+    assert len(generate.BRIDGES) >= 10 and len(set(generate.BRIDGES)) == len(generate.BRIDGES)
+    before = ev.digest()
+    monkeypatch.setattr(generate, "BRIDGES", generate.BRIDGES[:-1])
+    assert ev.digest() != before
+    monkeypatch.undo()
+    from app import show as show_module
+    monkeypatch.setattr(show_module, "MAX_BRIDGES", show_module.MAX_BRIDGES + 1)
+    assert ev.digest() != before
 
 
 def test_live_safety_rejects_a_bit_when_its_verdict_call_dies_and_the_bank_takes_over(tmp_path):
