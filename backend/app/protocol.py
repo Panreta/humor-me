@@ -32,12 +32,17 @@ def parse(frame: dict) -> dict:
         return {"type": kind}
     if kind == "audio_health":
         health = {}
-        for field in ("produced_s", "elapsed_s", "zero_quanta", "rate"):
+        for field in ("produced_s", "elapsed_s", "gap_ms", "wall_s", "rate"):
             value = msg.get(field)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value < 1e9:
                 raise ProtocolError(f"{field} must be a non-negative number")
             health[field] = value
         return {"type": kind, **health}
+    if kind == "audio_start":  # when the first sample was captured, by the capture clock (epoch ms)
+        wall_ms = msg.get("wall_ms")
+        if isinstance(wall_ms, bool) or not isinstance(wall_ms, (int, float)) or not 0 < wall_ms < 1e14:
+            raise ProtocolError("wall_ms must be a positive number")
+        return {"type": kind, "wall_ms": wall_ms}
     if kind == "audio_failed":
         reason = msg.get("reason")
         return {"type": kind, "reason": reason[:200] if isinstance(reason, str) and reason.strip() else None}

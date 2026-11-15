@@ -322,31 +322,86 @@ def test_check_on_an_unrecorded_show_says_so_instead_of_crashing(tmp_path, monke
         ev.main()
 
 
-def health(produced, elapsed=5.0):
-    return {"type": "audio_health", "produced_s": produced, "elapsed_s": elapsed, "zero_quanta": 0, "rate": 48000}
+def health(produced, elapsed=5.0, wall=5.0):
+    return {"type": "audio_health", "produced_s": produced, "elapsed_s": elapsed, "gap_ms": 0, "wall_s": wall,
+            "rate": 48000}
 
 
 def test_audio_health_parses_and_rejects_bad_numbers():
     assert parse({"text": json.dumps(health(4.9))})["produced_s"] == 4.9
-    for bad in ({**health(1), "produced_s": -1}, {**health(1), "rate": "48k"}, {**health(1), "zero_quanta": True}):
+    for bad in ({**health(1), "produced_s": -1}, {**health(1), "rate": "48k"}, {**health(1), "gap_ms": True}):
         with pytest.raises(ProtocolError):
             parse({"text": json.dumps(bad)})
     missing = health(1)
-    del missing["rate"]
+    del missing["wall_s"]
     with pytest.raises(ProtocolError):
         parse({"text": json.dumps(missing)})
 
 
-def test_the_server_keeps_the_last_health_report_and_warns_below_99_percent(server, caplog):
+def test_the_server_warns_when_the_mic_skipped_time_or_frames_are_held_up(server, caplog):
     with caplog.at_level("WARNING"), TestClient(main.app).websocket_connect("/ws") as ws:
-        ws.send_json(health(4.98))  # 99.6%: fine
-        ws.send_json(health(3.25))  # 65%: the loss seen in Chrome
+        ws.send_json(health(4.98))  # fine
+        ws.send_json(health(3.25))  # the mic delivered 65% of capture time
+        ws.send_json(health(5.0, elapsed=5.0, wall=8.0))  # capture time ran 62% of wall time
         assert next_error(ws)["message"].startswith("unknown message type")
-    warnings = [r.getMessage() for r in caplog.records if "browser produced" in r.getMessage()]
-    assert len(warnings) == 1 and "65%" in warnings[0] and "48000" in warnings[0]
+    text = [r.getMessage() for r in caplog.records]
+    assert sum("microphone delivered" in t for t in text) == 1 and any("65%" in t for t in text)
+    assert sum("held up in the browser" in t for t in text) == 1
 
 
 def test_note_health_stores_the_last_one():
     live = types.SimpleNamespace(health=None)
-    main._note_health(live, health(5.0) | {"zero_quanta": 7})
-    assert live.health["zero_quanta"] == 7
+    main._note_health(live, health(5.0) | {"gap_ms": 7})
+    assert live.health["gap_ms"] == 7
+
+
+def test_audio_start_parses_and_rejects_nonsense():
+    assert parse({"text": json.dumps({"type": "audio_start", "wall_ms": 1.7e12, "source": "capture"})})["wall_ms"] == 1.7e12
+    for bad in (0, -5, "now", True, None):
+        with pytest.raises(ProtocolError):
+            parse({"text": json.dumps({"type": "audio_start", "wall_ms": bad})})
+
+
+def test_the_capture_clock_start_replaces_the_arrival_estimate_when_it_is_plausible(tmp_path):
+    rec = Recorder(tmp_path / "a.wav", clock=lambda: 100.0)
+    rec.hint_start(99.6)  # captured 0.6 s ago, so 0.34 s before the arrival estimate
+    rec.write(CHUNK)
+    assert rec.start_at == 99.6
+    far = Recorder(tmp_path / "b.wav", clock=lambda: 100.0)
+    far.hint_start(5.0)  # a clock this far off is not the same machine's: keep the arrival estimate
+    far.write(CHUNK)
+    assert far.start_at == pytest.approx(100.0 - 4096 / RATE)
+
+
+def test_the_hint_cannot_move_a_recording_that_already_started(tmp_path):
+    rec = Recorder(tmp_path / "a.wav", clock=lambda: 100.0)
+    rec.write(CHUNK)
+    first = rec.start_at
+    rec.hint_start(50.0)
+    assert rec.start_at == first
+
+
+def test_the_server_uses_the_browsers_capture_start_in_the_log(server):
+    import time
+
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(start(True))
+        until(ws, "record")
+        captured = time.time() - 0.5
+        ws.send_json({"type": "audio_start", "wall_ms": captured * 1000, "source": "capture"})
+        ws.send_bytes(CHUNK)
+        pump(ws)
+    assert read_session(next(server.glob("*.jsonl")))[0]["audio"]["start_at"] == pytest.approx(captured, abs=1e-3)
+
+
+def test_a_mic_that_fails_after_audio_began_keeps_the_file_and_the_show(server):
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(start(True, room="live"))
+        until(ws, "record")
+        ws.send_bytes(CHUNK)
+        until(ws, "line")
+        ws.send_json({"type": "audio_failed", "reason": "track ended"})
+        assert until(ws, "record_stop")["reason"] == "track ended"
+        ws.send_bytes(CHUNK)
+        assert next_error(ws)["message"].startswith("unknown message type")
+    assert frames(next(server.glob("*.wav")))[0] == 4096

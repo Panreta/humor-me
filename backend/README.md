@@ -35,7 +35,8 @@ cd backend
 |---|---|---|
 | `start` | `context` (`venue`, `energy`, `age`), `room` (`sim`\|`live`), `operator`, `consent` (bool, default false) | Start a show. One at a time. `consent: true` means the operator confirmed the room agreed to be recorded |
 | binary frame | 16-bit mono 16 kHz PCM, under 64 KiB | Room audio, only after `record`. Refused with an `error` when no recording was ever agreed; dropped silently once it ended |
-| `audio_health` | `produced_s`, `elapsed_s`, `zero_quanta`, `rate` (numbers) | Every ~5 s of recording: audio the browser produced against wall clock, silent worklet quanta, the device's sample rate. Logged as a warning below 99%; diagnostics only, not in the session log |
+| `audio_start` | `wall_ms` (epoch ms) | Sent before the first audio frame: when the first sample was captured. Sets `start_at`; the arrival-time estimate is the fallback |
+| `audio_health` | `produced_s`, `elapsed_s`, `gap_ms`, `wall_s`, `rate` (numbers) | Every ~5 s of recording: audio the microphone delivered against capture time, silence filled for gaps, wall time, device rate. Warns below 99% of either; diagnostics only, not in the session log |
 | `audio_failed` | `reason` (optional text) | The browser could not open the microphone; the show runs unrecorded and the reason comes back in `record_stop` |
 | `played` | none | The browser finished playing the last audio |
 | `reaction` | `bit`, `joke`, `key` (`W`, `K`, `Space`, `D`) | A key press. Counts only while that joke's window is open |

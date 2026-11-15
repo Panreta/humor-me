@@ -1,59 +1,80 @@
 export const RECORD_RATE = 16000;
-const HEALTH_EVERY_MS = 5000;
 
 // The browser's voice processing is for calls: it would suppress the laughter this recording exists for.
 const RAW = { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false };
 
-export type Health = { produced_s: number; elapsed_s: number; zero_quanta: number; rate: number };
+// Chrome only (the operator UI is); not in TypeScript's DOM types yet.
+declare const MediaStreamTrackProcessor: new (init: {
+  track: MediaStreamTrack;
+  maxBufferSize?: number;
+}) => { readable: ReadableStream<unknown> };
 
-type WorkletMessage = { pcm: ArrayBuffer; zeroQuanta: number; rate: number };
+export type Start = { wall_ms: number; source: "capture" | "arrival" };
+export type Health = { produced_s: number; elapsed_s: number; gap_ms: number; wall_s: number; rate: number };
+
+type Pump = (
+  readable: ReadableStream<unknown>,
+  onChunk: (pcm: ArrayBuffer) => void,
+  onStart: (start: Start) => void,
+  onHealth: (health: Health) => void,
+) => Promise<void>;
+
+export type Sinks = {
+  onChunk: (pcm: ArrayBuffer) => void;
+  onStart: (start: Start) => void;
+  onHealth: (health: Health) => void;
+  onFail: (reason: string) => void;
+};
 
 /**
- * Opens the microphone and calls `onChunk` with 16-bit mono PCM at 16 kHz. The context runs at the device's own rate
- * and the worklet downsamples: a context forced to 16 kHz over a 48 kHz microphone lost a third of the samples.
- * Every few seconds `onHealth` reports audio produced against wall clock, which is how a loss shows up in the logs.
- * Resolves to a stop function.
+ * Opens the microphone and reads its frames straight off the track, stamped by the capture clock, so a busy render
+ * thread cannot cost samples (an AudioWorklet lost a third of them under Kokoro's CPU load). `capture.js` fills any gap
+ * with silence and drops overlap, so the 16 kHz Int16 chunks keep an exact timeline. Prefers a worker (the page cannot
+ * delay it) and reads on the main thread if the track will not transfer. Resolves to a stop function.
  */
-export async function startRecorder(
-  onChunk: (pcm: ArrayBuffer) => void,
-  onHealth: (health: Health) => void,
-): Promise<() => void> {
+export async function startRecorder(sinks: Sinks): Promise<() => void> {
+  if (typeof MediaStreamTrackProcessor === "undefined") throw new Error("this browser cannot read microphone frames");
   const stream = await navigator.mediaDevices.getUserMedia({ audio: RAW });
-  let context: AudioContext | null = null;
+  const [track] = stream.getAudioTracks();
+  let worker: Worker | null = null;
+  let clone: MediaStreamTrack | null = null;
+  let stopped = false;
+
+  const onMain = async () => {
+    // A URL import the bundler must leave alone: the file lives in public/.
+    const url = "/capture.js";
+    const { pump } = (await import(/* webpackIgnore: true */ url)) as { pump: Pump };
+    const processor = new MediaStreamTrackProcessor({ track, maxBufferSize: 1000 });
+    await pump(processor.readable, sinks.onChunk, sinks.onStart, sinks.onHealth);
+  };
+  const fallBack = (why: string) => {
+    worker?.terminate();
+    worker = null;
+    clone?.stop(); // a clone keeps the microphone open until it is stopped too
+    if (stopped) return;
+    console.warn(`recording on the main thread: ${why}`);
+    onMain().catch((e) => !stopped && sinks.onFail(String(e)));
+  };
+
   try {
-    context = new AudioContext();
-    await context.audioWorklet.addModule("/recorder-worklet.js");
-    // Made in a websocket handler, not a click, so it may start suspended; a suspended context records silence.
-    await context.resume();
-    if (context.state !== "running") throw new Error("the browser would not start audio capture");
-    const node = new AudioWorkletNode(context, "recorder");
-    let samples = 0;
-    let first = 0;
-    let lastReport = 0;
-    node.port.onmessage = (event: MessageEvent<WorkletMessage>) => {
-      const { pcm, zeroQuanta, rate } = event.data;
-      const now = performance.now();
-      if (!first) first = lastReport = now;
-      else samples += pcm.byteLength / 2;
-      onChunk(pcm);
-      // The first chunk's samples were captured before it arrived, so they are left out of both sides of the ratio.
-      if (now - lastReport >= HEALTH_EVERY_MS) {
-        lastReport = now;
-        onHealth({ produced_s: samples / RECORD_RATE, elapsed_s: (now - first) / 1000, zero_quanta: zeroQuanta, rate });
-      }
+    const sent = (clone = track.clone()); // the worker gets the clone; the original stays here for the fallback
+    worker = new Worker("/capture-worker.js", { type: "module" });
+    worker.onmessage = ({ data }) => {
+      if (data.pcm) sinks.onChunk(data.pcm);
+      else if (data.start) sinks.onStart(data.start);
+      else if (data.health) sinks.onHealth(data.health);
+      else if (data.error) fallBack(data.error);
     };
-    // Silent sink: some browsers only run a node that reaches the destination.
-    const sink = context.createGain();
-    sink.gain.value = 0;
-    context.createMediaStreamSource(stream).connect(node).connect(sink).connect(context.destination);
+    worker.onerror = () => fallBack("worker failed to load");
+    worker.postMessage({ track: sent }, [sent as unknown as Transferable]);
   } catch (error) {
-    stream.getTracks().forEach((t) => t.stop());
-    void context?.close();
-    throw error;
+    fallBack(String(error));
   }
-  const open = context;
+
   return () => {
+    stopped = true;
+    worker?.terminate();
+    clone?.stop();
     stream.getTracks().forEach((t) => t.stop());
-    void open.close();
   };
 }

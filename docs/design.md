@@ -183,17 +183,22 @@ The only audio kept is the room's, and only when the operator ticks "The room wa
 before the show (Massachusetts prohibits secret recording, so the notice comes first). Without the tick no audio is
 accepted, no file is created and the show runs as before (`show_start.audio` is `{consent: false, path: null}`).
 
-- **Capture:** an AudioWorklet in the operator's browser, mono 16 kHz, with echo cancellation, noise suppression and auto
-  gain off (they are built for calls and would erase the laughter this recording exists for). It needs a browser that lets
-  a 16 kHz context read the microphone (Chrome does).
+- **Capture:** the microphone track's own frames (`MediaStreamTrackProcessor`, Chrome), read in a worker when the track
+  transfers and on the main thread otherwise, with echo cancellation, noise suppression and auto gain off (they are built
+  for calls and would erase the laughter this recording exists for).
 - **Transport:** binary frames of 4096 16-bit samples (256 ms) on the same websocket. Binary only ever carries audio and
   every control message is a text frame, so the two cannot be confused. The server answers `start` with `record`, the
   browser opens the mic, and the show begins when the first frame arrives; a mic that fails or stays silent for 15 s
   means the show runs unrecorded.
-- **Rate:** the capture context runs at the device's own rate and the worklet downsamples to 16 kHz with a windowed-sinc
-  low-pass that keeps its phase across render quanta. A context forced to 16 kHz over a 48 kHz microphone lost 35% of the
-  samples in Chrome, so every later timestamp in the WAV drifted early. The browser reports `audio_health` every ~5 s (audio
-  produced against wall clock), and the server warns below 99%, also on close.
+- **Capture clock, not render clock:** every frame carries a timestamp from the capture clock. Gaps are filled with
+  silence and overlaps trimmed, so the WAV sample index equals (timestamp - first timestamp) x 16 kHz whatever the CPU is
+  doing; frames are resampled from the device rate to 16 kHz with a windowed-sinc low-pass that keeps its phase. An
+  AudioWorklet is driven by Chrome's audio render thread, which misses deadlines while Kokoro uses the CPU and then is
+  simply not called: it recorded 65% of real time (see the dev-log), and every later timestamp drifted early.
+- **Start time:** the browser sends `audio_start` with the first sample's capture time (epoch ms) before the first chunk,
+  and the server uses it for `start_at`; the arrival-based estimate is the fallback.
+- **Diagnostics:** the browser reports `audio_health` every ~5 s (audio delivered against capture time, silence filled,
+  wall time); the server warns below 99% of either, and also on close when it received under 99% of the wall-clock span.
 - **Setup for a show:** no Bluetooth headsets (opening the mic switches them to a low-quality call profile and drops
   samples). In Windows Sound, Communications, choose "Do nothing", or Windows ducks the robot's voice by 80% while the
   mic is open (observed: the voice fell to the noise floor after 20 s).

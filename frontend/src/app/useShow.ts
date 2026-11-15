@@ -149,14 +149,18 @@ export function useShow() {
           } else if (msg.type === "record") {
             // The server asked because the operator ticked consent; it waits for the first chunk before the show.
             const token = ++micToken.current;
-            startRecorder(
-              (pcm) => {
+            const send = (msg: object) => {
+              if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
+            };
+            startRecorder({
+              onChunk: (pcm) => {
                 if (socket.readyState === WebSocket.OPEN) socket.send(pcm);
               },
-              (health) => {
-                if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "audio_health", ...health }));
-              },
-            ).then(
+              onStart: (start) => send({ type: "audio_start", ...start }),
+              onHealth: (health) => send({ type: "audio_health", ...health }),
+              onFail: (reason) =>
+                send({ type: "audio_failed", reason: `Recording failed (${reason}), so the rest of this show is not recorded.` }),
+            }).then(
               (stop) => {
                 if (token === micToken.current && socket.readyState === WebSocket.OPEN) stopMicRef.current = stop;
                 else stop(); // the server gave up or the show ended while the microphone was opening

@@ -25,6 +25,7 @@ class Recorder:
         self.started = asyncio.Event()  # set on the event loop: by the first frame, `abandon` or `close`
         self.samples = 0
         self._file = None
+        self.hint: float | None = None  # the browser's capture-clock time of the first sample, when it sent one
         self.reason: str | None = None  # why the browser gave up, when it did
         self._closed = False
         self._lock = threading.Lock()
@@ -41,7 +42,13 @@ class Recorder:
     def _write(self, pcm: bytes) -> None:
         if self._file is None:
             # A frame is sent after its samples were captured, so the first sample is one frame older than its arrival.
-            first = self.clock() - len(pcm) / 2 / RATE
+            first = arrival = self.clock() - len(pcm) / 2 / RATE
+            if self.hint is not None:
+                if abs(self.hint - arrival) < 10:
+                    first = self.hint
+                    _log.info("capture-clock start %.0f ms before the arrival estimate", 1000 * (arrival - first))
+                else:
+                    _log.warning("ignored a capture-clock start %.1f s from now", arrival - self.hint)
             self._file = self.path.open("wb")
             self._file.write(struct.pack("<4sI4s4sIHHIIHH4sI", b"RIFF", 0, b"WAVE", b"fmt ", 16, 1, 1, RATE,
                                          RATE * 2, 2, 16, b"data", 0))
@@ -60,6 +67,11 @@ class Recorder:
         """The browser could not open the microphone: release whoever waits for the first frame."""
         self.reason = reason
         self.started.set()
+
+    def hint_start(self, seconds: float) -> None:
+        """The capture time of the first sample beats the arrival estimate, which includes capture and network delay."""
+        if self.start_at is None:
+            self.hint = seconds
 
     def coverage(self) -> float | None:
         """Seconds of audio received per second of wall clock since the first sample. Below 1 means the browser

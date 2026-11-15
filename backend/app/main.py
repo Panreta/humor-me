@@ -81,12 +81,17 @@ async def _open_recorder(ws: WebSocket, live: types.SimpleNamespace, log: Sessio
 
 
 def _note_health(live: types.SimpleNamespace, msg: dict) -> None:
-    """The browser's own count of audio produced against wall clock: diagnostics only, not in the session log."""
+    """The browser's own accounting, diagnostics only (not in the session log). Capture below 99% means the microphone
+    track skipped time (the file has silence there); capture time below 99% of wall time means frames are stuck in the
+    browser or on the way, which the server's coverage check would also see."""
     live.health = msg
     if msg["elapsed_s"] > 0 and msg["produced_s"] / msg["elapsed_s"] < HEALTH_MIN:
-        log.warning("browser produced %.1f s of audio in %.1f s (%.0f%%), %s silent quanta, device rate %s Hz",
-                    msg["produced_s"], msg["elapsed_s"], 100 * msg["produced_s"] / msg["elapsed_s"],
-                    msg["zero_quanta"], msg["rate"])
+        log.warning("microphone delivered %.1f s of audio in %.1f s of capture time (%.0f%%), %.0f ms filled with "
+                    "silence, device rate %s Hz", msg["produced_s"], msg["elapsed_s"],
+                    100 * msg["produced_s"] / msg["elapsed_s"], msg["gap_ms"], msg["rate"])
+    if msg["wall_s"] > 0 and msg["elapsed_s"] / msg["wall_s"] < HEALTH_MIN:
+        log.warning("capture time %.1f s in %.1f s of wall time (%.0f%%): audio is held up in the browser",
+                    msg["elapsed_s"], msg["wall_s"], 100 * msg["elapsed_s"] / msg["wall_s"])
 
 
 async def _audio_frame(ws: WebSocket, live: types.SimpleNamespace, data: bytes) -> None:
@@ -164,9 +169,14 @@ async def session(ws: WebSocket) -> None:
                 played.put_nowait(msg)
             elif msg["type"] == "audio_health":
                 _note_health(live, msg)
-            elif msg["type"] == "audio_failed":
+            elif msg["type"] == "audio_start":
                 if live.recorder is not None:
+                    live.recorder.hint_start(msg["wall_ms"] / 1000)
+            elif msg["type"] == "audio_failed":
+                if live.recorder is not None and live.recorder.start_at is None:
                     live.recorder.abandon(msg["reason"])
+                else:  # it failed after audio began: the file so far stays, the show goes on
+                    await _release(ws, live, msg["reason"])
             elif msg["type"] == "reaction":
                 if live.source is None:
                     log.info("ignored press %s: no live show", msg["key"])
