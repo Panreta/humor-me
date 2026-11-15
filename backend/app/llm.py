@@ -104,6 +104,10 @@ class Client:
 
 
 def from_env(timeout: float = 8.0, **options) -> Client:
-    """Raises KeyError when LLM_BASE_URL or LLM_MODEL is unset; the key may be empty (local Ollama)."""
+    """Raises RuntimeError when LLM_BASE_URL or LLM_MODEL is unset; the key may be empty (local Ollama)."""
+    missing = [name for name in ("LLM_BASE_URL", "LLM_MODEL") if not os.environ.get(name)]
+    if missing:
+        raise RuntimeError(f"{' and '.join(missing)} not set: GENERATOR=llm needs both LLM_BASE_URL and LLM_MODEL in "
+                           "backend/.env, and uvicorn only reads that file with --env-file .env")
     return Client(os.environ["LLM_BASE_URL"], os.environ.get("LLM_API_KEY", ""), os.environ["LLM_MODEL"], timeout,
                   **options)
