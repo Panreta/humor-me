@@ -46,7 +46,8 @@ def load_bank(path: pathlib.Path = BANK) -> list[dict]:
 
 def digest() -> str:
     """Part of the cache key, so editing a fixture or the bank recomputes the experiment."""
-    return hashlib.sha256(RED_TEAM.read_bytes() + CLEAN.read_bytes() + BANK.read_bytes()).hexdigest()[:12]
+    # Line endings depend on the checkout (git autocrlf, files written by tools), not on the content.
+    return hashlib.sha256(b"".join(p.read_bytes().replace(b"\r\n", b"\n") for p in (RED_TEAM, CLEAN, BANK))).hexdigest()[:12]
 
 
 def prompt_digest() -> str:
