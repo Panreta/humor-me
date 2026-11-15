@@ -1,0 +1,382 @@
+"""The generator, the retries and the show's render-ahead, bridge and bank fallback. A fake HTTP server and fake voice;
+no real API or Kokoro. The timing numbers live in notebooks/decisions-live.ipynb (Exp 20)."""
+import asyncio
+import json
+import pathlib
+import sys
+import threading
+import time
+
+import httpx
+import numpy as np
+import pytest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "backend"))
+
+from app import generate, llm, safety  # noqa: E402
+from app.bank import BankGenerator  # noqa: E402
+from app.director import EPSILON, load_director  # noqa: E402
+from app.log import SessionLog, read_session  # noqa: E402
+from app.rooms import ReactionConfig, RealClock, SimRoom  # noqa: E402
+from app.show import UniformSelector, run_show  # noqa: E402
+from app.tts import to_wav  # noqa: E402
+
+CTX = {"venue": "bar", "energy": "high", "age": "mixed"}
+FAST = ReactionConfig(holds={3: 0.01, 2: 0.01, 1: 0.01, 0: 0.01, None: 0.0}, timeout_s=0.5)
+
+
+def reply(n_jokes=5, k=3, tag="x"):
+    return json.dumps({"premise": "p", "jokes": [[f"{tag} line {j}.{i}" for i in range(k)] for j in range(n_jokes)]})
+
+
+def completion(text, finish="stop"):
+    return {"choices": [{"message": {"content": text}, "finish_reason": finish}]}
+
+
+def server(*script):
+    """Transport answering from a script of (status, body) or an exception to raise; repeats the last entry."""
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        step = script[min(len(seen) - 1, len(script) - 1)]
+        if isinstance(step, Exception):
+            raise step
+        status, body = step
+        return httpx.Response(status, json=body)
+    return httpx.MockTransport(handler), seen
+
+
+def client(*script, **options):
+    transport, seen = server(*script)
+    return llm.Client("http://fake", "k", "m", transport=transport, sleep=lambda s: None, **options), seen
+
+
+# --- the client's retries ---
+
+def test_a_429_is_retried_until_it_succeeds_and_every_attempt_is_counted():
+    c, seen = client((429, {}), (503, {}), (200, completion("ok")), retries=2)
+    assert c.chat("s", "u") == "ok"
+    assert (c.attempts, c.retried, c.failed, len(seen)) == (3, 2, 0, 3)
+
+
+def test_retries_are_bounded_and_the_last_error_is_raised():
+    c, seen = client((429, {}), retries=2)
+    with pytest.raises(llm.LLMError) as e:
+        c.chat("s", "u")
+    assert e.value.status == 429 and len(seen) == 3 and c.failed == 1
+
+
+def test_a_client_error_and_a_provider_block_are_not_retried():
+    for step in ((400, {}), (200, completion("x", finish="content_filter"))):
+        c, seen = client(step, retries=3)
+        with pytest.raises(llm.LLMError):
+            c.chat("s", "u")
+        assert len(seen) == 1
+
+
+def test_a_timeout_is_retried():
+    c, seen = client(httpx.ReadTimeout("slow"), (200, completion("ok")), retries=1)
+    assert c.chat("s", "u") == "ok" and len(seen) == 2
+
+
+def test_the_deadline_stops_a_retry_that_would_overrun_it():
+    c, seen = client((503, {}), retries=5, backoff_s=2.0, deadline_s=1.0)
+    with pytest.raises(llm.LLMError):
+        c.chat("s", "u")
+    assert len(seen) == 1  # the first backoff alone (2 s) is past the 1 s deadline
+
+
+def test_default_client_never_retries():
+    c, seen = client((503, {}))
+    with pytest.raises(llm.LLMError):
+        c.chat("s", "u")
+    assert len(seen) == 1
+
+
+# --- the generator ---
+
+def test_one_call_per_bit_serves_all_five_jokes_with_three_candidates_each():
+    c, seen = client((200, completion(reply())))
+    g = generate.GeminiGenerator(c)
+    batches = [g.generate("cynic", 0, j, CTX) for j in range(5)]
+    assert len(seen) == 1
+    assert [len(b.texts) for b in batches] == [3] * 5 and batches[2].texts[1] == "x line 2.1"
+    assert seen[0]["temperature"] == generate.TEMPERATURE and seen[0]["response_format"] == {"type": "json_object"}
+    assert batches[0].prompt.startswith(seen[0]["messages"][0]["content"])  # the log holds what the model saw
+
+
+def test_a_second_bit_is_a_second_call_and_remembers_the_first_premise():
+    c, seen = client((200, completion(reply())))
+    g = generate.GeminiGenerator(c)
+    g.generate("cynic", 0, 0, CTX)
+    g.generate("optimist", 1, 0, CTX)
+    assert len(seen) == 2 and "p" in json.loads(seen[1]["messages"][1]["content"])["premises_already_told"]
+
+
+@pytest.mark.parametrize("bad", ["not json", reply(n_jokes=4), reply(k=0), json.dumps({"jokes": "x"}),
+                                 json.dumps({"jokes": [[1, 2]] * 5}), json.dumps([1, 2])])
+def test_a_malformed_reply_raises_for_every_joke_without_a_second_call(bad):
+    c, seen = client((200, completion(bad)))
+    g = generate.GeminiGenerator(c)
+    for joke in range(5):
+        with pytest.raises(generate.GenerationError):
+            g.generate("cynic", 0, joke, CTX)
+    assert len(seen) == 1
+
+
+def test_a_timeout_raises_for_every_joke_without_a_second_call():
+    c, seen = client(httpx.ConnectTimeout("down"))
+    g = generate.GeminiGenerator(c)
+    for joke in range(5):
+        with pytest.raises(llm.LLMError):
+            g.generate("cynic", 0, joke, CTX)
+    assert len(seen) == 1
+
+
+def test_fenced_json_and_extra_candidates_are_handled():
+    _, lines = generate.parse("```json\n" + reply(k=5) + "\n```")
+    assert [len(r) for r in lines] == [3] * 5
+
+
+def test_the_prompt_holds_the_identity_the_rules_and_teens_only_for_teens():
+    c, seen = client((200, completion(reply())))
+    g = generate.GeminiGenerator(c)
+    g.generate("wordsmith", 0, 0, CTX)
+    g.generate("wordsmith", 1, 0, {**CTX, "age": "teens"})
+    adults, teens = (s["messages"][0]["content"] for s in seen)
+    for text in (adults, teens):
+        assert "slightly anxious robot" in text and "wordplay" in text
+        assert "bodies or appearance" in text and "protected groups" in text and "named people" in text
+    assert "teenagers" in teens and "teenagers" not in adults
+    assert set(generate.MODES) >= {"neurotic", "cynic", "observer", "wordsmith", "optimist", "absurdist"}
+
+
+@pytest.mark.parametrize("age", ["mixed", "teens"])
+def test_every_bridge_line_passes_the_rules(age):
+    assert all(safety.check_rules(t, age).ok for t in generate.BRIDGES)
+
+
+# --- the show around it ---
+
+class FakeVoice:
+    def __init__(self, delay=0.0):
+        self.delay, self.events, self.lock, self.times = delay, [], threading.Lock(), {}
+
+    def synthesize(self, text):
+        with self.lock:
+            self.events.append(("synth", text))
+        time.sleep(self.delay)
+        return to_wav(np.zeros(240))
+
+
+class FakePlayer:
+    def __init__(self, voice, seconds=0.05):
+        self.voice, self.seconds = voice, seconds
+
+    async def play(self, wav, text):
+        self.voice.events.append(("start", text))
+        self.voice.times[("start", text)] = time.time()
+        await asyncio.sleep(self.seconds)
+        self.voice.events.append(("end", text))
+        self.voice.times[("end", text)] = time.time()
+
+
+class Filter:
+    """Passes lines containing 'ok'; records the order of prefetch and check calls."""
+
+    def __init__(self, rule=lambda t: "ok" in t):
+        self.rule, self.calls = rule, []
+
+    def prefetch(self, texts, age):
+        self.calls.append(("prefetch", list(texts)))
+
+    def check(self, text, age):
+        self.calls.append(("check", text))
+        ok = self.rule(text)
+        return safety.Verdict(ok, "ok" if ok else "no")
+
+
+class Gen:
+    def __init__(self, tag="ok", fail=False, delay=0.0):
+        self.generator_id, self.tag, self.fail, self.delay, self.calls = f"gen-{tag}", tag, fail, delay, 0
+
+    def generate(self, mode, bit, joke, context):
+        self.calls += 1
+        time.sleep(self.delay)
+        if self.fail:
+            raise llm.LLMError("http 503", 503)
+        return generate.Batch("p", f"prompt {bit}", [f"{self.tag} {bit}.{joke}.{i}" for i in range(3)])
+
+
+def show(tmp_path, gen, flt, voice=None, fallback=None, bridges=None, n_bits=3):
+    voice = voice or FakeVoice()
+    log = SessionLog(tmp_path)
+    asyncio.run(run_show(load_director([], seed=1), "sim", CTX, generator=gen, safety=flt,
+                         selector=UniformSelector(0), tts=voice, player=FakePlayer(voice), source=SimRoom(CTX, 0),
+                         clock=RealClock(), log=log, n_bits=n_bits, config=FAST, fallback=fallback,
+                         bridge_lines=bridges))
+    return read_session(log.path), voice
+
+
+def played(rows):
+    return [r["text"] for r in rows if r["event"] == "joke_played"]
+
+
+def test_every_line_that_reaches_the_voice_passed_the_filter_first(tmp_path):
+    flt = Filter(rule=lambda t: t.endswith(".1") or t.endswith(".2"))  # candidate 0 of every joke is rejected
+    rows, voice = show(tmp_path, Gen(), flt)
+    spoken = {t for kind, t in voice.events if kind == "synth"}
+    assert spoken == set(played(rows)) and len(spoken) == 15
+    assert not any(t.endswith(".0") for t in spoken)
+    for r in (r for r in rows if r["event"] == "candidates"):
+        assert [i["verdict"] for i in r["items"]] == ["reject", "pass", "pass"]
+
+
+def test_one_prefetch_per_bit_with_all_candidates_before_any_check(tmp_path):
+    flt = Filter()
+    show(tmp_path, Gen(), flt)
+    kinds = [c[0] for c in flt.calls]
+    assert kinds.count("prefetch") == 3
+    for start in range(0, len(kinds), 16):  # one prefetch, then 5 jokes x 3 checks
+        assert kinds[start] == "prefetch" and len(flt.calls[start][1]) == 15
+
+
+def test_next_line_is_rendered_while_the_current_one_plays(tmp_path):
+    rows, voice = show(tmp_path, Gen(), Filter(), voice=FakeVoice(delay=0.01))
+    order = [e for e in voice.events if e[1].startswith("ok")]
+    for bit in range(3):
+        texts = [t for t in played(rows) if t.startswith(f"ok {bit}.")]
+        for current, nxt in zip(texts, texts[1:]):
+            assert order.index(("synth", nxt)) < order.index(("end", current))
+
+
+def test_a_failed_generation_falls_back_to_the_bank_and_says_so(tmp_path):
+    bank = BankGenerator()
+    rows, _ = show(tmp_path, Gen(fail=True), Filter(), fallback=bank)
+    assert rows[-1]["status"] == "finished" and len(played(rows)) == 15
+    cands = [r for r in rows if r["event"] == "candidates"]
+    assert {r["generator_id"] for r in cands} == {bank.generator_id}
+    assert all("generation failed: LLMError: http 503" in i["reason"] for r in cands for i in r["items"])
+
+
+def test_all_candidates_rejected_falls_back_to_the_bank_for_that_joke_only(tmp_path):
+    flt = Filter(rule=lambda t: not t.startswith("ok 0.2"))
+    rows, _ = show(tmp_path, Gen(), flt, fallback=BankGenerator())
+    by_joke = {(r["bit"], r["joke"]): r for r in rows if r["event"] == "candidates"}
+    assert [r["generator_id"] for r in rows if r["event"] == "candidates" and r["bit"] == 0 and r["joke"] == 2][-2:] == [
+        "gen-ok", "bank-v1"]
+    assert by_joke[(0, 2)]["items"][0]["reason"].endswith("every candidate rejected")
+    assert all(r["generator_id"] == "gen-ok" for k, r in by_joke.items() if k != (0, 2))
+    assert len(played(rows)) == 15
+
+
+def test_without_a_fallback_a_failed_bit_is_skipped_and_the_show_goes_on(tmp_path):
+    rows, _ = show(tmp_path, Gen(fail=True), Filter())
+    assert played(rows) == [] and rows[-1]["status"] == "finished"
+
+
+def test_bridge_plays_between_bits_but_never_before_the_first(tmp_path):
+    rows, voice = show(tmp_path, Gen(), Filter(), bridges=["bridge a", "bridge b"])
+    plays = [t for kind, t in voice.events if kind == "start"]
+    assert plays[0].startswith("ok 0.0") and plays.count("bridge a") + plays.count("bridge b") >= 2
+    for bit in (1, 2):
+        first = next(i for i, t in enumerate(plays) if t.startswith(f"ok {bit}."))
+        assert plays[first - 1].startswith("bridge")
+
+
+def test_a_slow_bit_gets_more_bridge_lines_up_to_the_cap(tmp_path):
+    from app.show import MAX_BRIDGES
+    _, voice = show(tmp_path, Gen(delay=0.2), Filter(), bridges=["b1", "b2", "b3", "b4"], n_bits=2)
+    plays = [t for kind, t in voice.events if kind == "start"]
+    assert sum(t.startswith("b") for t in plays) == MAX_BRIDGES
+
+
+def test_the_first_line_is_rendered_before_the_bridge_hands_over(tmp_path):
+    voice = FakeVoice(delay=0.5)
+    gen = Gen()
+    log = SessionLog(tmp_path)
+    asyncio.run(run_show(load_director([], seed=1), "sim", CTX, generator=gen, safety=Filter(),
+                         selector=UniformSelector(0), tts=voice, player=FakePlayer(voice, seconds=0.2),
+                         source=SimRoom(CTX, 0), clock=RealClock(), log=log, n_bits=2, config=FAST,
+                         bridge_lines=["b1", "b2"]))
+    last_bridge_end = max(t for (kind, text), t in voice.times.items() if kind == "end" and text.startswith("b"))
+    first_line_start = voice.times[("start", next(t for k, t in voice.events if k == "start" and t.startswith("ok 1."))) ]
+    assert first_line_start - last_bridge_end < 0.15  # a 0.5 s render must not show up as dead air
+
+
+def test_bridge_lines_cycle_instead_of_repeating(tmp_path):
+    _, voice = show(tmp_path, Gen(), Filter(), bridges=["b1", "b2", "b3"], n_bits=4)
+    bridges = [t for kind, t in voice.events if kind == "start" and t.startswith("b")]
+    assert bridges[:3] == ["b1", "b2", "b3"]
+
+
+def test_live_safety_rejects_a_bit_when_its_verdict_call_dies_and_the_bank_takes_over(tmp_path):
+    safety.clear_cache()
+    dead, _ = client((503, {}))
+    rows, _ = show(tmp_path, Gen(), generate.LiveSafety(dead), fallback=BankGenerator())
+    assert played(rows) and all(r["generator_id"] == "bank-v1" for r in rows if r["event"] == "candidates"
+                                 and r["items"][0]["verdict"] == "pass")
+    safety.clear_cache()
+
+
+def test_live_safety_passes_lines_the_model_cleared_after_prefetch():
+    safety.clear_cache()
+    texts = ["The microwave and I have an understanding.", "My battery is on a journey."]
+    ok, _ = client((200, completion(json.dumps({"verdicts": [{"id": i, "ok": True, "reason": "r"} for i in range(2)]}))))
+    s = generate.LiveSafety(ok)
+    assert not s.check(texts[0], "mixed").ok  # no verdict yet
+    s.prefetch(texts, "mixed")
+    assert all(s.check(t, "mixed").ok for t in texts)
+    safety.clear_cache()
+
+
+def test_stack_choice_and_the_live_room_guard(monkeypatch, tmp_path):
+    pytest.importorskip("fastapi")
+    from app import main
+    monkeypatch.delenv("GENERATOR", raising=False)
+    gen, _, fallback, bridges = main.make_stack("live")
+    assert isinstance(gen, BankGenerator) and fallback is None and bridges is None
+    monkeypatch.setenv("GENERATOR", "llm")
+    monkeypatch.setattr(safety, "BLOCKLIST_LOCAL", tmp_path / "missing.txt")
+    with pytest.raises(safety.SafetyNotReady):
+        main.make_stack("live")
+    monkeypatch.setenv("LLM_BASE_URL", "http://x")
+    monkeypatch.setenv("LLM_MODEL", "m")
+    gen, filt, fallback, bridges = main.make_stack("sim")
+    assert isinstance(gen, generate.GeminiGenerator) and isinstance(fallback, BankGenerator) and bridges
+    assert gen.client.retries == filt.client.retries == 2
+
+
+# --- Exp 20's bookkeeping ---
+
+ROWS = [{"event": "joke_played", "text": "a", "bit": 0, "joke": 0}, {"event": "gap", "at": 12.0},
+        {"event": "joke_played", "text": "b", "bit": 0, "joke": 1}, {"event": "gap", "at": 20.0},
+        {"event": "joke_played", "text": "c", "bit": 1, "joke": 0}]
+
+
+def test_silences_measure_from_the_later_of_audio_end_and_hold_end():
+    from sim import evaluate_live as ev
+    plays = [{"text": "a", "start": 10.0, "end": 11.0},   # first line: no silence before it
+             {"text": "b", "start": 12.5, "end": 13.0},   # hold ended 12.0, audio 11.0: 0.5 s
+             {"text": generate.BRIDGES[0], "start": 20.25, "end": 24.0},  # hold ended 20.0
+             {"text": "c", "start": 25.0, "end": 26.0}]   # after the bridge, which ended 24.0
+    out = ev.silences(ROWS, plays)
+    assert out["within"] == [pytest.approx(0.5)] and out["between"] == [pytest.approx(0.25), pytest.approx(1.0)]
+
+
+def test_a_hold_whose_timestamp_equals_the_next_start_is_not_counted_as_silence():
+    from sim import evaluate_live as ev
+    # A coarse clock stamps the gap row and the next play with the same instant: the gap is 0, not the hold length.
+    plays = [{"text": "a", "start": 10.0, "end": 11.0}, {"text": "b", "start": 12.0, "end": 13.0},
+             {"text": "c", "start": 20.0, "end": 21.0}]
+    out = ev.silences(ROWS, plays)
+    assert out["within"] == [0.0] and out["between"] == [0.0]
+    # and a clock that runs the other way round (the next play stamped before the row) cannot make it negative
+    plays[1]["start"] = 11.9
+    assert ev.silences(ROWS, plays)["within"] == [0.0]
+
+
+def test_peak_requests_per_minute_counts_the_busiest_window():
+    from sim import evaluate_live as ev
+    assert ev.peak_per_minute([0, 10, 59, 61, 200]) == 3 and ev.peak_per_minute([]) == 0

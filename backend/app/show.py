@@ -1,5 +1,6 @@
 """The show loop: `run_show` runs one show against whatever voice, room and clock it is given."""
 import asyncio
+import logging
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -10,6 +11,9 @@ from app.reward import VERSION, reward_v1
 from app.rooms import REACTION
 from app.tts import wav_seconds
 from sim.env import AudienceEnv, Context
+
+_log = logging.getLogger(__name__)
+
 
 class TTS(Protocol):
     def synthesize(self, text: str) -> bytes: ...
@@ -30,6 +34,7 @@ class Generator(Protocol):
 
 class SafetyFilter(Protocol):
     def check(self, text: str, age: str): ...  # object with .ok and .reason
+    # Optionally `prefetch(texts, age)`: the show calls it once per bit, ahead of the per-line `check`s.
 
 
 class Selector(Protocol):
@@ -39,7 +44,7 @@ class Selector(Protocol):
 
 
 class Player(Protocol):
-    async def play(self, wav: bytes) -> None: ...  # returns when the audio has finished
+    async def play(self, wav: bytes, text: str) -> None: ...  # returns when the audio has finished
 
 
 class Clock(Protocol):
@@ -77,24 +82,85 @@ def _judge(safety: SafetyFilter, text: str, age: str) -> dict:
     return {"text": text, "verdict": "pass" if ok else "reject", "reason": reason}
 
 
-async def _joke(bit, joke, mode, context, *, generator, safety, selector, tts, player, source, clock, log, config):
-    """One joke, end to end. Returns the level, or None when nothing was played or the room did not answer."""
-    batch = generator.generate(mode, bit, joke, context)
-    items = [_judge(safety, t, context["age"]) for t in batch.texts]
-    log.write("candidates", bit=bit, joke=joke, prompt_id=batch.prompt_id, prompt=batch.prompt,
-              generator_id=generator.generator_id, items=items)
-    passing = [i for i, item in enumerate(items) if item["verdict"] == "pass"]
-    if not passing:
-        return None  # unlabeled: no reaction row, so replay sees the same thing
-    pick, prob = selector.pick([batch.texts[i] for i in passing])
-    chosen = passing[pick]
+@dataclass
+class _Plan:
+    """One joke decided before it plays: what was picked, and the voice render started ahead of it."""
+    batch: Batch
+    chosen: int
+    prob: float
+    render: asyncio.Task | None = None
+
+
+async def _render(tts, text: str, clock):
     asked = clock.now()
-    wav = await asyncio.to_thread(tts.synthesize, batch.texts[chosen])  # keeps the event loop free
+    wav = await asyncio.to_thread(tts.synthesize, text)  # keeps the event loop free
+    return wav, clock.now() - asked
+
+
+async def _prepare(bit, mode, context, *, generator, fallback, safety, selector, tts, clock, log, jokes_per_bit, spawn):
+    """Everything a bit needs before its first line: candidates, the safety verdicts and the first render.
+    A joke whose generation failed, or whose candidates were all rejected, falls back to the hand-checked bank."""
+    age = context["age"]
+    batches: list[Batch | None] = []
+    reasons: list[str] = []
+    for joke in range(jokes_per_bit):
+        try:
+            batches.append(await asyncio.to_thread(generator.generate, mode, bit, joke, context))
+            reasons.append("")
+        except Exception as e:  # a bad reply or a dead provider must not stop the show
+            batches.append(None)
+            reasons.append(f"generation failed: {type(e).__name__}: {e}")
+    if prefetch := getattr(safety, "prefetch", None):  # the LLM layer judges the whole bit in one call
+        await asyncio.to_thread(prefetch, [t for b in batches if b for t in b.texts], age)
+    plans: list[_Plan | None] = []
+    for joke, batch in enumerate(batches):
+        plan = None
+        if batch:
+            items = [_judge(safety, t, age) for t in batch.texts]
+            log.write("candidates", bit=bit, joke=joke, prompt_id=batch.prompt_id, prompt=batch.prompt,
+                      generator_id=generator.generator_id, items=items)
+            passing = [i for i, item in enumerate(items) if item["verdict"] == "pass"]
+            if passing:
+                pick, prob = selector.pick([batch.texts[i] for i in passing])
+                plan = _Plan(batch, passing[pick], prob)
+            else:
+                reasons[joke] = "every candidate rejected"
+        if plan is None and fallback:
+            _log.warning("bit %s joke %s: %s; using %s", bit, joke, reasons[joke], fallback.generator_id)
+            batch = await asyncio.to_thread(fallback.generate, mode, bit, joke, context)
+            items = [{"text": t, "verdict": "pass", "reason": f"hand-checked bank: {reasons[joke]}"} for t in batch.texts]
+            log.write("candidates", bit=bit, joke=joke, prompt_id=batch.prompt_id, prompt=batch.prompt,
+                      generator_id=fallback.generator_id, items=items)
+            pick, prob = selector.pick(batch.texts)
+            plan = _Plan(batch, pick, prob)
+        plans.append(plan)
+    _start_render(plans, 0, tts, clock, spawn)
+    if first := next((p for p in plans if p), None):
+        await first.render  # the bit is ready only when its first line is audio, or the bridge ends into a render wait
+    return plans
+
+
+def _start_render(plans, joke, tts, clock, spawn) -> None:
+    """Render the next playable line from `joke` on, so its audio is ready when the current one ends."""
+    plan = next((p for p in plans[joke:] if p), None)
+    if plan and plan.render is None:
+        plan.render = spawn(_render(tts, plan.batch.texts[plan.chosen], clock))
+
+
+async def _joke(bit, joke, plans, *, tts, player, source, clock, log, config, spawn):
+    """One joke, end to end. Returns the level, or None when nothing was played or the room did not answer."""
+    plan = plans[joke]
+    if plan is None:
+        return None  # unlabeled: no reaction row, so replay sees the same thing
+    _start_render(plans, joke, tts, clock, spawn)
+    _start_render(plans, joke + 1, tts, clock, spawn)
+    wav, tts_seconds = await plan.render
+    text = plan.batch.texts[plan.chosen]
     start = clock.now()
-    await player.play(wav)
+    await player.play(wav, text)
     end = clock.now()
-    log.write("joke_played", bit=bit, joke=joke, chosen=chosen, pick_prob=prob, text=batch.texts[chosen],
-              tts_seconds=start - asked, audio_seconds=wav_seconds(wav), audio_start_at=start, audio_end_at=end)
+    log.write("joke_played", bit=bit, joke=joke, chosen=plan.chosen, pick_prob=plan.prob, text=text,
+              tts_seconds=tts_seconds, audio_seconds=wav_seconds(wav), audio_start_at=start, audio_end_at=end)
     level, key, latency = await source.reaction(bit, joke, config.timeout_s)
     log.write("reaction", bit=bit, joke=joke, source=source.source, level=level, key=key, latency_s=latency)
     before = clock.now()
@@ -109,14 +175,40 @@ async def _joke(bit, joke, mode, context, *, generator, safety, selector, tts, p
     return level
 
 
+MAX_BRIDGES = 3  # a bit that is still loading after three bridge lines is a provider problem, not a pause
+
+
+async def _bridge(prep: asyncio.Task, bridges: asyncio.Task, player, used: list) -> None:
+    """Fill the wait for the next bit with in-character lines, so the room never hears dead air."""
+    lines = await bridges
+    for _ in range(MAX_BRIDGES):
+        if prep.done():
+            return
+        text, wav = lines[len(used) % len(lines)]
+        used.append(text)
+        await player.play(wav, text)
+
+
 async def run_show(director, room: str, context: dict, *, generator: Generator, safety: SafetyFilter,
                    selector: Selector, tts: TTS, player: Player, source: RewardSource, clock: Clock, log: SessionLog,
                    explore_seed: int | None = None, operator: str = "sim", git_sha: str = "unknown",
-                   audio: dict | None = None, n_bits: int = 8, jokes_per_bit: int = 5, config=REACTION) -> None:
+                   audio: dict | None = None, n_bits: int = 8, jokes_per_bit: int = 5, config=REACTION,
+                   fallback: Generator | None = None, bridge_lines: list[str] | None = None) -> None:
     """One show. `director` is an EpsilonSoft over LinUCB, already warm: the caller replays the career into it
     (app.director.load_director) so this loop never decides which rooms count."""
     modes = AudienceEnv().modes
     inner = director.inner
+    tasks: list[asyncio.Task] = []
+
+    def spawn(coro) -> asyncio.Task:
+        tasks.append(asyncio.ensure_future(coro))
+        return tasks[-1]
+
+    async def render_bridges():
+        return [(t, await asyncio.to_thread(tts.synthesize, t)) for t in bridge_lines]
+
+    bridges = spawn(render_bridges()) if bridge_lines else None  # renders while bit 0 loads; first needed at bit 1
+    bridges_used: list[str] = []
     log.write("show_start", room=room, context=context,
               policy={"name": "linucb", "epsilon": director.eps, "alpha": inner.alpha, "prior": "uniform",
                       "seed": explore_seed},
@@ -135,9 +227,14 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
                       scores={m: float(x) for m, x in zip(modes, scores)}, greedy=modes[greedy],
                       action=modes[action], probs={m: float(p) for m, p in zip(modes, probs)})
             source.begin_bit(action)
-            levels = [await _joke(bit, joke, modes[action], context, generator=generator, safety=safety,
-                                  selector=selector, tts=tts, player=player, source=source, clock=clock, log=log,
-                                  config=config) for joke in range(jokes_per_bit)]
+            prep = spawn(_prepare(bit, modes[action], context, generator=generator, fallback=fallback, safety=safety,
+                                  selector=selector, tts=tts, clock=clock, log=log, jokes_per_bit=jokes_per_bit,
+                                  spawn=spawn))
+            if bridges and bit > 0:
+                await _bridge(prep, bridges, player, bridges_used)
+            plans = await prep
+            levels = [await _joke(bit, joke, plans, tts=tts, player=player, source=source, clock=clock, log=log,
+                                  config=config, spawn=spawn) for joke in range(jokes_per_bit)]
             reward = reward_v1(levels)
             log.write("bit_end", bit=bit, n_labels=sum(lv is not None for lv in levels), reward_version=VERSION,
                       reward=reward)
@@ -147,4 +244,7 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
     except BaseException:  # includes cancellation: a closed tab must still leave a readable log
         log.write("show_end", status="aborted")
         raise
+    finally:
+        for task in tasks:
+            task.cancel()  # a render nobody will play, or a bit nobody will hear
     log.write("show_end", status="finished")

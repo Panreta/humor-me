@@ -47,7 +47,15 @@ cd backend
 
 The mode the director picked is never sent. Presses outside their window are not logged as reactions (replay counts every
 row), only noted by the Python logger. Within a hold the last press wins and each change is a `reaction` row.
-Until the real safety filter (T8/T9) lands, only text literally in the bank passes (`BankOnlySafety`).
+By default the show uses the bank and a bank-only filter (`BankOnlySafety`), which needs no key. `GENERATOR=llm` switches to the
+real stack (`app/generate.py`): one model call per bit for 5 jokes x 3 candidates, the safety filter's rules plus one LLM verdict call
+per bit, the next line rendered while the current one plays, and in-character bridge lines while a bit loads. A failed call is retried
+twice inside a deadline; a failed generation or a bit whose candidates are all rejected falls back to the hand-checked bank, logged in
+`candidates`. A `live` room refuses to start without `app/blocklist.local.txt`.
+
+```sh
+.venv/Scripts/python -m uvicorn app.main:app --port 8000 --env-file .env   # with GENERATOR=llm in .env
+```
 
 ## Pick a provider first
 

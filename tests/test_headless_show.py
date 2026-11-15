@@ -39,7 +39,7 @@ class FakePlayer:
     def __init__(self, clock):
         self.clock = clock
 
-    async def play(self, wav):
+    async def play(self, wav, text):
         self.clock.t += wav_seconds(wav)
 
 
