@@ -163,3 +163,9 @@ Used in the safety filter ([wiki page](safety-filter.md), notebook Exp 19).
 | **Held-out lines** | Test lines not looked at while writing the rules, so the score shows how the rules do on lines they weren't built for | The pass bar applies to these only |
 | **Indirect phrasing** | A line that is unsafe in meaning with no banned word in it | "Interesting choice of pants, sir" |
 | **False reject** | A clean line the filter blocks. It costs material, not safety | At most 10% allowed |
+| **Render-ahead** | Turning the next line into audio while the current line plays, so the voice never makes the room wait | Line 3 is synthesized during line 2's audio and hold |
+| **Bridge line** | A pre-rendered in-character line played between bits while the next bit is still being written and checked, so there is no dead air | "Give me a second. I'm checking my notes." |
+| **Within-bit gap** | Silence from the end of one joke's hold to the next joke's audio, inside a bit. Render-ahead has to keep it short | Bar: p95 at most 1 s |
+| **Between-bit gap** | The same silence across a bit boundary, where the next bit's mode is only known after the last reaction. Bridge lines cover it | Bar: never over 2 s |
+| **Bank fallback** | Using the hand-checked joke bank when the model call fails or the filter rejects every candidate, and logging why | A 503 on a bit's generation call plays the bank's bit instead |
+| **Retry with a deadline** | Trying a failed request again after a short wait, but only while the total time stays inside a budget | Up to 2 retries within 12 s for the generator call |
