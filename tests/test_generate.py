@@ -27,7 +27,7 @@ FAST = ReactionConfig(holds={3: 0.01, 2: 0.01, 1: 0.01, 0: 0.01, None: 0.0}, tim
 
 def reply(n_jokes=5, k=3, tag="x"):
     """The one accepted shape: thread-major, threads[i][j] is joke j of thread i."""
-    return json.dumps({"premises": ["p"], "threads": [[f"{tag} line {j}.{i}" for j in range(n_jokes)] for i in range(k)]})
+    return json.dumps({"premises": [f"p{i}" for i in range(k)], "threads": [[f"{tag} line {j}.{i}" for j in range(n_jokes)] for i in range(k)]})
 
 
 JOKE_MAJOR = json.dumps({"premises": ["p"], "jokes": [[f"line {j}.{i}" for i in range(3)] for j in range(5)]})
@@ -123,12 +123,16 @@ def test_one_call_per_bit_serves_all_five_jokes_with_three_candidates_each():
     assert batches[0].prompt.startswith(seen[0]["messages"][0]["content"])  # the log holds what the model saw
 
 
-def test_a_second_bit_is_a_second_call_and_remembers_the_first_premise():
+def test_only_the_premise_of_the_played_thread_is_told_to_the_next_bit():
     c, seen = client((200, completion(reply())))
     g = generate.GeminiGenerator(c)
     g.generate("cynic", 0, 0, CTX)
+    g.played_thread(0, 1)
     g.generate("optimist", 1, 0, CTX)
-    assert len(seen) == 2 and "p" in json.loads(seen[1]["messages"][1]["content"])["premises_already_told"]
+    told = json.loads(seen[1]["messages"][1]["content"])["premises_already_told"]
+    assert len(seen) == 2 and told == ["p1"]  # not p0 or p2, which the room never heard
+    g.played_thread(5, 0)  # a bit that was never generated, or a thread with no premise, is ignored
+    g.played_thread(1, 9)
 
 
 @pytest.mark.parametrize("bad", [JOKE_MAJOR,  # the old shape is rejected, not guessed at
@@ -136,6 +140,7 @@ def test_a_second_bit_is_a_second_call_and_remembers_the_first_premise():
                                  json.dumps({"threads": "xyz"}), json.dumps({"threads": [[1] * 5] * 3}),
                                  "not json", reply(n_jokes=4), reply(n_jokes=6), reply(k=0), reply(k=2), reply(k=4),
                                  json.dumps({"threads": [["a"] * 5, ["b"] * 5, ["", "b", "b", "b", "b"]]}),
+                                 json.dumps({"threads": [["a"] * 5, ["b"] * 5, [chr(0x1F642) + "!", "b", "b", "b", "b"]]}),
                                  json.dumps([1, 2])])
 def test_a_malformed_reply_raises_for_every_joke_without_a_second_call(bad):
     c, seen = client((200, completion(bad)))
@@ -164,8 +169,8 @@ def test_fence_stripping_is_shared_with_the_safety_parser():
 
 def test_a_thread_major_reply_becomes_joke_major_batches_with_thread_i_at_index_i():
     fence = chr(96) * 3
-    premise, lines = generate.parse(fence + "json" + chr(10) + reply() + chr(10) + fence)
-    assert premise == "p" and [len(r) for r in lines] == [3] * 5
+    premises, lines = generate.parse(fence + "json" + chr(10) + reply() + chr(10) + fence)
+    assert premises == ["p0", "p1", "p2"] and [len(r) for r in lines] == [3] * 5
     assert lines[4] == ["x line 4.0", "x line 4.1", "x line 4.2"] and lines[0][2] == "x line 0.2"
 
 
@@ -198,6 +203,19 @@ class FakeVoice:
             self.events.append(("synth", text))
         time.sleep(self.delay)
         return to_wav(np.zeros(240))
+
+
+class PickyVoice(FakeVoice):
+    """Raises for lines the voice cannot say, the way Kokoro does for a line with no sound in it."""
+
+    def __init__(self, cannot, **kw):
+        super().__init__(**kw)
+        self.cannot = cannot
+
+    def synthesize(self, text):
+        if self.cannot(text):
+            raise ValueError(f"no audio produced for: {text!r}")
+        return super().synthesize(text)
 
 
 class FakePlayer:
@@ -243,11 +261,11 @@ class Gen:
         return generate.Batch("p", f"prompt {bit}", [f"{self.tag} {bit}.{joke}.{i}" for i in range(3)])
 
 
-def show(tmp_path, gen, flt, voice=None, fallback=None, bridges=None, n_bits=3):
+def show(tmp_path, gen, flt, voice=None, fallback=None, bridges=None, n_bits=3, seed=0):
     voice = voice or FakeVoice()
     log = SessionLog(tmp_path)
     asyncio.run(run_show(load_director([], seed=1), "sim", CTX, generator=gen, safety=flt,
-                         selector=UniformSelector(0), tts=voice, player=FakePlayer(voice), source=SimRoom(CTX, 0),
+                         selector=UniformSelector(seed), tts=voice, player=FakePlayer(voice), source=SimRoom(CTX, 0),
                          clock=RealClock(), log=log, n_bits=n_bits, config=FAST, fallback=fallback,
                          bridge_lines=bridges))
     return read_session(log.path), voice
@@ -290,19 +308,25 @@ def test_a_failed_generation_falls_back_to_the_bank_and_says_so(tmp_path):
     rows, _ = show(tmp_path, Gen(fail=True), Filter(), fallback=bank)
     assert rows[-1]["status"] == "finished" and len(played(rows)) == 15
     cands = [r for r in rows if r["event"] == "candidates"]
-    assert {r["generator_id"] for r in cands} == {bank.generator_id}
-    assert all("generation failed: LLMError: http 503" in i["reason"] for r in cands for i in r["items"])
+    assert len(cands) == 15 and {r["generator_id"] for r in cands} == {"gen-ok"}  # one row per joke, the generator's id
+    assert all(len(r["items"]) == 1 and "hand-checked bank: generation failed: LLMError: http 503 (bank-v1)" in
+               r["items"][0]["reason"] for r in cands)
 
 
-def test_all_candidates_rejected_falls_back_to_the_bank_for_that_joke_only(tmp_path):
+def test_all_candidates_rejected_falls_back_to_the_bank_inside_the_same_row(tmp_path):
     flt = Filter(rule=lambda t: not t.startswith("ok 0.2"))
     rows, _ = show(tmp_path, Gen(), flt, fallback=BankGenerator())
-    by_joke = {(r["bit"], r["joke"]): r for r in rows if r["event"] == "candidates"}
-    assert [r["generator_id"] for r in rows if r["event"] == "candidates" and r["bit"] == 0 and r["joke"] == 2][-2:] == [
-        "gen-ok", "bank-v1"]
-    assert by_joke[(0, 2)]["items"][0]["reason"].startswith("bank fallback (every candidate rejected)")
-    assert all(r["generator_id"] == "gen-ok" for k, r in by_joke.items() if k != (0, 2))
-    assert len(played(rows)) == 15
+    by_joke = {}
+    for r in rows:
+        if r["event"] == "candidates":
+            assert (r["bit"], r["joke"]) not in by_joke  # never a second row for a joke
+            by_joke[(r["bit"], r["joke"])] = r
+    row = by_joke[(0, 2)]
+    assert [i["verdict"] for i in row["items"]] == ["reject"] * 3 + ["pass"]  # generated first, then the bank line
+    assert row["items"][3]["reason"].startswith("hand-checked bank: every candidate rejected (bank-v1); rules: ")
+    assert row["generator_id"] == "gen-ok" and len(by_joke) == 15 and len(played(rows)) == 15
+    chosen = next(r for r in rows if r["event"] == "joke_played" and (r["bit"], r["joke"]) == (0, 2))
+    assert chosen["chosen"] == 3 and row["items"][3]["text"] == chosen["text"]  # chosen indexes into the one list
 
 
 def test_without_a_fallback_a_failed_bit_is_skipped_but_the_log_says_why(tmp_path, caplog):
@@ -320,7 +344,7 @@ def test_bank_fallback_lines_go_through_the_rules_and_a_rejected_one_is_skipped(
     rows, _ = show(tmp_path, Gen(fail=True), flt, fallback=BankGenerator(), n_bits=1)
     assert played(rows) == [] and rows[-1]["status"] == "finished"
     assert all(r["items"][0]["verdict"] == "reject" and "rules: rule" in r["items"][0]["reason"]
-               for r in rows if r["event"] == "candidates")
+               for r in rows if r["event"] == "candidates") and len([r for r in rows if r["event"] == "candidates"]) == 5
     assert not [c for c in flt.calls if c[0] == "check"]  # the LLM-backed check never ran on a bank line
 
 
@@ -366,15 +390,41 @@ def test_a_bit_plays_one_thread_whenever_a_thread_fully_passes(tmp_path):
         assert [r["pick_prob"] for r in plays] == [0.5] * 5  # two eligible threads: 0.5 each, 1 in total
 
 
-def test_thread_picks_are_uniform_over_the_eligible_threads_and_probabilities_sum_to_one():
+def test_thread_picks_are_uniform_over_the_eligible_threads():
     from app.show import _pick_thread
     batches = [generate.Batch("p", "x", [f"line {j}.{i}" for i in range(3)]) for j in range(5)]
     passing = [[0, 2]] * 4 + [[0, 1, 2]]  # threads 0 and 2 pass everywhere, thread 1 misses four jokes
     selector = UniformSelector(3)
     picks = [_pick_thread(batches, passing, selector) for _ in range(400)]
-    assert {t for t, _ in picks} == {0, 2} and {p for _, p in picks} == {0.5}
+    assert {t for t, _ in picks} == {0, 2} and {tuple(tied) for _, tied in picks} == {(0, 2)}
     assert 140 <= sum(t == 0 for t, _ in picks) <= 260
     assert _pick_thread(batches, [[]] * 5, selector) is None  # nothing passed anywhere
+
+
+def test_pick_prob_is_the_marginal_probability_of_the_line_and_sums_to_one():
+    from app.show import _marginal
+    # Threads A=0 and B=1 are tied; A's candidate was rejected at this joke, B's and C=2's passed.
+    passing, tied = [1, 2], [0, 1]
+    assert _marginal(1, passing, tied) == pytest.approx(0.75)  # 1/2 B is picked + 1/2 A is picked and B borrowed (1/2)
+    assert _marginal(2, passing, tied) == pytest.approx(0.25)  # only by borrowing
+    assert sum(_marginal(i, passing, tied) for i in passing) == pytest.approx(1.0)
+    full = [0, 1, 2]
+    assert [_marginal(i, full, [0, 2]) for i in full] == [0.5, 0.0, 0.5]
+
+
+def test_the_logged_pick_prob_of_a_line_is_its_marginal_over_many_shows(tmp_path):
+    # Thread 0 fails joke 2, thread 1 fails joke 3, thread 2 fails jokes 0 and 1: threads 0 and 1 tie with 4 passes.
+    def rule(text):
+        thread, joke = thread_of(text), int(text.rsplit(".", 2)[1])
+        return not ((thread == 0 and joke == 2) or (thread == 1 and joke == 3) or (thread == 2 and joke in (0, 1)))
+    seen = {}
+    for seed in range(8):
+        rows, _ = show(tmp_path, Gen(), Filter(rule=rule), n_bits=1, seed=seed)
+        for r in (r for r in rows if r["event"] == "joke_played"):
+            seen.setdefault((r["joke"], thread_of(r["text"])), set()).add(r["pick_prob"])
+    # Joke 2: thread 1's line is picked with 1/2 + (1/2)(1/2); thread 2's only by borrowing, 1/4.
+    assert seen[(2, 1)] == {0.75} and seen[(2, 2)] == {0.25} and (2, 0) not in seen
+    assert seen[(0, 0)] == {0.5} and seen[(0, 1)] == {0.5}  # tied threads, no borrowing at joke 0: 1/2 each
 
 
 def test_without_a_full_thread_the_best_partial_one_is_filled_from_other_threads_then_the_bank(tmp_path):
@@ -424,20 +474,75 @@ def test_a_bridge_line_that_fails_to_render_never_stops_the_show(tmp_path):
     assert not [e for e in voice.events if e[0] == "start" and e[1].startswith("b")]
 
 
-def test_only_one_thread_synthesizes_at_a_time(tmp_path):
-    class Counting(FakeVoice):
+def test_two_concurrent_shows_sharing_one_engine_synthesize_one_line_at_a_time(tmp_path):
+    from app.tts import SerialTTS
+
+    class Engine:
         active = peak = 0
 
+        def __init__(self):
+            self.guard = threading.Lock()
+
         def synthesize(self, text):
-            with self.lock:
-                Counting.active += 1
-                Counting.peak = max(Counting.peak, Counting.active)
-            time.sleep(0.02)
-            with self.lock:
-                Counting.active -= 1
+            with self.guard:
+                Engine.active += 1
+                Engine.peak = max(Engine.peak, Engine.active)
+            time.sleep(0.01)
+            with self.guard:
+                Engine.active -= 1
             return to_wav(np.zeros(240))
-    show(tmp_path, Gen(), Filter(), voice=Counting(), bridges=["b1", "b2", "b3"], n_bits=3)
-    assert Counting.peak == 1
+
+    async def two_shows(engine):
+        async def one(name):
+            voice = FakeVoice()
+            voice.synthesize = engine.synthesize  # the shared, process-wide engine
+            await run_show(load_director([], seed=1), "sim", CTX, generator=Gen(), safety=Filter(),
+                           selector=UniformSelector(0), tts=engine, player=FakePlayer(voice), source=SimRoom(CTX, 0),
+                           clock=RealClock(), log=SessionLog(tmp_path / name), n_bits=2, config=FAST,
+                           bridge_lines=["b1", "b2", "b3"])
+        await asyncio.gather(one("a"), one("b"))
+
+    asyncio.run(two_shows(Engine()))
+    assert Engine.peak > 1  # without the shared lock, two shows do synthesize at once
+    Engine.active = Engine.peak = 0
+    asyncio.run(two_shows(SerialTTS(Engine())))
+    assert Engine.peak == 1
+
+
+def test_a_line_the_voice_cannot_say_is_replaced_by_another_candidate_and_logged(tmp_path):
+    voice = PickyVoice(lambda t: t.endswith(".0") or t.endswith(".1"), delay=0.0)  # threads 0 and 1 are unspeakable
+    rows, _ = show(tmp_path, Gen(), Filter(), voice=voice, fallback=BankGenerator(), n_bits=2)
+    assert rows[-1]["status"] == "finished" and len(played(rows)) == 10
+    assert all(t.endswith(".2") for t in played(rows))  # only thread 2 can be spoken, so every joke borrows it
+    row = next(r for r in rows if r["event"] == "candidates")
+    assert len(row["items"]) == 3 and sum("voice failed: ValueError" in i["reason"] for i in row["items"]) <= 2
+
+
+def test_when_every_generated_line_fails_to_voice_the_bank_is_used_inside_the_same_row(tmp_path):
+    voice = PickyVoice(lambda t: t.startswith("ok"))
+    rows, _ = show(tmp_path, Gen(), Filter(), voice=voice, fallback=BankGenerator(), n_bits=1)
+    assert rows[-1]["status"] == "finished" and len(played(rows)) == 5 and not any(t.startswith("ok") for t in played(rows))
+    cands = [r for r in rows if r["event"] == "candidates"]
+    assert len(cands) == 5
+    for r in cands:
+        assert [i["verdict"] for i in r["items"]] == ["pass"] * 4
+        assert all("voice failed" in i["reason"] for i in r["items"][:3])
+        assert r["items"][3]["reason"].startswith("hand-checked bank: voice failed (bank-v1); rules: ")
+
+
+def test_a_bit_whose_first_line_cannot_be_voiced_still_starts_and_the_show_finishes(tmp_path):
+    voice = PickyVoice(lambda t: t.startswith("ok 0.0.") or t.startswith("bank"))
+    rows, _ = show(tmp_path, Gen(), Filter(), voice=voice, n_bits=2)  # no bank: the joke is skipped, the rest play
+    assert rows[-1]["status"] == "finished"
+    first = [r for r in rows if r["event"] == "candidates" and r["bit"] == 0 and r["joke"] == 0]
+    assert len(first) == 1 and all("voice failed" in i["reason"] for i in first[0]["items"])
+    assert len(played(rows)) == 9  # joke 0 of bit 0 had nothing speakable; every other joke played
+
+
+def test_a_line_that_cannot_be_voiced_and_has_no_bank_is_skipped_without_stopping_the_show(tmp_path):
+    rows, _ = show(tmp_path, Gen(), Filter(), voice=PickyVoice(lambda t: True), n_bits=1)
+    assert rows[-1]["status"] == "finished" and played(rows) == []
+    assert len([r for r in rows if r["event"] == "candidates"]) == 5
 
 
 def test_bridge_lines_are_ten_distinct_and_the_cache_key_notices_a_change(monkeypatch):
@@ -491,31 +596,76 @@ def test_stack_choice_and_the_live_room_guard(monkeypatch, tmp_path):
 
 # --- Exp 20's bookkeeping ---
 
-ROWS = [{"event": "joke_played", "text": "a", "bit": 0, "joke": 0}, {"event": "gap", "at": 12.0},
-        {"event": "joke_played", "text": "b", "bit": 0, "joke": 1}, {"event": "gap", "at": 20.0},
-        {"event": "joke_played", "text": "c", "bit": 1, "joke": 0}]
+def joke_row(joke, start, end, bit=0, text="x"):
+    return {"event": "joke_played", "bit": bit, "joke": joke, "text": text, "audio_start_at": start, "audio_end_at": end}
+
+
+def bridge_row(start, end, bit=1):
+    return {"event": "bridge", "bit": bit, "text": "Give me a second.", "audio_start_at": start, "audio_end_at": end}
+
+
+def gap_row(at):
+    return {"event": "gap", "at": at}
 
 
 def test_silences_measure_from_the_later_of_audio_end_and_hold_end():
     from sim import evaluate_live as ev
-    plays = [{"text": "a", "start": 10.0, "end": 11.0},   # first line: no silence before it
-             {"text": "b", "start": 12.5, "end": 13.0},   # hold ended 12.0, audio 11.0: 0.5 s
-             {"text": generate.BRIDGES[0], "start": 20.25, "end": 24.0},  # hold ended 20.0
-             {"text": "c", "start": 25.0, "end": 26.0}]   # after the bridge, which ended 24.0
-    out = ev.silences(ROWS, plays)
+    rows = [joke_row(0, 10.0, 11.0), gap_row(12.0),                # first line: no silence before it
+            joke_row(1, 12.5, 13.0), gap_row(20.0),                # hold ended 12.0, audio 11.0: 0.5 s
+            bridge_row(20.25, 24.0),                               # hold ended 20.0
+            joke_row(0, 25.0, 26.0, bit=1)]                        # after the bridge, which ended 24.0
+    out = ev.silences(rows)
     assert out["within"] == [pytest.approx(0.5)] and out["between"] == [pytest.approx(0.25), pytest.approx(1.0)]
 
 
 def test_a_hold_whose_timestamp_equals_the_next_start_is_not_counted_as_silence():
     from sim import evaluate_live as ev
     # A coarse clock stamps the gap row and the next play with the same instant: the gap is 0, not the hold length.
-    plays = [{"text": "a", "start": 10.0, "end": 11.0}, {"text": "b", "start": 12.0, "end": 13.0},
-             {"text": "c", "start": 20.0, "end": 21.0}]
-    out = ev.silences(ROWS, plays)
+    rows = [joke_row(0, 10.0, 11.0), gap_row(12.0), joke_row(1, 12.0, 13.0), gap_row(20.0), joke_row(0, 20.0, 21.0, bit=1)]
+    out = ev.silences(rows)
     assert out["within"] == [0.0] and out["between"] == [0.0]
     # and a clock that runs the other way round (the next play stamped before the row) cannot make it negative
-    plays[1]["start"] = 11.9
-    assert ev.silences(ROWS, plays)["within"] == [0.0]
+    rows[2]["audio_start_at"] = 11.9
+    assert ev.silences(rows)["within"] == [0.0]
+
+
+def test_a_repeated_line_is_paired_with_its_own_hold_by_position_not_by_text():
+    from sim import evaluate_live as ev
+    rows = [joke_row(0, 10.0, 11.0, text="same"), gap_row(12.0), joke_row(1, 12.5, 13.0, text="x"), gap_row(20.0),
+            joke_row(2, 20.5, 21.0, text="same"), gap_row(31.0), joke_row(3, 31.5, 32.0, text="y")]
+    # Keyed by text, the third play would take the hold of the first "same" (12.0) or the last one (31.0).
+    assert ev.silences(rows)["within"] == [pytest.approx(0.5)] * 3
+
+
+def test_every_bridge_line_a_show_plays_is_a_bridge_row_in_play_order(tmp_path):
+    rows, voice = show(tmp_path, Gen(delay=0.2), Filter(), bridges=[f"b{i}" for i in range(6)], n_bits=3)
+    bridge_rows = [r for r in rows if r["event"] == "bridge"]
+    played_bridges = [t for kind, t in voice.events if kind == "start" and t.startswith("b")]
+    assert [r["text"] for r in bridge_rows] == played_bridges and len(bridge_rows) >= 2
+    for r in bridge_rows:
+        assert r["bit"] in (1, 2) and r["audio_end_at"] > r["audio_start_at"] and r["tts_seconds"] >= 0
+    # a bridge row sits between the previous bit's last gap and its own bit's first joke_played
+    events = [(r["event"], r.get("bit")) for r in rows if r["event"] in ("bridge", "joke_played", "gap")]
+    for r in bridge_rows:
+        at = rows.index(r)
+        assert rows[at - 1]["event"] in ("gap", "bridge", "bit_end", "bit_decision")
+        assert next(x for x in rows[at:] if x["event"] == "joke_played")["bit"] == r["bit"]
+    assert events  # the log is non-empty
+
+
+def test_a_slow_dripping_reply_is_cut_off_at_the_attempt_timeout():
+    class Drip(httpx.SyncByteStream):
+        def __iter__(self):
+            for _ in range(20):
+                time.sleep(0.1)  # every chunk arrives in time, so no httpx phase timeout ever fires
+                yield b" "
+
+    c = llm.Client("http://fake", "k", "m", timeout=0.5, transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, stream=Drip())))
+    start = time.monotonic()
+    with pytest.raises(llm.LLMError, match="deadline"):
+        c.chat("s", "u")
+    assert time.monotonic() - start < 1.0  # about 0.6 s; read to the end it would take 2 s
 
 
 def test_peak_requests_per_minute_counts_the_busiest_window():
@@ -523,7 +673,17 @@ def test_peak_requests_per_minute_counts_the_busiest_window():
     assert ev.peak_per_minute([0, 10, 59, 61, 200]) == 3 and ev.peak_per_minute([]) == 0
 
 
-def test_bank_reason_is_read_from_the_fallback_row_format():
+def test_bank_reason_is_read_from_the_bank_item_format():
     from sim import evaluate_live as ev
-    assert ev.bank_reason("bank fallback (every candidate rejected); rules: ok") == "every candidate rejected"
-    assert ev.bank_reason("bank fallback (generation failed: GenerationError: x: y); rules: ok") == "generation failed: GenerationError: x: y"
+    assert ev.bank_reason("hand-checked bank: every candidate rejected (bank-v1); rules: ok") == "every candidate rejected"
+    why = "generation failed: GenerationError: x: y (z)"
+    assert ev.bank_reason(f"hand-checked bank: {why} (bank-v1); rules: ok") == why
+
+
+def test_bank_plays_counts_the_jokes_that_came_from_the_bank():
+    from sim import evaluate_live as ev
+    rows = [{"event": "candidates", "bit": 0, "joke": 0, "items": [
+                {"reason": "ok"}, {"reason": "hand-checked bank: voice failed (bank-v1); rules: ok"}]},
+            {"event": "candidates", "bit": 0, "joke": 1, "items": [{"reason": "ok"}]},
+            {"event": "joke_played", "bit": 0, "joke": 0, "chosen": 1}, {"event": "joke_played", "bit": 0, "joke": 1, "chosen": 0}]
+    assert ev.bank_plays(rows) == ["voice failed"]

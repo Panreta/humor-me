@@ -4,6 +4,7 @@ Used by the safety filter's LLM check and the generator. Every failure is an `LL
 model said no" from "the model could not answer". Retries are opt-in and bounded by a deadline: a live show can wait
 a second or two on a 429, not longer (the bridge line covers that, docs/plans/live-loop.md T9).
 """
+import json
 import os
 import time
 from dataclasses import dataclass
@@ -72,11 +73,21 @@ class Client:
         if json_reply:
             body["response_format"] = {"type": "json_object"}
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        # httpx's timeouts are per phase and the read one is per chunk, so they alone do not bound a slow-dripping
+        # reply: the body is read in chunks and cut off once `timeout` has passed in total. What remains unbounded is
+        # one stalled chunk, which is still capped by the read timeout.
+        stop_at = time.monotonic() + timeout
         try:
-            with httpx.Client(timeout=timeout, transport=self.transport) as http:
-                resp = http.post(f"{self.base_url.rstrip('/')}/chat/completions", json=body, headers=headers)
-            resp.raise_for_status()
-            choice = resp.json()["choices"][0]
+            with httpx.Client(timeout=httpx.Timeout(timeout, connect=min(2.0, timeout)), transport=self.transport) as http:
+                with http.stream("POST", f"{self.base_url.rstrip('/')}/chat/completions", json=body,
+                                 headers=headers) as resp:
+                    resp.raise_for_status()
+                    chunks = []
+                    for chunk in resp.iter_bytes():
+                        if time.monotonic() > stop_at:
+                            raise LLMError("deadline passed while reading", retryable=True)
+                        chunks.append(chunk)
+            choice = json.loads(b"".join(chunks))["choices"][0]
         except httpx.HTTPStatusError as e:
             raise LLMError(f"http {e.response.status_code}", e.response.status_code) from e
         except httpx.HTTPError as e:

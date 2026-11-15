@@ -203,17 +203,20 @@ def test_a_filter_that_raises_on_one_candidate_leaves_the_others(tmp_path):
 
 
 def test_a_crash_mid_show_leaves_a_readable_log_ending_in_aborted(tmp_path):
-    class Crashes:
-        def synthesize(self, text):
-            Crashes.n = getattr(Crashes, "n", 0) + 1
+    # A line the voice cannot say is skipped (tests/test_generate.py); a crash anywhere else still aborts the show.
+    class Crashes(FakePlayer):
+        n = 0
+
+        async def play(self, wav, text):
+            Crashes.n += 1
             if Crashes.n == 12:
-                raise RuntimeError("voice died")
-            return to_wav(np.zeros(2400))
+                raise RuntimeError("player died")
+            await super().play(wav, text)
     log = SessionLog(tmp_path)
     clock = FakeClock()
-    with pytest.raises(RuntimeError, match="voice died"):
+    with pytest.raises(RuntimeError, match="player died"):
         asyncio.run(run_show(director(), "sim", CTX, generator=FakeGenerator(), safety=PassAll(),
-                             selector=UniformSelector(0), tts=Crashes(), player=FakePlayer(clock),
+                             selector=UniformSelector(0), tts=FakeTTS(), player=Crashes(clock),
                              source=SimRoom(CTX, 0), clock=clock, log=log))
     rows = read_session(log.path)
     assert rows[-1]["event"] == "show_end" and rows[-1]["status"] == "aborted"

@@ -16,8 +16,9 @@ import asyncio
 import hashlib
 import os
 import pathlib
-import tempfile
+import re
 import sys
+import tempfile
 import time
 
 import numpy as np
@@ -35,16 +36,11 @@ from app.show import UniformSelector, run_show  # noqa: E402
 from app.tts import wav_seconds  # noqa: E402
 
 
-class TimedPlayer:
-    """Plays in real time (sleeps the audio's length) and records when each line started and ended."""
-
-    def __init__(self):
-        self.plays: list[dict] = []
+class RealTimePlayer:
+    """Plays in real time: sleeps the audio's length, so the show runs at the pace a room would hear."""
 
     async def play(self, wav: bytes, text: str) -> None:
-        start = time.time()
         await asyncio.sleep(wav_seconds(wav))
-        self.plays.append({"text": text, "start": start, "end": time.time()})
 
 
 def timed(client: llm.Client, calls: list[dict]) -> None:
@@ -60,41 +56,46 @@ def timed(client: llm.Client, calls: list[dict]) -> None:
     client.chat = chat
 
 
-def silences(rows: list[dict], plays: list[dict]) -> dict:
-    """Dead air before every line but the show's first, as {"within": [...], "between": [...]}.
+def silences(rows: list[dict]) -> dict:
+    """Dead air before every line but the show's first, as {"within": [...], "between": [...]}, read from the log.
 
     Within-bit is jokes 1 to 4 of a bit. Between-bit is joke 0 of a bit and every bridge line: both sit across a bit
-    boundary. The silence runs from the later of the previous audio's end and the end of the last joke's hold. The
-    hold's end is the `gap` row that follows that joke's `joke_played` row in the log, found by log order: comparing
-    its timestamp with the player's would drop it when a coarse clock makes the two equal.
+    boundary. The silence runs from the later of the previous audio's end and the end of the last joke's hold (its
+    `gap` row). Rows are in the order things happened, so this pairs a hold with its joke by position, never by text
+    (a repeated line would pair with the wrong hold) and never by comparing a timestamp with another source's (a
+    coarse clock makes them equal). Bridge lines are `bridge` rows, so a real show's log answers this by itself.
     """
-    place, hold_end, current = {}, {}, None
-    for r in rows:
-        if r["event"] == "joke_played":
-            place[r["text"]] = (r["bit"], r["joke"])
-            current = r["text"]
-        elif r["event"] == "gap":
-            hold_end[current] = r["at"]
     out = {"within": [], "between": []}
     prev_end = last_hold = None
-    for p in sorted(plays, key=lambda p: p["start"]):
-        if prev_end is not None:
-            last = max(prev_end, last_hold if last_hold is not None else prev_end)
-            joke = place.get(p["text"], (None, None))[1]  # bridges have no log row
-            out["within" if joke is not None and joke > 0 else "between"].append(max(0.0, p["start"] - last))
-        prev_end = p["end"]
-        last_hold = hold_end.get(p["text"], last_hold)
+    for r in rows:
+        if r["event"] in ("joke_played", "bridge"):
+            if prev_end is not None:
+                last = max(prev_end, last_hold if last_hold is not None else prev_end)
+                out["within" if r["event"] == "joke_played" and r["joke"] > 0 else "between"].append(
+                    max(0.0, r["audio_start_at"] - last))
+            prev_end = r["audio_end_at"]
+        elif r["event"] == "gap":
+            last_hold = r["at"]
     return out
 
 
+def bank_plays(rows: list[dict]) -> list[str]:
+    """For every joke the show played from the bank, why: the bank's items say so in their reason, and `chosen`
+    indexes into the joke's one `candidates` row."""
+    items = {(r["bit"], r["joke"]): r["items"] for r in rows if r["event"] == "candidates"}
+    played = [items[(r["bit"], r["joke"])][r["chosen"]]["reason"] for r in rows if r["event"] == "joke_played"]
+    return [bank_reason(x) for x in played if x.startswith("hand-checked bank")]
+
+
 def bank_reason(reason: str) -> str:
-    """Why the bank was used, from a fallback row's reason: 'bank fallback (<why>); rules: <verdict>'."""
-    return reason.removeprefix("bank fallback (").split("); rules:")[0]
+    """Why the bank was used, from a bank item's reason: 'hand-checked bank: <why> (<bank id>); rules: <verdict>'."""
+    m = re.match(r"hand-checked bank: (.*) \([^()]*\); rules:", reason)
+    return m.group(1) if m else reason
 
 
 def one_show(tts, age: str, seed: int, n_bits: int) -> dict:
     gen, flt, fallback, bridges = generate.llm_stack("sim")
-    gen_calls, safe_calls, player = [], [], TimedPlayer()
+    gen_calls, safe_calls, player = [], [], RealTimePlayer()
     timed(gen.client, gen_calls)
     timed(flt.client, safe_calls)
     context = {"venue": "bar", "energy": "high", "age": age}
@@ -106,14 +107,15 @@ def one_show(tts, age: str, seed: int, n_bits: int) -> dict:
                              clock=RealClock(), log=log, n_bits=n_bits, config=REACTION, fallback=fallback,
                              bridge_lines=bridges))
         rows = read_session(log.path)
-    cands = [r for r in rows if r["event"] == "candidates"]
-    fb = [r for r in cands if r["generator_id"] == fallback.generator_id]
-    first = min(p["start"] for p in player.plays)
+    bank = bank_plays(rows)
+    texts = [r["text"] for r in rows if r["event"] == "joke_played"]
+    first = min(r["audio_start_at"] for r in rows if r["event"] in ("joke_played", "bridge"))
     return {"age": age, "seconds": time.time() - started, "first_line_s": first - rows[0]["at"],
-            **silences(rows, player.plays),
-            "bridges": sum(p["text"] in generate.BRIDGES for p in player.plays),
+            **silences(rows),
+            "bridges": sum(r["event"] == "bridge" for r in rows),
             "jokes_played": sum(r["event"] == "joke_played" for r in rows),
-            "bank_jokes": len(fb), "bank_reasons": sorted({bank_reason(r["items"][0]["reason"]) for r in fb}),
+            "bank_jokes": len(bank), "bank_reasons": sorted(set(bank)),
+            "repeated_lines": len(texts) - len(set(texts)),
             "generator": {"attempts": gen.client.attempts, "retried": gen.client.retried, "failed": gen.client.failed,
                           "seconds": [c["seconds"] for c in gen_calls]},
             "filter": {"attempts": flt.client.attempts, "retried": flt.client.retried, "failed": flt.client.failed,
@@ -140,8 +142,8 @@ def run(ages: tuple = ("mixed", "teens", "mixed"), n_bits: int = 8, seed: int = 
     assumed by whoever runs this; they are inputs, not measured. `model` and `config` only key the cache."""
     assert config in ("", digest()), "prompt, bridge lines or timing constants changed since this call was built"
     assert model in ("", os.environ.get("LLM_MODEL")), "LLM_MODEL is not the model this call was keyed to"
-    from app.tts import KokoroTTS
-    tts = KokoroTTS()
+    from app.tts import KokoroTTS, SerialTTS
+    tts = SerialTTS(KokoroTTS())
     tts.synthesize("Warm up.")  # the first call loads weights; a real show starts with it warm
     safety.clear_cache()
     shows = [one_show(tts, age, seed + i, n_bits) for i, age in enumerate(ages)]

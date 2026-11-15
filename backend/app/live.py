@@ -108,7 +108,7 @@ class BankOnlySafety:
 
 
 def load_sessions(directory: pathlib.Path) -> list[list[dict]]:
-    """Every schema 1 log in `directory`. Old demo logs (`schema: 0`) are skipped; anything else unreadable raises,
+    """Every schema 1 or 2 log in `directory`. Old demo logs (`schema: 0`) are skipped; anything else unreadable raises,
     so a corrupt log fails the start instead of quietly changing what the director learned."""
     sessions = []
     for path in sorted(directory.glob("*.jsonl")):

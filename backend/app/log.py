@@ -1,12 +1,13 @@
 """Append-only session log, so a show can be replayed (invariant 6). This module is the only code that knows the
-file format (schema v1, docs/plans/live-loop.md). Text and timings always; raw audio of people is never written
+file format (schema v2, docs/plans/live-loop.md; v1 logs stay readable). Text and timings always; raw audio of people is never written
 here, it lives in its own file next to the log and only with the room's consent."""
 import json
 import pathlib
 import time
 import uuid
 
-SCHEMA = 1
+SCHEMA = 2  # v2 adds the `bridge` event; a v1 log has none and replays unchanged
+READABLE = (1, 2)
 SESSIONS = pathlib.Path(__file__).resolve().parents[2] / "data" / "sessions"
 
 # Required fields per event. A field may be present with value None where the plan allows null.
@@ -16,6 +17,7 @@ EVENTS = {
     "candidates": ("bit", "joke", "prompt_id", "prompt", "generator_id", "items"),
     "joke_played": ("bit", "joke", "chosen", "pick_prob", "text", "tts_seconds", "audio_seconds",
                     "audio_start_at", "audio_end_at"),
+    "bridge": ("bit", "text", "tts_seconds", "audio_start_at", "audio_end_at"),
     "reaction": ("bit", "joke", "source", "level", "key", "latency_s"),
     "gap": ("bit", "joke", "planned_hold_s", "actual_gap_s"),
     "bit_end": ("bit", "n_labels", "reward_version", "reward"),
@@ -54,17 +56,19 @@ def _need_keys(where: str, obj, keys) -> None:
 
 
 def validate(record: dict) -> None:
-    """Raise ValueError unless the row is a schema v1 row with every required field."""
+    """Raise ValueError unless the row is a schema v1 or v2 row with every required field."""
     if not isinstance(record, dict):
         raise ValueError("row must be a JSON object")
     missing = [k for k in ENVELOPE if k not in record]
     if missing:
         raise ValueError(f"missing envelope fields {missing}")
-    if record["schema"] != SCHEMA:
+    if record["schema"] not in READABLE:
         raise ValueError(f"unsupported schema {record['schema']!r}")
     event = record["event"]
     if not isinstance(event, str) or event not in EVENTS:
         raise ValueError(f"unknown event {event!r}")
+    if event == "bridge" and record["schema"] < 2:
+        raise ValueError("a schema 1 log has no bridge event")
     _need_keys(event, record, EVENTS[event])
     for (name, field), allowed in CHOICES.items():
         if name == event and record[field] not in allowed:

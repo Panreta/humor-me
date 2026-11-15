@@ -1,4 +1,4 @@
-"""Session log schema v1: the writer rejects bad rows, the reader survives a crash but not corruption."""
+"""Session log schema v2 (v1 stays readable): the writer rejects bad rows, the reader survives a crash but not corruption."""
 import json
 import pathlib
 import sys
@@ -20,6 +20,7 @@ VALID = {
                        items=[{"text": "x", "verdict": "pass", "reason": None}]),
     "joke_played": dict(bit=0, joke=0, chosen=0, pick_prob=0.5, text="x", tts_seconds=0.1, audio_seconds=1.0,
                         audio_start_at=1.0, audio_end_at=2.0),
+    "bridge": dict(bit=1, text="Give me a second.", tts_seconds=0.9, audio_start_at=3.0, audio_end_at=5.0),
     "reaction": dict(bit=0, joke=0, source="button", level=2, key="K", latency_s=0.4),
     "gap": dict(bit=0, joke=0, planned_hold_s=1.5, actual_gap_s=1.6),
     "bit_end": dict(bit=0, n_labels=5, reward_version=1, reward=0.5),
@@ -41,7 +42,7 @@ def test_every_event_round_trips_with_envelope_and_unicode(tmp_path):
     rows = read_session(log.path)
     assert [r["event"] for r in rows[:-1]] == list(VALID)
     for row in rows:
-        assert row["schema"] == 1 and row["session"] == log.session_id and isinstance(row["at"], float)
+        assert row["schema"] == 2 and row["session"] == log.session_id and isinstance(row["at"], float)
     for row in rows[:-1]:
         assert {k: v for k, v in row.items() if k in VALID[row["event"]]} == VALID[row["event"]]
     assert rows[-1]["text"] == NON_ASCII
@@ -137,7 +138,7 @@ def test_a_complete_row_without_final_newline_is_kept(tmp_path):
 
 def test_reader_rejects_other_schemas_and_invalid_rows(tmp_path):
     path = tmp_path / "x.jsonl"
-    path.write_text(json.dumps({"schema": 2, "session": "s", "at": 1.0, "event": "rating", "value": 3}) + "\n")
+    path.write_text(json.dumps({"schema": 3, "session": "s", "at": 1.0, "event": "rating", "value": 3}) + "\n")
     with pytest.raises(ValueError, match="schema"):
         read_session(path)
     path.write_text(json.dumps({"schema": 1, "session": "s", "at": 1.0, "event": "rating"}) + "\n")
@@ -192,3 +193,16 @@ def test_rows_that_are_not_schema_objects_raise_value_error(tmp_path, text):
 def test_log_module_does_not_import_fastapi():
     source = (pathlib.Path(__file__).resolve().parents[1] / "backend" / "app" / "log.py").read_text(encoding="utf-8")
     assert "fastapi" not in source
+
+
+
+def test_a_v1_log_is_still_read_and_a_v1_row_cannot_be_a_bridge(tmp_path):
+    path = tmp_path / "old.jsonl"
+    rows = [{"schema": 1, "session": "s", "at": 1.0, "event": "rating", "value": 4},
+            {"schema": 1, "session": "s", "at": 2.0, "event": "show_end", "status": "finished"}]
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    assert read_session(path) == rows  # an old log has no bridge rows and reads as before
+    bridge = {"schema": 1, "session": "s", "at": 1.0, "event": "bridge", **VALID["bridge"]}
+    path.write_text(json.dumps(bridge) + "\n")
+    with pytest.raises(ValueError, match="bridge"):
+        read_session(path)

@@ -62,33 +62,35 @@ class GenerationError(Exception):
     pass
 
 
-def parse(reply: str) -> tuple[str, list[list[str]]]:
-    """Accepts one shape only: {"premises": [...], "threads": [[JOKES lines] x K]}, thread-major. Returns the premise
-    text and the lines joke-major (lines[j][i] is joke j of thread i), which is what the show's batches hold. Any other
-    shape, count or a non-string or blank line raises: a thread cannot be repaired by guessing."""
+def parse(reply: str) -> tuple[list[str], list[list[str]]]:
+    """Accepts one shape only: {"premises": [...], "threads": [[JOKES lines] x K]}, thread-major. Returns the premises
+    (one per thread when given) and the lines joke-major (lines[j][i] is joke j of thread i), which is what the show's
+    batches hold. Any other shape or count raises, and so does a line with no letters (emoji or symbols only, which
+    the voice cannot say): a thread cannot be repaired by guessing."""
     try:
         data = json.loads(llm.strip_fence(reply))
         threads = data["threads"]
-        premises = data.get("premises") or ""
-        premise = " | ".join(map(str, premises)) if isinstance(premises, list) else str(premises)
+        premises = data.get("premises") or []
+        premises = [str(x) for x in premises] if isinstance(premises, list) else [str(premises)]
     except (ValueError, KeyError, TypeError, AttributeError) as e:
         raise GenerationError(f"malformed reply: {type(e).__name__}") from e
     if (not isinstance(threads, list) or len(threads) != K
             or not all(isinstance(t, list) and len(t) == JOKES for t in threads)
-            or not all(isinstance(line, str) and line.strip() for t in threads for line in t)):
+            or not all(isinstance(line, str) and any(c.isalpha() for c in line) for t in threads for line in t)):
         shape = [len(t) if isinstance(t, list) else type(t).__name__ for t in threads] if isinstance(threads, list) else "?"
-        raise GenerationError(f"expected {K} threads of {JOKES} lines, got {shape}")
-    return premise, [[threads[i][j].strip() for i in range(K)] for j in range(JOKES)]
+        raise GenerationError(f"expected {K} threads of {JOKES} lines with letters in them, got {shape}")
+    return premises, [[threads[i][j].strip() for i in range(K)] for j in range(JOKES)]
 
 
 class GeminiGenerator:
-    """One instance per show: it remembers premises already told so a bit does not repeat one."""
+    """One instance per show. It tells the model which premises the room has heard, so a bit does not repeat one:
+    only the thread the show actually played counts (`played_thread`), not the alternatives that were generated."""
 
     def __init__(self, client: llm.Client):
         self.client = client
         self.generator_id = f"{PROMPT_ID}:{client.model}"
-        self._bits: dict[int, tuple[str, list[list[str]]] | Exception] = {}
-        self._premises: list[str] = []
+        self._bits: dict[int, tuple[str, list[list[str]], list[str]] | Exception] = {}
+        self._told: list[str] = []
 
     def generate(self, mode: str, bit: int, joke: int, context: dict) -> Batch:
         if bit not in self._bits:
@@ -96,19 +98,23 @@ class GeminiGenerator:
         got = self._bits[bit]
         if isinstance(got, Exception):
             raise got
-        prompt, lines = got
+        prompt, lines, _ = got
         return Batch(f"{PROMPT_ID}:{mode}:{bit}:{joke}", prompt, lines[joke])
 
-    def _fetch(self, mode: str, context: dict) -> tuple[str, list[list[str]]] | Exception:
+    def played_thread(self, bit: int, thread: int) -> None:
+        got = self._bits.get(bit)
+        if not isinstance(got, Exception) and got and thread < len(got[2]):
+            self._told.append(got[2][thread])
+
+    def _fetch(self, mode: str, context: dict) -> tuple[str, list[list[str]], list[str]] | Exception:
         teens = TEENS_RULE if context["age"] not in safety.STANDARD_AGES else ""
         system = SYSTEM.format(mode=mode, mode_note=MODES[mode], k=K, jokes=JOKES, teens=teens)
-        user = json.dumps({"venue": context["venue"], "energy": context["energy"], "premises_already_told": self._premises})
+        user = json.dumps({"venue": context["venue"], "energy": context["energy"], "premises_already_told": self._told})
         try:
-            premise, lines = parse(self.client.chat(system, user, json_reply=True, temperature=TEMPERATURE))
+            premises, lines = parse(self.client.chat(system, user, json_reply=True, temperature=TEMPERATURE))
         except (llm.LLMError, GenerationError) as e:
             return e
-        self._premises.append(premise)
-        return f"{system}\n\n{user}", lines
+        return f"{system}\n\n{user}", lines, premises
 
 
 class LiveSafety:

@@ -1,7 +1,7 @@
 """The show loop: `run_show` runs one show against whatever voice, room and clock it is given."""
 import asyncio
 import logging
-import threading
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -74,17 +74,6 @@ class UniformSelector:
         return int(self.rng.integers(len(passing_texts))), 1 / len(passing_texts)
 
 
-class _SerialVoice:
-    """Kokoro's pipeline is not promised to be thread-safe, and the show synthesizes from several threads at once."""
-
-    def __init__(self, tts: TTS):
-        self.tts, self.lock = tts, threading.Lock()
-
-    def synthesize(self, text: str) -> bytes:
-        with self.lock:
-            return self.tts.synthesize(text)
-
-
 def _judge(check, text: str, age: str) -> dict:
     try:
         verdict = check(text, age)
@@ -96,11 +85,16 @@ def _judge(check, text: str, age: str) -> dict:
 
 @dataclass
 class _Plan:
-    """One joke decided before it plays: what was picked, and the voice render started ahead of it."""
-    batch: Batch
-    chosen: int
-    prob: float
-    render: asyncio.Task | None = None
+    """One joke decided before it plays. `items` is the joke's one `candidates` row, written when the joke resolves:
+    the generated candidates, then the bank's lines once the bank is consulted. `options` are (item index, pick_prob)
+    in the order to try, so a line that will not render falls through to the next, and then to the bank."""
+    items: list[dict]
+    options: list[tuple[int, float]]
+    prompt_id: str
+    prompt: str
+    generator_id: str
+    bank: Callable[[], Awaitable[None]] | None = None  # consults the bank once; None when there is none or it ran
+    render: asyncio.Task | None = None  # the render of options[0], started ahead of its turn
 
 
 async def _render(tts, text: str, clock):
@@ -109,12 +103,11 @@ async def _render(tts, text: str, clock):
     return wav, clock.now() - asked
 
 
-def _pick_thread(batches, passing, selector) -> tuple[int, float] | None:
+def _pick_thread(batches, passing, selector) -> tuple[int, list[int]] | None:
     """Candidate i of every joke belongs to thread i (the generator is prompted so), and a bit plays one thread, so
     the closer's callback matches the opener the room heard. Picks uniformly among the threads with the most passing
-    jokes: every full thread when any passes, else the best partial ones. `prob` is that pick's probability, so over
-    the eligible threads it sums to 1; it is logged as `pick_prob` of every line played from the thread. None when
-    no candidate passed anywhere."""
+    jokes: every full thread when any passes, else the best partial ones. Returns the pick and the tied threads
+    (the pick's probability is 1 over their number); None when no candidate passed anywhere."""
     live = [j for j, b in enumerate(batches) if b]
     if not live:
         return None
@@ -123,8 +116,19 @@ def _pick_thread(batches, passing, selector) -> tuple[int, float] | None:
     tied = [t for t in range(n) if score[t] == max(score, default=0) > 0]
     if not tied:
         return None
-    k, prob = selector.pick([batches[live[0]].texts[t] for t in tied])
-    return tied[k], prob
+    k, _ = selector.pick([batches[live[0]].texts[t] for t in tied])
+    return tied[k], tied
+
+
+def _marginal(i: int, passing: list[int], tied: list[int]) -> float:
+    """The probability that candidate `i` of a joke is the line picked: the sum over the tied threads t of
+    P(thread t) times P(line | t), which is 1 when i is t's own passing candidate, 1 over the passing candidates when
+    t's own was rejected and a line is borrowed, and 0 otherwise. This is what `pick_prob` logs, because replay and
+    preference training weight a line by how likely it was to be played at all, not by how it happened to be reached.
+    It assumes the selector is uniform (the frozen contract)."""
+    own = 1.0 if i in tied else 0.0
+    borrowed = sum(t not in passing for t in tied) / len(passing)
+    return (own + borrowed) / len(tied)
 
 
 async def _prepare(bit, mode, context, *, generator, fallback, safety, selector, tts, clock, log, jokes_per_bit, spawn):
@@ -141,72 +145,104 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
         except Exception as e:  # a bad reply or a dead provider must not stop the show
             batches.append(None)
             reasons.append(f"generation failed: {type(e).__name__}: {e}")
-            if not fallback:  # nothing will play for this joke, so the log must still say why (invariant 6)
-                _log.warning("bit %s joke %s: %s; no fallback, skipping", bit, joke, reasons[-1])
-                log.write("candidates", bit=bit, joke=joke, prompt_id=f"{generator.generator_id}:failed", prompt="",
-                          generator_id=generator.generator_id,
-                          items=[{"text": "", "verdict": "reject", "reason": reasons[-1]}])
     if prefetch := getattr(safety, "prefetch", None):  # the LLM layer judges the whole bit in one call
         await asyncio.to_thread(prefetch, [t for b in batches if b for t in b.texts], age)
-    passing: list[list[int]] = []
+    judged = [[_judge(safety.check, t, age) for t in b.texts] if b else [] for b in batches]
+    passing = [[i for i, item in enumerate(items) if item["verdict"] == "pass"] for items in judged]
     for joke, batch in enumerate(batches):
-        items = [_judge(safety.check, t, age) for t in batch.texts] if batch else []
-        if batch:
-            log.write("candidates", bit=bit, joke=joke, prompt_id=batch.prompt_id, prompt=batch.prompt,
-                      generator_id=generator.generator_id, items=items)
-        passing.append([i for i, item in enumerate(items) if item["verdict"] == "pass"])
-        if batch and not passing[-1]:
+        if batch and not passing[joke]:
             reasons[joke] = "every candidate rejected"
-    thread = _pick_thread(batches, passing, selector)
-    plans: list[_Plan | None] = []
+    picked = _pick_thread(batches, passing, selector)
+    if picked and (told := getattr(generator, "played_thread", None)):
+        told(bit, picked[0])  # so the next bit is not told a premise the room never heard
+    plans: list[_Plan] = []
     for joke, batch in enumerate(batches):
-        plan = None
-        if batch and thread and thread[0] in passing[joke]:
-            plan = _Plan(batch, thread[0], thread[1])
-        elif batch and passing[joke]:  # this slot's thread candidate failed: borrow another thread's line
-            pick, prob = selector.pick([batch.texts[i] for i in passing[joke]])
-            plan = _Plan(batch, passing[joke][pick], prob)
-        if plan is None and fallback:
-            _log.warning("bit %s joke %s: %s; using %s", bit, joke, reasons[joke], fallback.generator_id)
-            batch = await asyncio.to_thread(fallback.generate, mode, bit, joke, context)
-            # The bank is hand-checked, so only the rules run on it: no API call while the provider is failing.
-            rules = getattr(safety, "check_rules", safety.check)
-            items = [_judge(rules, t, age) for t in batch.texts]
-            for item in items:
-                item["reason"] = f"bank fallback ({reasons[joke]}); rules: {item['reason']}"
-            log.write("candidates", bit=bit, joke=joke, prompt_id=batch.prompt_id, prompt=batch.prompt,
-                      generator_id=fallback.generator_id, items=items)
-            ok = [i for i, item in enumerate(items) if item["verdict"] == "pass"]
-            if ok:
-                pick, prob = selector.pick([batch.texts[i] for i in ok])
-                plan = _Plan(batch, ok[pick], prob)
+        items, ok = judged[joke], passing[joke]
+        if not ok and not fallback:
+            _log.warning("bit %s joke %s: %s; no fallback, skipping", bit, joke, reasons[joke])
+            if not batch:  # nothing was generated, so the row still needs one item saying why (invariant 6)
+                items = [{"text": "", "verdict": "reject", "reason": reasons[joke]}]
+        plan = _Plan(items, [], batch.prompt_id if batch else f"{generator.generator_id}:failed",
+                     batch.prompt if batch else "", generator.generator_id)
+        if ok:
+            first = picked[0] if picked[0] in ok else ok[selector.pick([batch.texts[i] for i in ok])[0]]
+            plan.options = [(first, _marginal(first, ok, picked[1]))] + [
+                (i, _marginal(i, ok, picked[1])) for i in ok if i != first]
+        if fallback:
+            plan.bank = _bank_consult(plan, bit, joke, mode, context, reasons[joke], fallback=fallback, safety=safety,
+                                      selector=selector)
+            if not plan.options:
+                _log.warning("bit %s joke %s: %s; using %s", bit, joke, reasons[joke], fallback.generator_id)
+                await plan.bank()
         plans.append(plan)
     _start_render(plans, 0, tts, clock, spawn)
-    if first := next((p for p in plans if p), None):
-        await first.render  # the bit is ready only when its first line is audio, or the bridge ends into a render wait
+    if first := next((p for p in plans if p.render), None):
+        # The bit is ready only when its first line is audio, or the bridge ends into a render wait. A failed render
+        # is handled when the line is spoken, so it is only waited for here.
+        await asyncio.gather(first.render, return_exceptions=True)
     return plans
+
+
+def _bank_consult(plan: _Plan, bit, joke, mode, context, why: str, *, fallback, safety, selector):
+    async def consult() -> None:
+        plan.bank = None  # once per joke
+        batch = await asyncio.to_thread(fallback.generate, mode, bit, joke, context)
+        # The bank is hand-checked, so only the rules run on it: no API call while the provider is failing.
+        rules = getattr(safety, "check_rules", safety.check)
+        start = len(plan.items)
+        for text in batch.texts:
+            item = _judge(rules, text, context["age"])
+            item["reason"] = f"hand-checked bank: {why or 'voice failed'} ({fallback.generator_id}); rules: {item['reason']}"
+            plan.items.append(item)
+        ok = [start + i for i, item in enumerate(plan.items[start:]) if item["verdict"] == "pass"]
+        if ok:
+            first, prob = selector.pick([plan.items[i]["text"] for i in ok])
+            plan.options = [(ok[first], prob)] + [(i, prob) for i in ok if i != ok[first]]
+    return consult
 
 
 def _start_render(plans, joke, tts, clock, spawn) -> None:
     """Render the next playable line from `joke` on, so its audio is ready when the current one ends."""
-    plan = next((p for p in plans[joke:] if p), None)
+    plan = next((p for p in plans[joke:] if p.options), None)
     if plan and plan.render is None:
-        plan.render = spawn(_render(tts, plan.batch.texts[plan.chosen], clock))
+        plan.render = spawn(_render(tts, plan.items[plan.options[0][0]]["text"], clock))
+
+
+async def _speak(plan: _Plan, tts, clock):
+    """Render the joke's lines in order of preference until one has audio: (item index, pick_prob, wav, seconds).
+    A line the voice cannot say (symbols only, an engine error) is skipped with the reason in its item, then the
+    bank is tried, and None means nothing could be said. One bad line never stops the show."""
+    while True:
+        while plan.options:
+            idx, prob = plan.options.pop(0)
+            task, plan.render = plan.render, None
+            try:
+                wav, seconds = await (task or _render(tts, plan.items[idx]["text"], clock))
+                return idx, prob, wav, seconds
+            except Exception as e:
+                _log.warning("a line could not be voiced: %s: %s", type(e).__name__, e)
+                plan.items[idx]["reason"] = f"{plan.items[idx]['reason'] or ''}; voice failed: {type(e).__name__}: {e}"
+        if plan.bank is None:
+            return None
+        await plan.bank()
 
 
 async def _joke(bit, joke, plans, *, tts, player, source, clock, log, config, spawn):
     """One joke, end to end. Returns the level, or None when nothing was played or the room did not answer."""
     plan = plans[joke]
-    if plan is None:
-        return None  # unlabeled: no reaction row, so replay sees the same thing
     _start_render(plans, joke, tts, clock, spawn)
     _start_render(plans, joke + 1, tts, clock, spawn)
-    wav, tts_seconds = await plan.render
-    text = plan.batch.texts[plan.chosen]
+    spoken = await _speak(plan, tts, clock)
+    log.write("candidates", bit=bit, joke=joke, prompt_id=plan.prompt_id, prompt=plan.prompt,
+              generator_id=plan.generator_id, items=plan.items)
+    if spoken is None:
+        return None  # unlabeled: no reaction row, so replay sees the same thing
+    chosen, prob, wav, tts_seconds = spoken
+    text = plan.items[chosen]["text"]
     start = clock.now()
     await player.play(wav, text)
     end = clock.now()
-    log.write("joke_played", bit=bit, joke=joke, chosen=plan.chosen, pick_prob=plan.prob, text=text,
+    log.write("joke_played", bit=bit, joke=joke, chosen=chosen, pick_prob=prob, text=text,
               tts_seconds=tts_seconds, audio_seconds=wav_seconds(wav), audio_start_at=start, audio_end_at=end)
     level, key, latency = await source.reaction(bit, joke, config.timeout_s)
     log.write("reaction", bit=bit, joke=joke, source=source.source, level=level, key=key, latency_s=latency)
@@ -225,16 +261,19 @@ async def _joke(bit, joke, plans, *, tts, player, source, clock, log, config, sp
 MAX_BRIDGES = 3  # a bit that is still loading after three bridge lines is a provider problem, not a pause
 
 
-async def _bridge(prep: asyncio.Task, rendered: list, player, used: list) -> None:
+async def _bridge(prep: asyncio.Task, rendered: list, player, used: list, *, bit, clock, log) -> None:
     """Fill the wait for the next bit with in-character lines, so the room never hears dead air. Uses whatever has
-    rendered so far and never blocks on the rest; a line is not repeated while an unused one remains."""
+    rendered so far and never blocks on the rest; a line is not repeated while an unused one remains. Each line
+    played is a `bridge` row, because it is audio the room heard (invariant 6)."""
     for _ in range(MAX_BRIDGES):
         if prep.done() or not rendered:
             return
         unused = [b for b in rendered if b[0] not in used]
-        text, wav = unused[0] if unused else rendered[len(used) % len(rendered)]
+        text, wav, tts_seconds = unused[0] if unused else rendered[len(used) % len(rendered)]
         used.append(text)
+        start = clock.now()
         await player.play(wav, text)
+        log.write("bridge", bit=bit, text=text, tts_seconds=tts_seconds, audio_start_at=start, audio_end_at=clock.now())
 
 
 async def run_show(director, room: str, context: dict, *, generator: Generator, safety: SafetyFilter,
@@ -246,20 +285,22 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
     (app.director.load_director) so this loop never decides which rooms count."""
     modes = AudienceEnv().modes
     inner = director.inner
-    tasks: list[asyncio.Task] = []
+    tasks: set[asyncio.Task] = set()  # the live ones, so an abort can cancel them and a long show does not keep every render
 
     def spawn(coro) -> asyncio.Task:
-        tasks.append(asyncio.ensure_future(coro))
-        return tasks[-1]
+        task = asyncio.ensure_future(coro)
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+        return task
 
-    tts = _SerialVoice(tts)
-    rendered: list[tuple[str, bytes]] = []  # bridge lines that are ready; a failed one is just not here
+    rendered: list[tuple[str, bytes, float]] = []  # bridge lines that are ready; a failed one is just not here
     bridges_used: list[str] = []
 
     async def render_bridges():
         for text in bridge_lines:
             try:
-                rendered.append((text, await asyncio.to_thread(tts.synthesize, text)))
+                wav, seconds = await _render(tts, text, clock)
+                rendered.append((text, wav, seconds))
             except Exception:  # filler must never stop the show
                 _log.warning("bridge line did not render: %r", text, exc_info=True)
     log.write("show_start", room=room, context=context,
@@ -284,7 +325,7 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
                                   selector=selector, tts=tts, clock=clock, log=log, jokes_per_bit=jokes_per_bit,
                                   spawn=spawn))
             if bridge_lines and bit > 0:
-                await _bridge(prep, rendered, player, bridges_used)
+                await _bridge(prep, rendered, player, bridges_used, bit=bit, clock=clock, log=log)
             plans = await prep
             if bridge_lines and bit == 0:
                 spawn(render_bridges())  # after bit 0's first line, so the voice is not busy when the show opens
@@ -300,6 +341,6 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
         log.write("show_end", status="aborted")
         raise
     finally:
-        for task in tasks:
+        for task in list(tasks):
             task.cancel()  # a render nobody will play, or a bit nobody will hear
     log.write("show_end", status="finished")

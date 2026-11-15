@@ -33,9 +33,9 @@ reaction_config = REACTION
 def get_tts():
     global tts_engine
     if tts_engine is None:
-        from app.tts import KokoroTTS
+        from app.tts import KokoroTTS, SerialTTS
 
-        tts_engine = KokoroTTS()
+        tts_engine = SerialTTS(KokoroTTS())
     return tts_engine
 
 
