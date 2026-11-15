@@ -29,6 +29,7 @@ app.add_middleware(
 tts_engine = None  # loading Kokoro takes seconds, so the first show pays for it, not server start
 sessions_dir = SESSIONS
 reaction_config = REACTION
+HEALTH_MIN = 0.99
 AUDIO_WAIT_S = 15.0  # the operator may be answering the browser's microphone prompt
 
 
@@ -61,6 +62,8 @@ async def _release(ws: WebSocket, live: types.SimpleNamespace, reason: str | Non
         return
     live.late = True
     recorder.close()
+    if reason:  # the browser's notice is transient; the server log keeps why a consented show went unrecorded
+        log.warning("recording ended: %s", reason)
     with contextlib.suppress(Exception):
         await ws.send_json({"type": "record_stop", "reason": reason})
 
@@ -75,6 +78,15 @@ async def _open_recorder(ws: WebSocket, live: types.SimpleNamespace, log: Sessio
         await _release(ws, live, recorder.reason or "no microphone audio arrived")
         return {"consent": True, "path": None, "start_at": None}
     return {"consent": True, "path": recorder.path.name, "start_at": recorder.start_at}
+
+
+def _note_health(live: types.SimpleNamespace, msg: dict) -> None:
+    """The browser's own count of audio produced against wall clock: diagnostics only, not in the session log."""
+    live.health = msg
+    if msg["elapsed_s"] > 0 and msg["produced_s"] / msg["elapsed_s"] < HEALTH_MIN:
+        log.warning("browser produced %.1f s of audio in %.1f s (%.0f%%), %s silent quanta, device rate %s Hz",
+                    msg["produced_s"], msg["elapsed_s"], 100 * msg["produced_s"] / msg["elapsed_s"],
+                    msg["zero_quanta"], msg["rate"])
 
 
 async def _audio_frame(ws: WebSocket, live: types.SimpleNamespace, data: bytes) -> None:
@@ -131,7 +143,7 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
 async def session(ws: WebSocket) -> None:
     await ws.accept()
     played: asyncio.Queue = asyncio.Queue()
-    live = types.SimpleNamespace(source=None, recorder=None, late=False)  # late: audio was asked for and ended
+    live = types.SimpleNamespace(source=None, recorder=None, late=False, health=None)  # late: audio was asked for and ended
     show = None
     try:
         while True:  # keeps running while the show does, so keys and "played" are heard
@@ -150,6 +162,8 @@ async def session(ws: WebSocket) -> None:
                 continue
             if msg["type"] == "played":
                 played.put_nowait(msg)
+            elif msg["type"] == "audio_health":
+                _note_health(live, msg)
             elif msg["type"] == "audio_failed":
                 if live.recorder is not None:
                     live.recorder.abandon(msg["reason"])

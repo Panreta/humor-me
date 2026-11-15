@@ -1,6 +1,7 @@
 """Raw room audio from the operator's browser, written straight to a WAV beside the session log. Only runs when the
 operator confirmed the room was told and agreed (docs/plans/live-loop.md, "Raw audio"). No FastAPI imports."""
 import asyncio
+import logging
 import pathlib
 import struct
 import threading
@@ -9,6 +10,7 @@ import time
 RATE = 16_000  # mono 16-bit little-endian PCM; the browser captures at this rate, nothing is resampled here
 MAX_FRAME = 64 * 1024
 _HEADER = 44
+_log = logging.getLogger(__name__)
 
 
 class Recorder:
@@ -59,10 +61,23 @@ class Recorder:
         self.reason = reason
         self.started.set()
 
+    def coverage(self) -> float | None:
+        """Seconds of audio received per second of wall clock since the first sample. Below 1 means the browser
+        produced fewer samples than time passed (seen with Bluetooth headsets), so later audio sits early in the file."""
+        if self.start_at is None:
+            return None
+        span = self.clock() - self.start_at
+        return self.samples / RATE / span if span > 0 else None
+
     def close(self) -> None:
         with self._lock:
+            already = self._closed
             self._closed = True
             if self._file is not None:
                 self._file.close()
                 self._file = None
         self.started.set()
+        share = None if already else self.coverage()
+        if share is not None and share < 0.99:
+            _log.warning("recording %s: %.1f s of audio for %.1f s of show (%.0f%% missing)", self.path.name,
+                         self.samples / RATE, self.samples / RATE / share, 100 * (1 - share))

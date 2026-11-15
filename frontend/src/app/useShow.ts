@@ -149,9 +149,14 @@ export function useShow() {
           } else if (msg.type === "record") {
             // The server asked because the operator ticked consent; it waits for the first chunk before the show.
             const token = ++micToken.current;
-            startRecorder((pcm) => {
-              if (socket.readyState === WebSocket.OPEN) socket.send(pcm);
-            }).then(
+            startRecorder(
+              (pcm) => {
+                if (socket.readyState === WebSocket.OPEN) socket.send(pcm);
+              },
+              (health) => {
+                if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "audio_health", ...health }));
+              },
+            ).then(
               (stop) => {
                 if (token === micToken.current && socket.readyState === WebSocket.OPEN) stopMicRef.current = stop;
                 else stop(); // the server gave up or the show ended while the microphone was opening

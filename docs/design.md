@@ -190,6 +190,13 @@ accepted, no file is created and the show runs as before (`show_start.audio` is 
   every control message is a text frame, so the two cannot be confused. The server answers `start` with `record`, the
   browser opens the mic, and the show begins when the first frame arrives; a mic that fails or stays silent for 15 s
   means the show runs unrecorded.
+- **Rate:** the capture context runs at the device's own rate and the worklet downsamples to 16 kHz with a windowed-sinc
+  low-pass that keeps its phase across render quanta. A context forced to 16 kHz over a 48 kHz microphone lost 35% of the
+  samples in Chrome, so every later timestamp in the WAV drifted early. The browser reports `audio_health` every ~5 s (audio
+  produced against wall clock), and the server warns below 99%, also on close.
+- **Setup for a show:** no Bluetooth headsets (opening the mic switches them to a low-quality call profile and drops
+  samples). In Windows Sound, Communications, choose "Do nothing", or Windows ducks the robot's voice by 80% while the
+  mic is open (observed: the voice fell to the noise floor after 20 s).
 - **File:** `data/sessions/<session>.wav` beside `<session>.jsonl`, gitignored. The WAV header sizes are patched after
   every frame, so a dropped connection or a crash leaves a file any reader opens, cut at the last whole frame.
 - **Alignment:** `show_start.audio.start_at` is the wall-clock time (the log's `at` timebase) of the first sample,

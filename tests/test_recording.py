@@ -4,6 +4,7 @@ import importlib
 import json
 import pathlib
 import subprocess
+import types
 import sys
 import wave
 
@@ -84,6 +85,33 @@ def test_a_closed_recorder_drops_late_audio_without_complaint(tmp_path):
     assert frames(tmp_path / "a.wav")[0] == 4096
 
 
+def test_coverage_reports_audio_missing_against_the_wall_clock(tmp_path, caplog):
+    now = [100.0]
+    rec = Recorder(tmp_path / "c.wav", clock=lambda: now[0])
+    frame = b"\x00\x00" * RATE  # one second of samples per frame
+    rec.write(frame)  # first sample at 99.0
+    for _ in range(7):
+        now[0] += 1.0
+        rec.write(frame)
+    now[0] += 2.0  # two seconds pass with no samples: the gap a stalled Bluetooth clock leaves
+    assert rec.coverage() == pytest.approx(8 / 10)  # 8 s of samples between 99.0 and 109.0
+    with caplog.at_level("WARNING", logger="app.recording"):
+        rec.close()
+    assert "20% missing" in caplog.text
+
+
+def test_full_coverage_logs_nothing(tmp_path, caplog):
+    now = [100.0]
+    rec = Recorder(tmp_path / "d.wav", clock=lambda: now[0])
+    for _ in range(5):
+        rec.write(b"\x00\x00" * RATE)
+        now[0] += 1.0
+    now[0] -= 1.0
+    with caplog.at_level("WARNING", logger="app.recording"):
+        rec.close()
+    assert rec.coverage() == pytest.approx(1.0) and "missing" not in caplog.text
+
+
 def test_a_binary_frame_is_never_a_control_message():
     with pytest.raises(ProtocolError):
         parse({"bytes": json.dumps({"type": "played"}).encode(), "text": None})
@@ -130,9 +158,17 @@ def test_a_dropped_connection_leaves_a_readable_wav_with_every_sample(server):
 
 
 def next_error(ws):
-    """A bad message makes the server answer at once, so anything it had queued before would be read first."""
+    """The first error the server sends after a bad message of ours. An error for earlier frames would come first, so
+    getting ours means those were dropped silently; the show's own lines are skipped over."""
     ws.send_json({"type": "nonsense"})
-    return json.loads(ws.receive()["text"])
+    while True:
+        frame = ws.receive()
+        if frame.get("bytes") is not None:
+            ws.send_json({"type": "played"})
+            continue
+        msg = json.loads(frame["text"])
+        if msg["type"] == "error":
+            return msg
 
 
 def test_a_microphone_that_failed_runs_the_show_unrecorded_and_carries_the_reason(server):
@@ -284,3 +320,33 @@ def test_check_on_an_unrecorded_show_says_so_instead_of_crashing(tmp_path, monke
     monkeypatch.setattr(sys, "argv", ["evaluate_clock", "check", str(log.path), str(tmp_path / "c.json")])
     with pytest.raises(SystemExit, match="not recorded"):
         ev.main()
+
+
+def health(produced, elapsed=5.0):
+    return {"type": "audio_health", "produced_s": produced, "elapsed_s": elapsed, "zero_quanta": 0, "rate": 48000}
+
+
+def test_audio_health_parses_and_rejects_bad_numbers():
+    assert parse({"text": json.dumps(health(4.9))})["produced_s"] == 4.9
+    for bad in ({**health(1), "produced_s": -1}, {**health(1), "rate": "48k"}, {**health(1), "zero_quanta": True}):
+        with pytest.raises(ProtocolError):
+            parse({"text": json.dumps(bad)})
+    missing = health(1)
+    del missing["rate"]
+    with pytest.raises(ProtocolError):
+        parse({"text": json.dumps(missing)})
+
+
+def test_the_server_keeps_the_last_health_report_and_warns_below_99_percent(server, caplog):
+    with caplog.at_level("WARNING"), TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(health(4.98))  # 99.6%: fine
+        ws.send_json(health(3.25))  # 65%: the loss seen in Chrome
+        assert next_error(ws)["message"].startswith("unknown message type")
+    warnings = [r.getMessage() for r in caplog.records if "browser produced" in r.getMessage()]
+    assert len(warnings) == 1 and "65%" in warnings[0] and "48000" in warnings[0]
+
+
+def test_note_health_stores_the_last_one():
+    live = types.SimpleNamespace(health=None)
+    main._note_health(live, health(5.0) | {"zero_quanta": 7})
+    assert live.health["zero_quanta"] == 7

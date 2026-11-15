@@ -30,6 +30,14 @@ def parse(frame: dict) -> dict:
     kind = msg.get("type")
     if kind == "played":
         return {"type": kind}
+    if kind == "audio_health":
+        health = {}
+        for field in ("produced_s", "elapsed_s", "zero_quanta", "rate"):
+            value = msg.get(field)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value < 1e9:
+                raise ProtocolError(f"{field} must be a non-negative number")
+            health[field] = value
+        return {"type": kind, **health}
     if kind == "audio_failed":
         reason = msg.get("reason")
         return {"type": kind, "reason": reason[:200] if isinstance(reason, str) and reason.strip() else None}
