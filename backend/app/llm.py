@@ -1,18 +1,26 @@
 """A small OpenAI-compatible chat call. `LLM_BASE_URL` and `LLM_MODEL` choose the provider, `LLM_API_KEY` the account.
 
-Used by the safety filter's LLM check and, later, the generator. Every failure is an `LLMError`, so callers can
-tell "the model said no" from "the model could not answer". No retries here: a live show cannot wait on a 429.
+Used by the safety filter's LLM check and the generator. Every failure is an `LLMError`, so callers can tell "the
+model said no" from "the model could not answer". Retries are opt-in and bounded by a deadline: a live show can wait
+a second or two on a 429, not longer (the bridge line covers that, docs/plans/live-loop.md T9).
 """
 import os
+import time
 from dataclasses import dataclass
+from typing import Callable
 
 import httpx
 
 
+# Overloaded or rate-limited: the same request can succeed a moment later. 29% of Exp 19's attempts were 429 or 503.
+RETRY_STATUS = frozenset({429, 500, 502, 503, 504})
+
+
 class LLMError(Exception):
-    def __init__(self, message: str, status: int | None = None):
+    def __init__(self, message: str, status: int | None = None, retryable: bool = False):
         super().__init__(message)
         self.status = status
+        self.retryable = retryable or status in RETRY_STATUS
 
 
 @dataclass
@@ -22,9 +30,32 @@ class Client:
     model: str
     timeout: float = 8.0
     transport: httpx.BaseTransport | None = None  # tests pass a fake transport; production leaves it None
+    retries: int = 0
+    backoff_s: float = 0.5
+    deadline_s: float | None = None  # wall time across all attempts; a retry that would pass it is not made
+    sleep: Callable[[float], None] = time.sleep
+    # Quota bookkeeping: a 429 still counts against the provider's limit, so every request is an attempt.
+    attempts: int = 0
+    retried: int = 0
+    failed: int = 0
 
-    def chat(self, system: str, user: str, *, json_reply: bool = False) -> str:
-        body = {"model": self.model, "temperature": 0,
+    def chat(self, system: str, user: str, *, json_reply: bool = False, temperature: float = 0.0) -> str:
+        start = time.monotonic()
+        for attempt in range(self.retries + 1):
+            self.attempts += 1
+            try:
+                return self._once(system, user, json_reply, temperature)
+            except LLMError as e:
+                wait = self.backoff_s * 2 ** attempt
+                late = self.deadline_s is not None and time.monotonic() - start + wait > self.deadline_s
+                if not e.retryable or attempt == self.retries or late:
+                    self.failed += 1
+                    raise
+                self.retried += 1
+                self.sleep(wait)
+
+    def _once(self, system: str, user: str, json_reply: bool, temperature: float) -> str:
+        body = {"model": self.model, "temperature": temperature,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
         if json_reply:
             body["response_format"] = {"type": "json_object"}
@@ -37,7 +68,7 @@ class Client:
         except httpx.HTTPStatusError as e:
             raise LLMError(f"http {e.response.status_code}", e.response.status_code) from e
         except httpx.HTTPError as e:
-            raise LLMError(f"transport: {type(e).__name__}") from e
+            raise LLMError(f"transport: {type(e).__name__}", retryable=True) from e
         except (KeyError, IndexError, TypeError, ValueError) as e:
             raise LLMError("malformed response") from e
         # A provider safety block arrives as a normal 200 with no usable text.
@@ -49,6 +80,7 @@ class Client:
         return text
 
 
-def from_env(timeout: float = 8.0) -> Client:
+def from_env(timeout: float = 8.0, **options) -> Client:
     """Raises KeyError when LLM_BASE_URL or LLM_MODEL is unset; the key may be empty (local Ollama)."""
-    return Client(os.environ["LLM_BASE_URL"], os.environ.get("LLM_API_KEY", ""), os.environ["LLM_MODEL"], timeout)
+    return Client(os.environ["LLM_BASE_URL"], os.environ.get("LLM_API_KEY", ""), os.environ["LLM_MODEL"], timeout,
+                  **options)
