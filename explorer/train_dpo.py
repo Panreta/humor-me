@@ -13,6 +13,7 @@ p.add_argument("--out_dir", default=os.path.join(os.environ["COURSE_DIR"], "runs
 p.add_argument("--train_records", type=int, default=20000)
 p.add_argument("--dev_records", type=int, default=2000)
 p.add_argument("--max_steps", type=int, default=-1)            # -1 = run the full epoch
+p.add_argument("--fp16", action="store_true")
 args = p.parse_args()
 
 tok = AutoTokenizer.from_pretrained(args.model)
@@ -33,7 +34,7 @@ train = load("dpo_train.jsonl", args.train_records)
 dev = load("dpo_dev.jsonl", args.dev_records)
 print(f"train {len(train)} records, dev {len(dev)} records")
 
-model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16)
+model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.float16 if args.fp16 else torch.bfloat16)
 
 cfg = DPOConfig(
     output_dir=args.out_dir,
@@ -47,7 +48,8 @@ cfg = DPOConfig(
     num_train_epochs=1,
     max_steps=args.max_steps,
     max_length=512,
-    bf16=True,
+    bf16=not args.fp16,
+    fp16=args.fp16, 
     gradient_checkpointing=True,
     gradient_checkpointing_kwargs={"use_reentrant": False},
     logging_steps=10,
@@ -65,6 +67,11 @@ lora = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05,
 trainer = DPOTrainer(model=model, ref_model=None, args=cfg,
                      train_dataset=train, eval_dataset=dev,
                      processing_class=tok, peft_config=lora)
+
+if args.fp16:                                                  
+    for prm in trainer.model.parameters():                 
+        if prm.requires_grad:                                 
+            prm.data = prm.data.float()                         
 
 last = get_last_checkpoint(args.out_dir) if os.path.isdir(args.out_dir) else None
 trainer.train(resume_from_checkpoint=last)              # resumes if a checkpoint exists
