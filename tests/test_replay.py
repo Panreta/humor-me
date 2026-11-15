@@ -329,3 +329,27 @@ def test_each_app_module_imports_alone_from_backend(module):
     result = subprocess.run([sys.executable, "-c", f"import {module}"], cwd=backend, env=env,
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_bridge_rows_are_ignored_by_replay(tmp_path, clock):
+    bits = [("neurotic", [3, 2, 1, 0, 2]), ("cynic", [1, 1, 0, 2, None]), ("wordsmith", [2, 3, 3, 1, 0])]
+
+    def written(with_bridges):
+        d = tmp_path / ("with" if with_bridges else "without")
+        clock.now = 1000.0
+        log = SessionLog(d)
+        log.write("show_start", room="live", **START)
+        last = None
+        for i, (mode, levels) in enumerate(bits):
+            if with_bridges and i:
+                log.write("bridge", bit=i, text="Give me a second.", tts_seconds=0.8, audio_start_at=1.0, audio_end_at=3.0)
+            write_bit(log, i, mode, last, levels)
+            last = mode
+        log.write("show_end", status="finished")
+        return read_session(log.path)
+
+    plain, bridged = written(False), written(True)
+    assert any(r["event"] == "bridge" for r in bridged) and not any(r["event"] == "bridge" for r in plain)
+    a, b = load_director([plain]), load_director([bridged])
+    assert np.array_equal(a.inner.A, b.inner.A) and np.array_equal(a.inner.b, b.inner.b)
+    assert [x["reward"] for x in finished_bits([plain])] == [x["reward"] for x in finished_bits([bridged])]

@@ -80,9 +80,9 @@ finished bit from shows with `room: live`, in order. Nothing from `room: sim` ev
 
 Uniform random among candidates that pass the safety filter. Log the pick probability.
 
-### Log schema v1
+### Log schema v2
 
-JSONL, one file per show in `data/sessions/`. Every row has `schema: 1`, `session`, `at`, `event`.
+JSONL, one file per show in `data/sessions/`. Every row has `schema: 2`, `session`, `at`, `event`. Version 2 adds the `bridge` event (decisions.md 2026-11-14); the reader still accepts `schema: 1` logs, which have no bridge rows.
 
 | Event | Fields |
 |---|---|
@@ -90,6 +90,7 @@ JSONL, one file per show in `data/sessions/`. Every row has `schema: 1`, `sessio
 | `bit_decision` | `bit`, raw `obs` (`t`, `n_bits`, `context`, `last_mode`), `scores` per mode, `greedy`, `action`, `probs` |
 | `candidates` | `bit`, `joke`, `prompt_id`, `prompt`, `generator_id`, `items` (text, verdict, reason) |
 | `joke_played` | `bit`, `joke`, `chosen`, `pick_prob`, `text`, `tts_seconds`, `audio_seconds`, `audio_start_at`, `audio_end_at` |
+| `bridge` | `bit` (the bit it precedes), `text`, `tts_seconds`, `audio_start_at`, `audio_end_at`; one per bridge line played, in play order (v2) |
 | `reaction` | `bit`, `joke`, `source` (`button`\|`detector`\|`sim`), `level` (0–3 or null), `key`, `latency_s` |
 | `gap` | `bit`, `joke`, `planned_hold_s`, `actual_gap_s` |
 | `bit_end` | `bit`, `n_labels`, `reward_version`, `reward` (cross-check only) |

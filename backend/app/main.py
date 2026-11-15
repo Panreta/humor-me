@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import os
 import secrets
 import types
 
@@ -9,7 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.bank import BankGenerator
 from app.director import load_director
-from app.live import AnnouncedSim, BankOnlySafety, ButtonSource, Voice, WebSocketPlayer, git_sha, load_sessions
+from app.generate import llm_stack
+from app.live import AnnouncedSim, BankOnlySafety, ButtonSource, WebSocketPlayer, git_sha, load_sessions
 from app.log import SESSIONS, SessionLog
 from app.protocol import ProtocolError, parse
 from app.rooms import REACTION, RealClock
@@ -31,10 +33,18 @@ reaction_config = REACTION
 def get_tts():
     global tts_engine
     if tts_engine is None:
-        from app.tts import KokoroTTS
+        from app.tts import KokoroTTS, SerialTTS
 
-        tts_engine = KokoroTTS()
+        tts_engine = SerialTTS(KokoroTTS())
     return tts_engine
+
+
+def make_stack(room: str):
+    """(generator, safety, fallback, bridge lines). `GENERATOR=llm` brings the real model and filter; otherwise the
+    bank alone, which needs no key or quota (and is what the tests run)."""
+    if os.environ.get("GENERATOR", "bank") == "llm":
+        return llm_stack(room)
+    return BankGenerator(), BankOnlySafety(), None, None
 
 
 @app.get("/health")
@@ -53,12 +63,12 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
             source = live.source = ButtonSource(ws.send_json, clock)
         else:
             source = AnnouncedSim(ws.send_json, msg["context"], secrets.randbits(32))
-        voice = Voice(tts)
-        await run_show(director, msg["room"], msg["context"], generator=BankGenerator(), safety=BankOnlySafety(),
-                       selector=UniformSelector(secrets.randbits(32)), tts=voice,
-                       player=WebSocketPlayer(voice, ws.send_json, ws.send_bytes, played), source=source,
+        generator, safety, fallback, bridge_lines = make_stack(msg["room"])
+        await run_show(director, msg["room"], msg["context"], generator=generator, safety=safety,
+                       selector=UniformSelector(secrets.randbits(32)), tts=tts,
+                       player=WebSocketPlayer(ws.send_json, ws.send_bytes, played), source=source,
                        clock=clock, log=SessionLog(sessions_dir), explore_seed=seed, operator=msg["operator"],
-                       git_sha=sha, config=reaction_config)
+                       git_sha=sha, config=reaction_config, fallback=fallback, bridge_lines=bridge_lines)
         status = "finished"
     except Exception as e:  # cancellation is not caught: a closed socket has nobody to tell
         log.exception("show failed")

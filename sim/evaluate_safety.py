@@ -46,7 +46,8 @@ def load_bank(path: pathlib.Path = BANK) -> list[dict]:
 
 def digest() -> str:
     """Part of the cache key, so editing a fixture or the bank recomputes the experiment."""
-    return hashlib.sha256(RED_TEAM.read_bytes() + CLEAN.read_bytes() + BANK.read_bytes()).hexdigest()[:12]
+    # Line endings depend on the checkout (git autocrlf, files written by tools), not on the content.
+    return hashlib.sha256(b"".join(p.read_bytes().replace(b"\r\n", b"\n") for p in (RED_TEAM, CLEAN, BANK))).hexdigest()[:12]
 
 
 def prompt_digest() -> str:
@@ -69,7 +70,8 @@ def rate(rows: list[dict]) -> dict:
 
 
 class EvalClient:
-    """Eval only: retries a 429 or 503 with backoff and times the attempt that answered. The live filter never retries.
+    """Eval only: retries a 429 or 503 with backoff and times the attempt that answered. The live client has its own
+    bounded retries (app.llm.Client), so these retry counts are the eval's, not what a show would have seen.
     A call still failing after the last try raises, so those lines count as rejected."""
 
     def __init__(self, client, tries: int = 6, base: float = 2.0, sleep=time.sleep):

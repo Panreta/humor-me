@@ -79,25 +79,14 @@ class AnnouncedSim(SimRoom):
         await self.send({"type": "reaction_window", "state": "closed", "bit": bit, "joke": joke})
 
 
-class Voice:
-    """Remembers the last text synthesized so the player can send it as the `line` message."""
-
-    def __init__(self, tts):
-        self.tts, self.text = tts, ""
-
-    def synthesize(self, text: str) -> bytes:
-        self.text = text
-        return self.tts.synthesize(text)
-
-
 class WebSocketPlayer:
-    def __init__(self, voice: Voice, send_json, send_bytes, played: asyncio.Queue):
-        self.voice, self.send_json, self.send_bytes, self.played = voice, send_json, send_bytes, played
+    def __init__(self, send_json, send_bytes, played: asyncio.Queue):
+        self.send_json, self.send_bytes, self.played = send_json, send_bytes, played
 
-    async def play(self, wav: bytes) -> None:
+    async def play(self, wav: bytes, text: str) -> None:
         while not self.played.empty():
             self.played.get_nowait()  # a stray ack must not end this line early
-        await self.send_json({"type": "line", "text": self.voice.text})
+        await self.send_json({"type": "line", "text": text})
         await self.send_bytes(wav)
         await self.played.get()
 
@@ -119,7 +108,7 @@ class BankOnlySafety:
 
 
 def load_sessions(directory: pathlib.Path) -> list[list[dict]]:
-    """Every schema 1 log in `directory`. Old demo logs (`schema: 0`) are skipped; anything else unreadable raises,
+    """Every schema 1 or 2 log in `directory`. Old demo logs (`schema: 0`) are skipped; anything else unreadable raises,
     so a corrupt log fails the start instead of quietly changing what the director learned."""
     sessions = []
     for path in sorted(directory.glob("*.jsonl")):
