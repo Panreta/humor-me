@@ -33,7 +33,9 @@ cd backend
 
 | Client sends | Fields | Meaning |
 |---|---|---|
-| `start` | `context` (`venue`, `energy`, `age`), `room` (`sim`\|`live`), `operator` | Start a show. One at a time |
+| `start` | `context` (`venue`, `energy`, `age`), `room` (`sim`\|`live`), `operator`, `consent` (bool, default false) | Start a show. One at a time. `consent: true` means the operator confirmed the room agreed to be recorded |
+| binary frame | 16-bit mono 16 kHz PCM, under 64 KiB | Room audio, only after `record`. Refused with an `error` when no recording was agreed |
+| `audio_failed` | none | The browser could not open the microphone; the show runs unrecorded |
 | `played` | none | The browser finished playing the last audio |
 | `reaction` | `bit`, `joke`, `key` (`W`, `K`, `Space`, `D`) | A key press. Counts only while that joke's window is open |
 
@@ -42,6 +44,7 @@ cd backend
 | `line` | `text` | The next line; the WAV follows as a binary frame. Send `played` when it ends |
 | `reaction_window` | `state` (`open`\|`closed`), `bit`, `joke` | Opens when audio ends, closes at the end of the hold (or on timeout) |
 | `sim_reaction` | `bit`, `joke`, `key` | `sim` room only: the key the simulated room "pressed" |
+| `record` | none | Sent after a `start` with `consent`: begin sending audio. The show waits for the first frame (15 s) |
 | `show_end` | `status` (`finished`\|`aborted`) | The show is over |
 | `error` | `message` | A bad client message or a failed start or show. A bad message never ends the show |
 

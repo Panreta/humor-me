@@ -76,6 +76,8 @@ def validate(record: dict) -> None:
     for (name, field), keys in NESTED.items():
         if name == event:
             _need_keys(f"{event}.{field}", record[field], keys)
+    if event == "show_start" and record["audio"]["path"] is not None             and not isinstance(record["audio"].get("start_at"), (int, float)):
+        raise ValueError("show_start.audio.start_at must be a number when a recording exists")
     if event == "candidates":
         if not isinstance(record["items"], list):
             raise ValueError("candidates.items must be a list")

@@ -14,6 +14,7 @@ from app.generate import llm_stack
 from app.live import AnnouncedSim, BankOnlySafety, ButtonSource, WebSocketPlayer, git_sha, load_sessions
 from app.log import SESSIONS, SessionLog
 from app.protocol import ProtocolError, parse
+from app.recording import Recorder
 from app.rooms import REACTION, RealClock
 from app.show import UniformSelector, run_show
 
@@ -28,6 +29,7 @@ app.add_middleware(
 tts_engine = None  # loading Kokoro takes seconds, so the first show pays for it, not server start
 sessions_dir = SESSIONS
 reaction_config = REACTION
+AUDIO_WAIT_S = 15.0  # the operator may be answering the browser's microphone prompt
 
 
 def get_tts():
@@ -52,6 +54,20 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+async def _open_recorder(ws: WebSocket, live: types.SimpleNamespace, log: SessionLog) -> dict:
+    """The show waits for the first audio frame so `start_at` is known before `show_start` is written."""
+    recorder = live.recorder = Recorder(log.path.with_suffix(".wav"))
+    await ws.send_json({"type": "record"})
+    with contextlib.suppress(asyncio.TimeoutError):
+        await asyncio.wait_for(recorder.started.wait(), AUDIO_WAIT_S)
+    if recorder.start_at is None:
+        recorder.close()
+        live.recorder = None
+        await ws.send_json({"type": "error", "message": "no microphone audio arrived, so this show is not recorded"})
+        return {"consent": True, "path": None, "start_at": None}
+    return {"consent": True, "path": recorder.path.name, "start_at": recorder.start_at}
+
+
 async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.SimpleNamespace) -> None:
     seed = secrets.randbits(32)  # the director's seed, logged as policy.seed; selector and sim draw their own
     try:
@@ -59,6 +75,8 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
                                                   asyncio.to_thread(git_sha), asyncio.to_thread(get_tts))
         director = load_director(sessions, seed=seed)
         clock = RealClock()
+        show_log = SessionLog(sessions_dir)
+        audio = await _open_recorder(ws, live, show_log) if msg["consent"] else None
         if msg["room"] == "live":
             source = live.source = ButtonSource(ws.send_json, clock)
         else:
@@ -67,8 +85,8 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
         await run_show(director, msg["room"], msg["context"], generator=generator, safety=safety,
                        selector=UniformSelector(secrets.randbits(32)), tts=tts,
                        player=WebSocketPlayer(ws.send_json, ws.send_bytes, played), source=source,
-                       clock=clock, log=SessionLog(sessions_dir), explore_seed=seed, operator=msg["operator"],
-                       git_sha=sha, config=reaction_config, fallback=fallback, bridge_lines=bridge_lines)
+                       clock=clock, log=show_log, explore_seed=seed, operator=msg["operator"],
+                       audio=audio, git_sha=sha, config=reaction_config, fallback=fallback, bridge_lines=bridge_lines)
         status = "finished"
     except Exception as e:  # cancellation is not caught: a closed socket has nobody to tell
         log.exception("show failed")
@@ -77,6 +95,9 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
             await ws.send_json({"type": "error", "message": f"show failed: {e}"})
     finally:
         live.source = None
+        if live.recorder is not None:
+            live.recorder.close()
+            live.recorder = None
     with contextlib.suppress(Exception):
         await ws.send_json({"type": "show_end", "status": status})
 
@@ -85,13 +106,21 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
 async def session(ws: WebSocket) -> None:
     await ws.accept()
     played: asyncio.Queue = asyncio.Queue()
-    live = types.SimpleNamespace(source=None)
+    live = types.SimpleNamespace(source=None, recorder=None)
     show = None
     try:
         while True:  # keeps running while the show does, so keys and "played" are heard
             frame = await ws.receive()
             if frame["type"] == "websocket.disconnect":
                 break
+            if frame.get("bytes") is not None:  # binary is only ever audio; every control message is a text frame
+                try:
+                    if live.recorder is None:
+                        raise ValueError("audio refused: no recording was agreed for this show")
+                    live.recorder.write(frame["bytes"])
+                except ValueError as e:
+                    await ws.send_json({"type": "error", "message": str(e)})
+                continue
             try:
                 msg = parse(frame)
                 if msg["type"] == "start" and show is not None and not show.done():
@@ -101,6 +130,9 @@ async def session(ws: WebSocket) -> None:
                 continue
             if msg["type"] == "played":
                 played.put_nowait(msg)
+            elif msg["type"] == "audio_failed":
+                if live.recorder is not None:
+                    live.recorder.abandon()
             elif msg["type"] == "reaction":
                 if live.source is None:
                     log.info("ignored press %s: no live show", msg["key"])
@@ -111,6 +143,8 @@ async def session(ws: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     finally:
+        if live.recorder is not None:
+            live.recorder.close()
         if show is not None:
             show.cancel()  # run_show writes show_end: aborted on the way out
             await asyncio.gather(show, return_exceptions=True)

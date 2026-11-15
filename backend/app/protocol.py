@@ -28,7 +28,7 @@ def parse(frame: dict) -> dict:
     if not isinstance(msg, dict):
         raise ProtocolError("message must be a JSON object")
     kind = msg.get("type")
-    if kind == "played":
+    if kind in ("played", "audio_failed"):
         return {"type": kind}
     if kind == "reaction":
         key = msg.get("key")
@@ -47,6 +47,9 @@ def parse(frame: dict) -> dict:
         operator = msg.get("operator")
         if not isinstance(operator, str) or not operator.strip():
             raise ProtocolError("operator must be a non-empty string")
+        consent = msg.get("consent", False)
+        if not isinstance(consent, bool):
+            raise ProtocolError("consent must be true or false")
         return {"type": kind, "context": {f: context[f] for f in ("venue", "energy", "age")}, "room": msg["room"],
-                "operator": operator}
+                "operator": operator, "consent": consent}
     raise ProtocolError(f"unknown message type {kind!r}")

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactionKey, Room } from "./reactionKeys";
+import { startRecorder } from "./recorder";
 
 const WS_URL = "ws://localhost:8000/ws";
 const FLASH_MS = 700;
@@ -16,6 +17,7 @@ export type ShowSetup = {
   age: string;
   operator: string;
   room: Room;
+  consent: boolean;
 };
 
 export function useShow() {
@@ -35,9 +37,16 @@ export function useShow() {
   const windowRef = useRef<ReactionWindow | null>(null);
   const roomRef = useRef<Room | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopMicRef = useRef<(() => void) | null>(null);
+
+  const stopMic = useCallback(() => {
+    stopMicRef.current?.();
+    stopMicRef.current = null;
+  }, []);
 
   useEffect(
     () => () => {
+      stopMicRef.current?.();
       const socket = socketRef.current;
       if (socket) {
         socket.onclose = null;
@@ -80,6 +89,7 @@ export function useShow() {
       setState("connecting");
 
       // A late close from the previous show must not touch this one's window or state.
+      stopMic();
       const old = socketRef.current;
       if (old) {
         old.onopen = old.onclose = old.onerror = old.onmessage = null;
@@ -98,6 +108,7 @@ export function useShow() {
             context: { venue: setup.venue, energy: setup.energy, age: setup.age },
             room: setup.room,
             operator: setup.operator.trim(),
+            consent: setup.consent,
           }),
         );
       socket.onerror = () => {
@@ -105,6 +116,7 @@ export function useShow() {
         setState("error");
       };
       socket.onclose = () => {
+        stopMic();
         closeWindow();
         if (finished || failed) return;
         // The server logs a dropped show as aborted; the operator must see that too.
@@ -131,10 +143,25 @@ export function useShow() {
             setFlash(msg.key);
             if (flashTimer.current) clearTimeout(flashTimer.current);
             flashTimer.current = setTimeout(() => setFlash(null), FLASH_MS);
+          } else if (msg.type === "record") {
+            // The server asked because the operator ticked consent; it waits for the first chunk before the show.
+            startRecorder((pcm) => {
+              if (socket.readyState === WebSocket.OPEN) socket.send(pcm);
+            }).then(
+              (stop) => {
+                if (socket.readyState === WebSocket.OPEN) stopMicRef.current = stop;
+                else stop();
+              },
+              () => {
+                setNotice("Couldn't open the microphone, so this show is not recorded.");
+                if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "audio_failed" }));
+              },
+            );
           } else if (msg.type === "error") {
             setNotice(String(msg.message));
           } else if (msg.type === "show_end") {
             finished = true;
+            stopMic();
             closeWindow();
             setEndStatus(msg.status === "aborted" ? "aborted" : "finished");
             setState("done");
@@ -159,7 +186,7 @@ export function useShow() {
         }
       };
     },
-    [closeWindow],
+    [closeWindow, stopMic],
   );
 
   // Only a Live show with an open window sends; a simulated room answers for itself.

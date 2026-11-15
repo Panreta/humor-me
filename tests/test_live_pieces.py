@@ -24,7 +24,7 @@ def test_valid_messages_parse():
     assert parse(frame({"type": "played"})) == {"type": "played"}
     assert parse(frame({"type": "reaction", "bit": 1, "joke": 2, "key": "Space"}))["key"] == "Space"
     start = parse(frame({"type": "start", "context": CTX, "room": "live", "operator": "me", "extra": 1}))
-    assert start == {"type": "start", "context": CTX, "room": "live", "operator": "me"}
+    assert start == {"type": "start", "context": CTX, "room": "live", "operator": "me", "consent": False}
 
 
 @pytest.mark.parametrize("msg", [
