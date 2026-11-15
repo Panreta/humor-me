@@ -1,18 +1,23 @@
 """Exp 21: do logged times line up with the recorded audio?
 
 Usage (needs a real mic; the user runs it, see docs/design.md "Audio and consent"):
-    python -m sim.evaluate_clock play --n 90 --interval 10 --out clicks.json    # beside a 15-minute live show
+    # 1. a SIMULATED room, GENERATOR=bank, consent box ticked, speakers audible to the mic
+    # 2. beside a 15-minute show, on the same machine:
+    python -m sim.evaluate_clock play --n 90 --interval 10 --out clicks.json
+    # 3. afterwards:
     python -m sim.evaluate_clock check data/sessions/<id>.jsonl clicks.json
 
-`play` beeps through the speakers and writes the wall-clock time before each beep; the show's recording hears them.
-`check` finds each beep in the WAV, converts it to wall clock with the log's `show_start.audio.start_at`, and reports
-the offset from the time `play` logged. Bars, fixed in docs/plans/live-loop.md (T10): p95 offset <= 100 ms and no
-drift. "No drift" was not quantified there; the bar used here is a fitted drift over the show of at most 50 ms
-(judgment call). `play` stamps the time before the call returns control to the sound card, so its own latency is in
-the offset; run it once on its own with a loopback or a mic next to the speakers and read the constant part as that.
-Importable: run(), detect_clicks(), play_clicks().
+`play` beeps (2 kHz, 40 ms) through the speakers and writes the wall-clock time before each beep; the show's recording
+hears them. `check` finds each beep in the WAV with a narrow band around 2 kHz (so the voice and laughter do not win),
+converts it to wall clock with the log's `show_start.audio.start_at`, and reports the offset from the time `play`
+logged. Bars, fixed in docs/plans/live-loop.md (T10): p95 offset <= 100 ms and no drift. "No drift" was not quantified
+there; the user set it at a fitted drift over the show of at most 50 ms, half the p95 bar so drift cannot use up the whole budget. Clicks
+that match nothing are counted, and fewer than 90% matched also fails, so a missed beep cannot hide a bad offset.
+`play` stamps the time before the beep starts, so the sound card's latency is in the offset; read a constant part as that.
+Results are cached in reports/metrics/audio_clock.json. Importable: run(), table(), detect_clicks(), play_clicks().
 """
 import argparse
+import hashlib
 import json
 import pathlib
 import sys
@@ -24,9 +29,11 @@ import numpy as np
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
 from app.log import read_session  # noqa: E402
+from sim.cache import run_or_load  # noqa: E402
 
-BAR_P95_S, BAR_DRIFT_S = 0.1, 0.05
-MATCH_S = 1.0  # a detection further than this from a logged click is not that click
+BAR_P95_S, BAR_DRIFT_S, BAR_MATCHED = 0.1, 0.05, 0.9
+MATCH_S = 0.25  # a detection further than this from a logged click is not that click
+BEEP_HZ, BEEP_MS = 2000, 40
 
 
 def read_wav(path) -> tuple[np.ndarray, int]:
@@ -35,17 +42,19 @@ def read_wav(path) -> tuple[np.ndarray, int]:
         return np.frombuffer(w.readframes(w.getnframes()), dtype="<i2") / 32768.0, w.getframerate()
 
 
-def detect_clicks(samples: np.ndarray, rate: int, min_gap_s: float = 1.0) -> list[float]:
-    """Seconds into the audio of each click's first sample over a threshold set well above the room's noise."""
-    level = np.abs(samples)
-    threshold = max(8 * float(np.median(level)), 0.05)
-    hits = np.flatnonzero(level > threshold)
-    times: list[float] = []
-    for i in hits:
-        t = i / rate
-        if not times or t - times[-1] >= min_gap_s:
-            times.append(t)
-    return times
+def detect_clicks(samples: np.ndarray, rate: int, min_gap_s: float = 0.2) -> list[float]:
+    """Seconds into the audio of each beep's onset. Demodulate at the beep frequency and average over 5 ms: speech and
+    laughter spread over many frequencies, so little of them survives in that narrow band; the beep is all in it."""
+    n = np.arange(samples.size)
+    z = samples * np.exp(-2j * np.pi * BEEP_HZ * n / rate)
+    window = max(1, int(rate * 0.005))
+    env = np.abs(np.convolve(z, np.ones(window) / window, mode="same"))
+    threshold = max(8 * float(np.median(env)), 0.6 * float(np.percentile(env, 99.9)), 0.01)
+    hits = np.flatnonzero(env > threshold)
+    if hits.size == 0:
+        return []
+    starts = hits[np.r_[True, np.diff(hits) > min_gap_s * rate]]
+    return (starts / rate).tolist()
 
 
 def offsets(logged: list[float], detected_wall: list[float]) -> tuple[list[float], list[float], int]:
@@ -61,10 +70,24 @@ def offsets(logged: list[float], detected_wall: list[float]) -> tuple[list[float
     return kept, diffs, len(logged) - len(kept)
 
 
-def run(log_path: str, wav_path: str, clicks_path: str) -> dict:
+def digest(log_path: str, clicks_path: str) -> str:
+    """The cache key's stand-in for the two files, so a changed clicks file or another session reruns."""
+    h = hashlib.sha256(pathlib.Path(clicks_path).read_bytes())
+    h.update(read_session(pathlib.Path(log_path))[0]["session"].encode())
+    return h.hexdigest()[:16]
+
+
+def wav_for(log_path: str, wav_path: str | None = None) -> str:
     audio = read_session(pathlib.Path(log_path))[0]["audio"]
     if audio.get("path") is None:
-        raise ValueError("this show was not recorded")
+        raise ValueError("this show was not recorded: tick the consent box and allow the microphone")
+    return wav_path or str(pathlib.Path(log_path).parent / audio["path"])
+
+
+def run(log_path: str, clicks_path: str, wav_path: str | None = None, key: str | None = None) -> dict:
+    """`key` is `digest(...)`: it exists so run_or_load's cache sees the files' content, not only their paths."""
+    wav_path = wav_for(log_path, wav_path)
+    audio = read_session(pathlib.Path(log_path))[0]["audio"]
     logged = json.loads(pathlib.Path(clicks_path).read_text())
     samples, rate = read_wav(wav_path)
     detected = [audio["start_at"] + t for t in detect_clicks(samples, rate)]
@@ -77,7 +100,18 @@ def run(log_path: str, wav_path: str, clicks_path: str) -> dict:
     return {"n_logged": len(logged), "n_matched": len(diffs), "n_missed": missed, "span_s": span,
             "median_offset_s": float(np.median(diffs)), "p95_abs_offset_s": p95,
             "drift_slope_s_per_s": slope, "drift_over_show_s": slope * span,
-            "pass_p95": p95 <= BAR_P95_S, "pass_drift": abs(slope * span) <= BAR_DRIFT_S}
+            "pass_p95": p95 <= BAR_P95_S, "pass_drift": abs(slope * span) <= BAR_DRIFT_S,
+            "pass_matched": len(diffs) >= BAR_MATCHED * len(logged)}
+
+
+def table(res: dict) -> str:
+    ok = lambda b: "yes" if b else "NO"  # noqa: E731
+    return "\n".join([
+        "| Clicks matched | p95 offset | Median offset | Drift over the show | p95 <= 100 ms | Drift <= 50 ms | >= 90% matched |",
+        "|---|---|---|---|---|---|---|",
+        f"| {res['n_matched']}/{res['n_logged']} | {res['p95_abs_offset_s'] * 1000:.0f} ms | "
+        f"{res['median_offset_s'] * 1000:+.0f} ms | {res['drift_over_show_s'] * 1000:+.0f} ms | "
+        f"{ok(res['pass_p95'])} | {ok(res['pass_drift'])} | {ok(res['pass_matched'])} |"])
 
 
 def play_clicks(out: str, n: int, interval_s: float) -> None:
@@ -86,7 +120,7 @@ def play_clicks(out: str, n: int, interval_s: float) -> None:
     times = []
     for _ in range(n):
         times.append(time.time())
-        winsound.Beep(2000, 40)
+        winsound.Beep(BEEP_HZ, BEEP_MS)
         time.sleep(interval_s)
     pathlib.Path(out).write_text(json.dumps(times))
 
@@ -106,9 +140,14 @@ def main() -> None:
     if a.cmd == "play":
         play_clicks(a.out, a.n, a.interval)
         return
-    log = pathlib.Path(a.log)
-    wav = a.wav or log.parent / read_session(log)[0]["audio"]["path"]
-    print(json.dumps(run(str(log), str(wav), a.clicks), indent=2))
+    try:
+        wav = wav_for(a.log, a.wav)
+        res = run_or_load("audio_clock", run, log_path=a.log, clicks_path=a.clicks, wav_path=wav,
+                          key=digest(a.log, a.clicks))
+    except (ValueError, OSError) as e:
+        sys.exit(f"error: {e}")
+    print(table(res))
+    print(json.dumps(res, indent=2))
 
 
 if __name__ == "__main__":

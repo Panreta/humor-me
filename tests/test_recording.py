@@ -76,12 +76,11 @@ def test_malformed_frames_are_refused_and_write_nothing(tmp_path, bad):
     assert not (tmp_path / "a.wav").exists()
 
 
-def test_a_closed_recorder_takes_no_more_audio(tmp_path):
+def test_a_closed_recorder_drops_late_audio_without_complaint(tmp_path):
     rec = Recorder(tmp_path / "a.wav")
     rec.write(CHUNK)
     rec.close()
-    with pytest.raises(ValueError):
-        rec.write(CHUNK)
+    rec.write(CHUNK)
     assert frames(tmp_path / "a.wav")[0] == 4096
 
 
@@ -130,14 +129,69 @@ def test_a_dropped_connection_leaves_a_readable_wav_with_every_sample(server):
     assert read_session(next(server.glob("*.jsonl")))[-1]["status"] == "aborted"
 
 
-def test_a_microphone_that_failed_runs_the_show_unrecorded(server):
+def next_error(ws):
+    """A bad message makes the server answer at once, so anything it had queued before would be read first."""
+    ws.send_json({"type": "nonsense"})
+    return json.loads(ws.receive()["text"])
+
+
+def test_a_microphone_that_failed_runs_the_show_unrecorded_and_carries_the_reason(server):
     with TestClient(main.app).websocket_connect("/ws") as ws:
         ws.send_json(start(True))
         until(ws, "record")
-        ws.send_json({"type": "audio_failed"})
-        pump(ws)
+        ws.send_json({"type": "audio_failed", "reason": "NotAllowedError: denied"})
+        seen = pump(ws)
+    assert [m["reason"] for m in seen if m["type"] == "record_stop"] == ["NotAllowedError: denied"]
     assert list(server.glob("*.wav")) == []
     assert read_session(next(server.glob("*.jsonl")))[0]["audio"] == {"consent": True, "path": None, "start_at": None}
+
+
+def test_a_mic_that_opens_after_the_server_gave_up_is_told_once_and_its_frames_dropped_silently(server, monkeypatch):
+    monkeypatch.setattr(main, "AUDIO_WAIT_S", 0.05)
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(start(True))
+        until(ws, "record")
+        assert until(ws, "record_stop")["reason"]
+        for _ in range(3):
+            ws.send_bytes(CHUNK)  # the late microphone
+        assert next_error(ws)["message"].startswith("unknown message type")
+        seen = pump(ws)
+    assert [m["type"] for m in seen if m["type"] in ("error", "record_stop")] == []
+    assert list(server.glob("*.wav")) == []
+    assert read_session(next(server.glob("*.jsonl")))[0]["audio"]["path"] is None
+
+
+def test_frames_in_flight_when_the_show_ends_are_dropped_silently(server):
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(start(True))
+        until(ws, "record")
+        ws.send_bytes(CHUNK)
+        seen = pump(ws)
+        ws.send_bytes(CHUNK)
+        assert next_error(ws)["message"].startswith("unknown message type")
+    assert [m["type"] for m in seen].count("record_stop") == 1
+    (wav,) = server.glob("*.wav")
+    assert frames(wav)[0] == 4096
+
+
+def test_a_disk_error_stops_the_recording_but_not_the_show(server, monkeypatch):
+    class FailingDisk(Recorder):
+        def _write(self, pcm):
+            if self.samples:
+                raise OSError("disk full")
+            super()._write(pcm)
+
+    monkeypatch.setattr(main, "Recorder", FailingDisk)
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(start(True))
+        until(ws, "record")
+        for _ in range(3):
+            ws.send_bytes(CHUNK)
+        seen = pump(ws)
+    stops = [m for m in seen if m["type"] == "record_stop"]
+    assert len(stops) == 1 and "disk" in stops[0]["reason"] and not any(m["type"] == "error" for m in seen)
+    assert seen[-1] == {"type": "show_end", "status": "finished"}
+    assert frames(next(server.glob("*.wav")))[0] == 4096
 
 
 def test_a_recording_must_have_a_start_time_in_the_log(tmp_path):
@@ -161,13 +215,20 @@ def test_llm_without_its_settings_says_what_to_set(monkeypatch):
         llm.from_env()
 
 
-def clicked_show(tmp_path, true_times, start_at, rate=16000, seconds=60):
-    audio = np.random.default_rng(0).normal(0, 0.002, rate * seconds)
+def clicked_show(tmp_path, true_times, start_at, rate=16000, seconds=60, speech_at=()):
+    """Beeps as `play` makes them over a quiet room; `speech_at` adds half-second broadband bursts starting just
+    before those times, standing in for the voice and laughter."""
+    rng = np.random.default_rng(0)
+    audio = rng.normal(0, 0.002, rate * seconds)
+    tone = 0.5 * np.sin(2 * np.pi * ev.BEEP_HZ * np.arange(int(rate * ev.BEEP_MS / 1000)) / rate)
     for t in true_times:
         i = int((t - start_at) * rate)
-        audio[i : i + 40] = 0.8
+        audio[i : i + tone.size] += tone
+    for t in speech_at:
+        i = int((t - start_at - 0.1) * rate)
+        audio[i : i + rate // 2] += rng.normal(0, 0.2, rate // 2)
     rec = Recorder(tmp_path / "s.wav", clock=lambda: start_at + 4096 / RATE)
-    pcm = (audio * 32767).astype("<i2").tobytes()
+    pcm = (np.clip(audio, -1, 1) * 32767).astype("<i2").tobytes()
     for i in range(0, len(pcm), 8192):
         rec.write(pcm[i : i + 8192])
     log = SessionLog(tmp_path)
@@ -176,25 +237,50 @@ def clicked_show(tmp_path, true_times, start_at, rate=16000, seconds=60):
     return log.path, tmp_path / "s.wav"
 
 
+START = 1_000_000.0
+TRUE = [START + 3 + 5 * k for k in range(10)]
+
+
 def test_click_offsets_are_recovered_at_known_times(tmp_path):
-    start_at = 1_000_000.0
-    true = [start_at + 3 + 5 * k for k in range(10)]
-    log_path, wav = clicked_show(tmp_path, true, start_at)
-    # the logged times are 30 ms earlier than the clicks really sound
-    (tmp_path / "clicks.json").write_text(json.dumps([t - 0.03 for t in true]))
-    out = ev.run(str(log_path), str(wav), str(tmp_path / "clicks.json"))
+    log_path, wav = clicked_show(tmp_path, TRUE, START)
+    # the logged times are 30 ms earlier than the beeps really sound
+    (tmp_path / "clicks.json").write_text(json.dumps([t - 0.03 for t in TRUE]))
+    out = ev.run(str(log_path), str(tmp_path / "clicks.json"), str(wav))
     assert out["n_matched"] == 10 and out["n_missed"] == 0
     assert out["median_offset_s"] == pytest.approx(0.03, abs=0.002)
     assert out["p95_abs_offset_s"] == pytest.approx(0.03, abs=0.002)
-    assert out["pass_p95"] and out["pass_drift"] and abs(out["drift_over_show_s"]) < 0.002
+    assert out["pass_p95"] and out["pass_drift"] and out["pass_matched"] and abs(out["drift_over_show_s"]) < 0.002
+    assert "| 10/10 |" in ev.table(out)
+
+
+def test_speech_over_some_beeps_does_not_move_the_offsets(tmp_path):
+    log_path, wav = clicked_show(tmp_path, TRUE, START, speech_at=[TRUE[2], TRUE[3], TRUE[7]])
+    (tmp_path / "clicks.json").write_text(json.dumps([t - 0.03 for t in TRUE]))
+    out = ev.run(str(log_path), str(tmp_path / "clicks.json"), str(wav))
+    assert out["n_matched"] == 10
+    assert out["median_offset_s"] == pytest.approx(0.03, abs=0.004)
+    assert out["p95_abs_offset_s"] == pytest.approx(0.03, abs=0.004)
+
+
+def test_speech_alone_is_not_a_beep():
+    speech = np.random.default_rng(1).normal(0, 0.2, 16000 * 5)
+    assert ev.detect_clicks(speech, 16000) == []
 
 
 def test_a_drifting_clock_fails_the_drift_bar_and_a_late_one_the_p95_bar(tmp_path):
-    start_at = 1_000_000.0
-    true = [start_at + 3 + 5 * k for k in range(10)]
-    log_path, wav = clicked_show(tmp_path, true, start_at)
-    drifting = [t - 0.2 * (t - true[0]) / (true[-1] - true[0]) for t in true]  # 200 ms across the show
+    log_path, wav = clicked_show(tmp_path, TRUE, START)
+    drifting = [t - 0.2 * (t - TRUE[0]) / (TRUE[-1] - TRUE[0]) for t in TRUE]  # 200 ms across the show
     (tmp_path / "c.json").write_text(json.dumps(drifting))
-    out = ev.run(str(log_path), str(wav), str(tmp_path / "c.json"))
+    out = ev.run(str(log_path), str(tmp_path / "c.json"), str(wav))
     assert out["drift_over_show_s"] == pytest.approx(0.2, abs=0.005)
     assert not out["pass_drift"] and not out["pass_p95"]
+
+
+def test_check_on_an_unrecorded_show_says_so_instead_of_crashing(tmp_path, monkeypatch):
+    log = SessionLog(tmp_path)
+    log.write("show_start", room="sim", context=CTX, policy=POLICY, generator_id="g", selector_id="s", git_sha="x",
+              operator="t", audio={"consent": False, "path": None})
+    (tmp_path / "c.json").write_text("[1.0]")
+    monkeypatch.setattr(sys, "argv", ["evaluate_clock", "check", str(log.path), str(tmp_path / "c.json")])
+    with pytest.raises(SystemExit, match="not recorded"):
+        ev.main()

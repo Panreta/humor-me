@@ -195,7 +195,7 @@ accepted, no file is created and the show runs as before (`show_start.audio` is 
 - **Alignment:** `show_start.audio.start_at` is the wall-clock time (the log's `at` timebase) of the first sample,
   estimated as the first frame's arrival minus its length. A line's time in the WAV is `audio_start_at - start_at`.
   Exp 21 measures how far that is off (`python -m sim.evaluate_clock`): beeps are played through the speakers during a
-  15-minute live show and compared with the logged times. Bar: p95 at most 100 ms, no drift.
+  15-minute show in a simulated room (`GENERATOR=bank`, consent box ticked) and compared with the logged times. Bar: p95 at most 100 ms, no drift.
 
 ## Safety
 

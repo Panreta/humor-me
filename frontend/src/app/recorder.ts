@@ -10,6 +10,9 @@ export async function startRecorder(onChunk: (pcm: ArrayBuffer) => void): Promis
   try {
     context = new AudioContext({ sampleRate: RECORD_RATE });
     await context.audioWorklet.addModule("/recorder-worklet.js");
+    // Made in a websocket handler, not a click, so it may start suspended; a suspended context records silence.
+    await context.resume();
+    if (context.state !== "running") throw new Error("the browser would not start audio capture");
     const node = new AudioWorkletNode(context, "recorder");
     node.port.onmessage = (event: MessageEvent<ArrayBuffer>) => onChunk(event.data);
     // Silent sink: some browsers only run a node that reaches the destination.

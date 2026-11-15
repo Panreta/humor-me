@@ -39,7 +39,10 @@ export function useShow() {
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stopMicRef = useRef<(() => void) | null>(null);
 
+  const micToken = useRef(0);
+
   const stopMic = useCallback(() => {
+    micToken.current++; // a microphone still opening must stop as soon as it opens
     stopMicRef.current?.();
     stopMicRef.current = null;
   }, []);
@@ -145,18 +148,23 @@ export function useShow() {
             flashTimer.current = setTimeout(() => setFlash(null), FLASH_MS);
           } else if (msg.type === "record") {
             // The server asked because the operator ticked consent; it waits for the first chunk before the show.
+            const token = ++micToken.current;
             startRecorder((pcm) => {
               if (socket.readyState === WebSocket.OPEN) socket.send(pcm);
             }).then(
               (stop) => {
-                if (socket.readyState === WebSocket.OPEN) stopMicRef.current = stop;
-                else stop();
+                if (token === micToken.current && socket.readyState === WebSocket.OPEN) stopMicRef.current = stop;
+                else stop(); // the server gave up or the show ended while the microphone was opening
               },
-              () => {
-                setNotice("Couldn't open the microphone, so this show is not recorded.");
-                if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "audio_failed" }));
+              (error) => {
+                if (token !== micToken.current || socket.readyState !== WebSocket.OPEN) return;
+                const why = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+                socket.send(JSON.stringify({ type: "audio_failed", reason: `Couldn't record (${why}), so this show is not recorded.` }));
               },
             );
+          } else if (msg.type === "record_stop") {
+            stopMic();
+            if (msg.reason) setNotice(String(msg.reason));
           } else if (msg.type === "error") {
             setNotice(String(msg.message));
           } else if (msg.type === "show_end") {

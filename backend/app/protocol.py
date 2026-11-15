@@ -28,8 +28,11 @@ def parse(frame: dict) -> dict:
     if not isinstance(msg, dict):
         raise ProtocolError("message must be a JSON object")
     kind = msg.get("type")
-    if kind in ("played", "audio_failed"):
+    if kind == "played":
         return {"type": kind}
+    if kind == "audio_failed":
+        reason = msg.get("reason")
+        return {"type": kind, "reason": reason[:200] if isinstance(reason, str) and reason.strip() else None}
     if kind == "reaction":
         key = msg.get("key")
         if not isinstance(key, str) or key not in KEY_LEVELS:

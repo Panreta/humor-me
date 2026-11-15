@@ -54,6 +54,17 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+async def _release(ws: WebSocket, live: types.SimpleNamespace, reason: str | None = None) -> None:
+    """End the recording, once: later frames are dropped without comment, and the browser is told to stop its mic."""
+    recorder, live.recorder = live.recorder, None
+    if recorder is None:
+        return
+    live.late = True
+    recorder.close()
+    with contextlib.suppress(Exception):
+        await ws.send_json({"type": "record_stop", "reason": reason})
+
+
 async def _open_recorder(ws: WebSocket, live: types.SimpleNamespace, log: SessionLog) -> dict:
     """The show waits for the first audio frame so `start_at` is known before `show_start` is written."""
     recorder = live.recorder = Recorder(log.path.with_suffix(".wav"))
@@ -61,11 +72,27 @@ async def _open_recorder(ws: WebSocket, live: types.SimpleNamespace, log: Sessio
     with contextlib.suppress(asyncio.TimeoutError):
         await asyncio.wait_for(recorder.started.wait(), AUDIO_WAIT_S)
     if recorder.start_at is None:
-        recorder.close()
-        live.recorder = None
-        await ws.send_json({"type": "error", "message": "no microphone audio arrived, so this show is not recorded"})
+        await _release(ws, live, recorder.reason or "no microphone audio arrived")
         return {"consent": True, "path": None, "start_at": None}
     return {"consent": True, "path": recorder.path.name, "start_at": recorder.start_at}
+
+
+async def _audio_frame(ws: WebSocket, live: types.SimpleNamespace, data: bytes) -> None:
+    recorder = live.recorder
+    if recorder is None:
+        if not live.late:  # a frame in flight when the recording ended is not an error
+            await ws.send_json({"type": "error", "message": "audio refused: no recording was agreed for this show"})
+        return
+    try:
+        await asyncio.to_thread(recorder.write, data)  # disk writes must not stall the show's clock
+        if recorder.start_at is not None:
+            recorder.started.set()  # here, not in the thread: asyncio.Event is not thread-safe
+    except ValueError as e:
+        await ws.send_json({"type": "error", "message": str(e)})
+    except OSError as e:  # a full disk or a file locked by a sync tool must not end the show
+        log.warning("recording stopped: %s", e)
+        if live.recorder is recorder:
+            await _release(ws, live, "the recording stopped: the disk refused the audio")
 
 
 async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.SimpleNamespace) -> None:
@@ -95,9 +122,7 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
             await ws.send_json({"type": "error", "message": f"show failed: {e}"})
     finally:
         live.source = None
-        if live.recorder is not None:
-            live.recorder.close()
-            live.recorder = None
+        await _release(ws, live)
     with contextlib.suppress(Exception):
         await ws.send_json({"type": "show_end", "status": status})
 
@@ -106,7 +131,7 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
 async def session(ws: WebSocket) -> None:
     await ws.accept()
     played: asyncio.Queue = asyncio.Queue()
-    live = types.SimpleNamespace(source=None, recorder=None)
+    live = types.SimpleNamespace(source=None, recorder=None, late=False)  # late: audio was asked for and ended
     show = None
     try:
         while True:  # keeps running while the show does, so keys and "played" are heard
@@ -114,12 +139,7 @@ async def session(ws: WebSocket) -> None:
             if frame["type"] == "websocket.disconnect":
                 break
             if frame.get("bytes") is not None:  # binary is only ever audio; every control message is a text frame
-                try:
-                    if live.recorder is None:
-                        raise ValueError("audio refused: no recording was agreed for this show")
-                    live.recorder.write(frame["bytes"])
-                except ValueError as e:
-                    await ws.send_json({"type": "error", "message": str(e)})
+                await _audio_frame(ws, live, frame["bytes"])
                 continue
             try:
                 msg = parse(frame)
@@ -132,13 +152,14 @@ async def session(ws: WebSocket) -> None:
                 played.put_nowait(msg)
             elif msg["type"] == "audio_failed":
                 if live.recorder is not None:
-                    live.recorder.abandon()
+                    live.recorder.abandon(msg["reason"])
             elif msg["type"] == "reaction":
                 if live.source is None:
                     log.info("ignored press %s: no live show", msg["key"])
                 else:
                     live.source.press(msg["bit"], msg["joke"], msg["key"])
             else:
+                live.late = False
                 show = asyncio.create_task(_show(ws, msg, played, live))
     except WebSocketDisconnect:
         pass
