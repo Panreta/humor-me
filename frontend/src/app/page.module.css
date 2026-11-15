@@ -43,10 +43,8 @@
   cursor: default;
 }
 
-.waveIdle {
-  width: min(900px, 100%);
+.idle {
   height: 18dvh;
-  color: var(--foreground);
 }
 
 .form {
@@ -104,16 +102,6 @@
 .row {
   display: flex;
   gap: 16px;
-}
-
-.secondary {
-  padding: 12px 24px;
-  border: 1px solid var(--foreground);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--foreground);
-  font: inherit;
-  cursor: pointer;
 }
 
 .confirm {

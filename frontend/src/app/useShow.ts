@@ -30,6 +30,7 @@ export function useShow() {
   const [endStatus, setEndStatus] = useState<EndStatus | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const contextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
   // Mirrors of state so `react` reads the current window without waiting for a re-render.
   const windowRef = useRef<ReactionWindow | null>(null);
   const roomRef = useRef<Room | null>(null);
@@ -37,7 +38,11 @@ export function useShow() {
 
   useEffect(
     () => () => {
-      socketRef.current?.close();
+      const socket = socketRef.current;
+      if (socket) {
+        socket.onclose = null;
+        socket.close();
+      }
       contextRef.current?.close();
       if (flashTimer.current) clearTimeout(flashTimer.current);
     },
@@ -56,10 +61,14 @@ export function useShow() {
       const context = contextRef.current ?? new AudioContext();
       contextRef.current = context;
       void context.resume();
-      const node = context.createAnalyser();
-      node.fftSize = 2048;
-      node.smoothingTimeConstant = 0.75;
-      node.connect(context.destination);
+      let node = analyserRef.current;
+      if (!node) {
+        node = context.createAnalyser();
+        node.fftSize = 2048;
+        node.smoothingTimeConstant = 0.75;
+        node.connect(context.destination);
+        analyserRef.current = node;
+      }
       setAnalyser(node);
       setLine("");
       setNotice("");
@@ -70,11 +79,17 @@ export function useShow() {
       setRoom(setup.room);
       setState("connecting");
 
-      socketRef.current?.close();
+      // A late close from the previous show must not touch this one's window or state.
+      const old = socketRef.current;
+      if (old) {
+        old.onopen = old.onclose = old.onerror = old.onmessage = null;
+        old.close();
+      }
       const socket = new WebSocket(WS_URL);
       socket.binaryType = "arraybuffer";
       socketRef.current = socket;
       let finished = false;
+      let failed = false;
 
       socket.onopen = () =>
         socket.send(
@@ -85,16 +100,24 @@ export function useShow() {
             operator: setup.operator.trim(),
           }),
         );
-      socket.onerror = () => setState("error");
+      socket.onerror = () => {
+        failed = true;
+        setState("error");
+      };
       socket.onclose = () => {
         closeWindow();
-        setState((s) => (finished || s === "error" ? s : "idle"));
+        if (finished || failed) return;
+        // The server logs a dropped show as aborted; the operator must see that too.
+        setEndStatus("aborted");
+        setNotice("Lost the connection to the backend.");
+        setState("done");
       };
       socket.onmessage = async (event) => {
         if (typeof event.data === "string") {
           const msg = JSON.parse(event.data);
           if (msg.type === "line") {
             setLine(msg.text);
+            setNotice("");
             setState("speaking");
           } else if (msg.type === "reaction_window") {
             if (msg.state === "open") {
@@ -119,14 +142,21 @@ export function useShow() {
           }
           return;
         }
-        const audio = await context.decodeAudioData(event.data);
-        const source = context.createBufferSource();
-        source.buffer = audio;
-        source.connect(node);
-        source.onended = () => {
+        const played = () => {
           if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "played" }));
         };
-        source.start();
+        try {
+          const audio = await context.decodeAudioData(event.data);
+          const source = context.createBufferSource();
+          source.buffer = audio;
+          source.connect(node);
+          source.onended = played;
+          source.start();
+        } catch {
+          // The server waits for `played` before the next line; without it the show hangs.
+          setNotice("Couldn't play that line, so it was skipped.");
+          played();
+        }
       };
     },
     [closeWindow],

@@ -31,37 +31,34 @@ export default function Home() {
   });
   const [confirming, setConfirming] = useState(false);
   const busy = state === "connecting" || state === "speaking";
-  const windowOpen = reactionWindow !== null;
+  // Display only; whether a press sends is decided in `react`. A simulated room opens windows too.
+  const canReact = room === "live" && reactionWindow !== null;
 
+  // Keys are read only during a show. No control can hold focus then (the form and dialog are gone and the
+  // reaction buttons never take it), so a key press can't also click a button.
   useEffect(() => {
+    if (!busy) return;
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target instanceof HTMLElement ? event.target : null;
-      const key = reactionKeyFor(
-        {
-          code: event.code,
-          repeat: event.repeat,
-          ctrlKey: event.ctrlKey,
-          metaKey: event.metaKey,
-          altKey: event.altKey,
-          shiftKey: event.shiftKey,
-          targetTag: target?.tagName ?? null,
-          targetEditable: target?.isContentEditable ?? false,
-        },
-        { room, windowOpen },
-      );
+      const key = reactionKeyFor({
+        code: event.code,
+        repeat: event.repeat,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        altKey: event.altKey,
+        shiftKey: event.shiftKey,
+        targetTag: target?.tagName ?? null,
+        targetEditable: target?.isContentEditable ?? false,
+      });
       if (!key) return;
-      // Space would also scroll the page or click whatever button still holds focus.
-      event.preventDefault();
-      (document.activeElement as HTMLElement | null)?.blur();
+      event.preventDefault(); // Space would scroll the page
       react(key);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [room, windowOpen, react]);
+  }, [busy, react]);
 
   const launch = () => {
-    // Start keeps focus after the click; a later Space would re-trigger it instead of reacting.
-    (document.activeElement as HTMLElement | null)?.blur();
     setConfirming(false);
     start(setup);
   };
@@ -90,7 +87,7 @@ export default function Home() {
 
   return (
     <main className={styles.stage}>
-      <div className={busy ? styles.wave : styles.waveIdle} aria-hidden="true">
+      <div className={busy ? styles.wave : `${styles.wave} ${styles.idle}`} aria-hidden="true">
         <Waveform analyser={analyser} />
       </div>
       <p className={styles.line} aria-live="polite">
@@ -104,8 +101,8 @@ export default function Home() {
 
       {busy ? (
         <section className={styles.panel} aria-label="Reactions">
-          <p className={windowOpen ? styles.windowOpen : styles.windowIdle} role="status">
-            {windowOpen ? "React now" : room === "sim" ? "Simulated room" : "Waiting for the line to finish"}
+          <p className={canReact ? styles.windowOpen : styles.windowIdle} role="status">
+            {room === "sim" ? "Simulated room" : canReact ? "React now" : "Waiting for the line to finish"}
           </p>
           <div className={styles.buttons}>
             {REACTIONS.map(({ key, hint, meaning }) => {
@@ -117,10 +114,8 @@ export default function Home() {
                   tabIndex={-1}
                   className={`${styles.reaction} ${lit ? styles.lit : ""}`}
                   aria-pressed={lit}
-                  // Keeping focus off the button stops Space from also clicking it.
                   onMouseDown={(e) => e.preventDefault()}
-                  // detail is 0 for a keyboard-generated click; the global listener already handled that press.
-                  onClick={(e) => e.detail > 0 && room === "live" && react(key)}
+                  onClick={() => react(key)}
                 >
                   <span className={styles.hint}>{hint}</span>
                   <span className={styles.meaning}>{meaning}</span>
@@ -139,7 +134,7 @@ export default function Home() {
             <button type="button" className={styles.start} onClick={launch} autoFocus>
               Confirm and start
             </button>
-            <button type="button" className={styles.secondary} onClick={() => setConfirming(false)}>
+            <button type="button" className={styles.start} onClick={() => setConfirming(false)}>
               Back
             </button>
           </div>
