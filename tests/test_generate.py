@@ -340,6 +340,50 @@ def test_a_slow_bit_gets_more_bridge_lines_up_to_the_cap(tmp_path):
     assert sum(t.startswith("b") for t in plays) == MAX_BRIDGES
 
 
+def thread_of(text):
+    return int(text.rsplit(".", 1)[1])  # Gen names a line "<tag> <bit>.<joke>.<thread>"
+
+
+def test_a_bit_plays_one_thread_whenever_a_thread_fully_passes(tmp_path):
+    # Thread 1 is rejected at joke 2, so threads 0 and 2 are the full ones. The closer must match the opener.
+    flt = Filter(rule=lambda t: not t.endswith("0.2.1") and not t.endswith("1.2.1") and not t.endswith("2.2.1"))
+    rows, _ = show(tmp_path, Gen(), flt, n_bits=3)
+    by_bit = {}
+    for r in (r for r in rows if r["event"] == "joke_played"):
+        by_bit.setdefault(r["bit"], []).append(r)
+    assert len(by_bit) == 3
+    for plays in by_bit.values():
+        assert len({thread_of(r["text"]) for r in plays}) == 1 and thread_of(plays[0]["text"]) != 1
+        assert [r["pick_prob"] for r in plays] == [0.5] * 5  # two eligible threads: 0.5 each, 1 in total
+
+
+def test_thread_picks_are_uniform_over_the_eligible_threads_and_probabilities_sum_to_one():
+    from app.show import _pick_thread
+    batches = [generate.Batch("p", "x", [f"line {j}.{i}" for i in range(3)]) for j in range(5)]
+    passing = [[0, 2]] * 4 + [[0, 1, 2]]  # threads 0 and 2 pass everywhere, thread 1 misses four jokes
+    selector = UniformSelector(3)
+    picks = [_pick_thread(batches, passing, selector) for _ in range(400)]
+    assert {t for t, _ in picks} == {0, 2} and {p for _, p in picks} == {0.5}
+    assert 140 <= sum(t == 0 for t, _ in picks) <= 260
+    assert _pick_thread(batches, [[]] * 5, selector) is None  # nothing passed anywhere
+
+
+def test_without_a_full_thread_the_best_partial_one_is_filled_from_other_threads_then_the_bank(tmp_path):
+    def rule(text):
+        thread, joke = thread_of(text), int(text.rsplit(".", 2)[1])
+        return not ((thread == 0 and joke == 1) or (thread == 1 and joke == 3) or joke == 4 or thread == 2)
+    # thread 0 fails joke 1, thread 1 fails joke 3, thread 2 fails everything, and joke 4 fails in every thread.
+    rows, _ = show(tmp_path, Gen(), Filter(rule=rule), fallback=BankGenerator(), n_bits=1)
+    plays = [r for r in rows if r["event"] == "joke_played"]
+    assert len(plays) == 5
+    chosen = thread_of(plays[0]["text"])
+    assert chosen in (0, 1)
+    other = 1 - chosen
+    failed = 1 if chosen == 0 else 3
+    assert thread_of(plays[failed]["text"]) == other  # the rejected slot borrows the other thread's passing line
+    assert not plays[4]["text"].startswith("ok")  # no thread passes joke 4: the bank's line
+
+
 def test_the_first_line_is_rendered_before_the_bridge_hands_over(tmp_path):
     voice = FakeVoice(delay=0.5)
     gen = Gen()

@@ -109,9 +109,28 @@ async def _render(tts, text: str, clock):
     return wav, clock.now() - asked
 
 
+def _pick_thread(batches, passing, selector) -> tuple[int, float] | None:
+    """Candidate i of every joke belongs to thread i (the generator is prompted so), and a bit plays one thread, so
+    the closer's callback matches the opener the room heard. Picks uniformly among the threads with the most passing
+    jokes: every full thread when any passes, else the best partial ones. `prob` is that pick's probability, so over
+    the eligible threads it sums to 1; it is logged as `pick_prob` of every line played from the thread. None when
+    no candidate passed anywhere."""
+    live = [j for j, b in enumerate(batches) if b]
+    if not live:
+        return None
+    n = min(len(batches[j].texts) for j in live)
+    score = [sum(t in passing[j] for j in live) for t in range(n)]
+    tied = [t for t in range(n) if score[t] == max(score, default=0) > 0]
+    if not tied:
+        return None
+    k, prob = selector.pick([batches[live[0]].texts[t] for t in tied])
+    return tied[k], prob
+
+
 async def _prepare(bit, mode, context, *, generator, fallback, safety, selector, tts, clock, log, jokes_per_bit, spawn):
     """Everything a bit needs before its first line: candidates, the safety verdicts and the first render.
-    A joke whose generation failed, or whose candidates were all rejected, falls back to the hand-checked bank."""
+    The bit plays one thread; a joke whose candidate in that thread was rejected takes another thread's passing
+    candidate, and a joke with none falls back to the hand-checked bank (rules only)."""
     age = context["age"]
     batches: list[Batch | None] = []
     reasons: list[str] = []
@@ -129,19 +148,24 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
                           items=[{"text": "", "verdict": "reject", "reason": reasons[-1]}])
     if prefetch := getattr(safety, "prefetch", None):  # the LLM layer judges the whole bit in one call
         await asyncio.to_thread(prefetch, [t for b in batches if b for t in b.texts], age)
+    passing: list[list[int]] = []
+    for joke, batch in enumerate(batches):
+        items = [_judge(safety.check, t, age) for t in batch.texts] if batch else []
+        if batch:
+            log.write("candidates", bit=bit, joke=joke, prompt_id=batch.prompt_id, prompt=batch.prompt,
+                      generator_id=generator.generator_id, items=items)
+        passing.append([i for i, item in enumerate(items) if item["verdict"] == "pass"])
+        if batch and not passing[-1]:
+            reasons[joke] = "every candidate rejected"
+    thread = _pick_thread(batches, passing, selector)
     plans: list[_Plan | None] = []
     for joke, batch in enumerate(batches):
         plan = None
-        if batch:
-            items = [_judge(safety.check, t, age) for t in batch.texts]
-            log.write("candidates", bit=bit, joke=joke, prompt_id=batch.prompt_id, prompt=batch.prompt,
-                      generator_id=generator.generator_id, items=items)
-            passing = [i for i, item in enumerate(items) if item["verdict"] == "pass"]
-            if passing:
-                pick, prob = selector.pick([batch.texts[i] for i in passing])
-                plan = _Plan(batch, passing[pick], prob)
-            else:
-                reasons[joke] = "every candidate rejected"
+        if batch and thread and thread[0] in passing[joke]:
+            plan = _Plan(batch, thread[0], thread[1])
+        elif batch and passing[joke]:  # this slot's thread candidate failed: borrow another thread's line
+            pick, prob = selector.pick([batch.texts[i] for i in passing[joke]])
+            plan = _Plan(batch, passing[joke][pick], prob)
         if plan is None and fallback:
             _log.warning("bit %s joke %s: %s; using %s", bit, joke, reasons[joke], fallback.generator_id)
             batch = await asyncio.to_thread(fallback.generate, mode, bit, joke, context)
@@ -152,10 +176,10 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
                 item["reason"] = f"bank fallback ({reasons[joke]}); rules: {item['reason']}"
             log.write("candidates", bit=bit, joke=joke, prompt_id=batch.prompt_id, prompt=batch.prompt,
                       generator_id=fallback.generator_id, items=items)
-            passing = [i for i, item in enumerate(items) if item["verdict"] == "pass"]
-            if passing:
-                pick, prob = selector.pick([batch.texts[i] for i in passing])
-                plan = _Plan(batch, passing[pick], prob)
+            ok = [i for i, item in enumerate(items) if item["verdict"] == "pass"]
+            if ok:
+                pick, prob = selector.pick([batch.texts[i] for i in ok])
+                plan = _Plan(batch, ok[pick], prob)
         plans.append(plan)
     _start_render(plans, 0, tts, clock, spawn)
     if first := next((p for p in plans if p), None):

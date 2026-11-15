@@ -50,7 +50,7 @@ row), only noted by the Python logger. Within a hold the last press wins and eac
 By default the show uses the bank and a bank-only filter (`BankOnlySafety`), which needs no key. `GENERATOR=llm` switches to the
 real stack (`app/generate.py`): one model call per bit for 5 jokes x 3 candidates, the safety filter's rules plus one LLM verdict call
 per bit, the next line rendered while the current one plays, and in-character bridge lines while a bit loads. A failed call is retried
-twice inside a deadline; a failed generation or a bit whose candidates are all rejected falls back to the hand-checked bank, logged in
+twice inside a deadline; a failed generation or a bit whose candidates are all rejected falls back to the hand-checked bank (rules only, no API call), logged in
 `candidates`. A `live` room refuses to start without `app/blocklist.local.txt`.
 
 ```sh

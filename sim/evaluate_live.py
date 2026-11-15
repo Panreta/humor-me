@@ -13,8 +13,10 @@ environment and never printed or stored.
 """
 import argparse
 import asyncio
-import tempfile
+import hashlib
+import os
 import pathlib
+import tempfile
 import sys
 import time
 
@@ -28,6 +30,7 @@ from app.bank import BankGenerator  # noqa: E402
 from app.director import load_director  # noqa: E402
 from app.log import SessionLog, read_session  # noqa: E402
 from app.rooms import REACTION, RealClock, SimRoom  # noqa: E402
+from app import show as show_module  # noqa: E402
 from app.show import UniformSelector, run_show  # noqa: E402
 from app.tts import wav_seconds  # noqa: E402
 
@@ -113,15 +116,25 @@ def one_show(tts, age: str, seed: int, n_bits: int) -> dict:
             "request_starts": [c["start"] for c in gen_calls + safe_calls]}
 
 
+def digest() -> str:
+    """Part of the cache key, so a changed prompt, bridge line or timing constant recomputes the experiment."""
+    parts = [generate.PROMPT_ID, generate.SYSTEM, generate.TEENS_RULE, repr(generate.BRIDGES), repr(generate.MODES),
+             str((generate.K, generate.JOKES, generate.TEMPERATURE, generate.GENERATOR_TIMING, generate.FILTER_TIMING,
+                  generate.RETRIES, show_module.MAX_BRIDGES, llm.MIN_ATTEMPT_S))]
+    return hashlib.sha256(chr(10).join(parts).encode()).hexdigest()[:12]
+
+
 def peak_per_minute(starts: list[float]) -> int:
     starts = sorted(starts)
     return max((sum(1 for t in starts if s <= t < s + 60) for s in starts), default=0)
 
 
 def run(ages: tuple = ("mixed", "teens", "mixed"), n_bits: int = 8, seed: int = 0,
-        quota_rpd: int = 0, quota_rpm: int = 0) -> dict:
+        quota_rpd: int = 0, quota_rpm: int = 0, model: str = "", config: str = "") -> dict:
     """`quota_rpd` and `quota_rpm` are the provider's free-tier requests per day and per minute for this model,
-    read from its dashboard by whoever runs this; they are inputs, not measured."""
+    assumed by whoever runs this; they are inputs, not measured. `model` and `config` only key the cache."""
+    assert config in ("", digest()), "prompt, bridge lines or timing constants changed since this call was built"
+    assert model in ("", os.environ.get("LLM_MODEL")), "LLM_MODEL is not the model this call was keyed to"
     from app.tts import KokoroTTS
     tts = KokoroTTS()
     tts.synthesize("Warm up.")  # the first call loads weights; a real show starts with it warm
@@ -157,7 +170,8 @@ def main() -> None:
         from dotenv import load_dotenv
         load_dotenv(a.env_file, override=True)
     from sim.cache import run_or_load
-    out = run_or_load("live_generator", run, rerun=a.rerun, quota_rpd=a.quota_rpd, quota_rpm=a.quota_rpm)
+    out = run_or_load("live_generator", run, rerun=a.rerun, quota_rpd=a.quota_rpd, quota_rpm=a.quota_rpm,
+                      model=os.environ["LLM_MODEL"], config=digest())
     print({k: v for k, v in out.items() if k != "shows"})
 
 

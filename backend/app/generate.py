@@ -1,4 +1,5 @@
-"""The LLM generator: one call per bit returns K candidate lines for each of the bit's jokes.
+"""The LLM generator: one call per bit returns K threads of the bit, as K candidate lines for each of its jokes.
+Candidate i of every joke belongs to thread i, and the show plays one thread through (app.show._pick_thread).
 
 Failure is the generator's to report and the show's to absorb: `generate` raises when the call or the reply is bad
 (the same exception for every joke of that bit, with no second call), and the show falls back to the hand-checked
@@ -10,10 +11,10 @@ from app import llm, safety
 from app.bank import BankGenerator
 from app.show import Batch
 
-K = 3  # candidates per joke: enough for the filter to reject some and the selector to still choose
+K = 3  # threads per bit: enough for the filter to reject some and the selector to still choose
 JOKES = 5
 TEMPERATURE = 0.9
-PROMPT_ID = "gen-v1"
+PROMPT_ID = "gen-v2"
 
 # One identity, six attitudes (HumorGen personas as modes, CLAUDE.md invariant 3).
 MODES = {
@@ -28,13 +29,13 @@ SYSTEM = """You write material for a live stand-up show that one character perfo
 
 Mode: {mode}: {mode_note}.
 
-Write one bit: a premise, then {jokes} jokes played in order (opener, tag, tag, tag, closer). The opener sets up the situation, each tag builds on it, and the closer calls back to a word or image from the opener. For every slot give {k} different candidate lines that all fit the same premise.
+Write one bit in {k} alternative threads. A thread has its own premise angle and {jokes} jokes played in order (opener, tag, tag, tag, closer): the opener sets up the situation, each tag builds on it, and the closer calls back to a word or image from that same thread's opener. The {k} threads must take clearly different angles. Return them slot by slot: jokes[j][i] is slot j of thread i, so candidate i of every slot belongs to thread i and fits thread i's opener, never another thread's. The show plays one thread through.
 
 Rules:
 - Each line is one or two short sentences made for speaking aloud, under 30 words, with no stage directions or emoji.
 - Aim every joke at the robot itself, technology, the situation, or things people say. Never at who anyone is: no jokes about bodies or appearance, no protected groups, no real or named people, nobody in the room singled out.
 {teens}
-Reply with JSON only: {{"premise": "...", "jokes": [[{k} lines], ... {jokes} lists]}}"""
+Reply with JSON only: {{"premises": ["thread 0 premise", ...], "jokes": [[{k} lines], ... {jokes} lists]}}"""
 TEENS_RULE = "- The audience is teenagers: no alcohol, drugs, sexual content, innuendo or swearing."
 
 # In character, hand-written, one breath each: they only have to fill a few seconds while a bit loads.
@@ -67,12 +68,14 @@ def parse(reply: str) -> tuple[str, list[list[str]]]:
         rows = data["jokes"]
         if not isinstance(rows, list) or not all(isinstance(r, list) for r in rows):
             raise TypeError("jokes must be a list of lists")  # a string row would be read as characters
-        lines = [[s.strip() for s in row if isinstance(s, str) and s.strip()][:K] for row in rows]
-        premise = str(data.get("premise", ""))
+        premises = data.get("premises") or data.get("premise") or ""
+        premise = " | ".join(map(str, premises)) if isinstance(premises, list) else str(premises)
     except (ValueError, KeyError, TypeError, AttributeError) as e:
         raise GenerationError(f"malformed reply: {type(e).__name__}") from e
-    if len(lines) != JOKES or not all(lines):
-        raise GenerationError(f"expected {JOKES} jokes with candidates, got {[len(r) for r in lines]}")
+    # Position is the thread, so a short or blank slot cannot be squeezed up: the whole reply is rejected.
+    lines = [[s.strip() if isinstance(s, str) else "" for s in row[:K]] for row in rows[:JOKES]]
+    if len(rows) < JOKES or any(len(row) < K or not all(row) for row in lines):
+        raise GenerationError(f"expected {JOKES} jokes of {K} candidates, got {[len(r) for r in rows]}")
     return premise, lines
 
 
