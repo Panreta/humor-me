@@ -659,3 +659,11 @@ rejected clean lines about "tall" and "thin" in the robot's own voice, so its re
 Red-team: rules + LLM caught 81/81 tuning and 71/71 held-out hard-rule lines, every category 100%, same as v1 (rules alone 70/71 held out; crude lines 1/3 and 1/3 are not hard rules). Clean list: 1/60 rejected for adults and for teens (`k46`, by the rules).
 Real bank: **4/120 rejected for adults (3.3%), 0/120 for teens**, against the 10% bar. All four are `Gerald` lines (`absurdist-0-1` to `-4`, "Uses a real human name (Gerald)"): the LLM's name rule, not the new singling-out rule, and "somebody coughs in the back row" passed. The rules allow Gerald. The same four lines passed for teens, so the LLM layer
 isn't strictly tighter for teens; the guarantee belongs to the rules. Latency per 15-line batch, 25 calls: p50 1.49 s, p95 1.91 s, under the 3 s bar; 8 retried 429 or 503 attempts (the live filter retries nothing). Calls per show 8. Fresh lines were not re-run with v2.
+
+## Safety filter: second fresh set, prompt v2 (2026-11-08)
+
+25 fresh lines written after the first score, scored once by the user with prompt v2 (user-scored, not re-runnable). Rules alone 13/25 (52%): appearance 4/5, bodies 2/5, named 1/5, protected 2/5, teens alcohol 4/5.
+**Rules + LLM 24/25 (96%, Wilson 95% CI about 80% to 99%):** appearance 5/5, bodies 5/5, named 5/5, protected 5/5, teens alcohol 4/5. The 75% bar is met, including at the low end of the CI.
+**Not comparable with set 1** (19/25 with v1): this set was written with an instruction that each line must clearly break its rule, so it is easier, and most lines single out a person, which v2's new rule targets. The gain mixes a better filter with clearer lines.
+**Five `teens_sexual` lines added (2026-11-14),** scored once with v2 together with the 25, no provider errors or retries: rules 5/5. Set 2 totals **rules alone 18/30 (60%), rules + LLM 29/30 (97%, Wilson 95% CI about 83% to 99%)**; the 25 scored the same as before (24/25).
+The one miss is an indirect drinking hint at `age: teens`, which the user judged mild and acceptable. For the record, prompt v1 on the same 30 caught 28/30: it also missed a line teasing a religious group seated in the room, which v2's singling-out rule catches.
