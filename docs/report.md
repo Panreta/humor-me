@@ -87,6 +87,16 @@ any good, and how bad it gets in front of real people, is what the live sessions
 5.5 Live system: voice loop, laugh detection, operator fallback, safety filter.
     Wiki: not yet (pages added when built, weeks 3–5).
 
+**Live loop (status, 2026-11-15; no live results yet).** A whole show runs end to end: a browser operator UI starts it, the
+director (LinUCB with ε = 0.2, rebuilt by replay from earlier live shows) picks a mode per bit, a Gemini generator writes
+three candidate threads per bit, a rules-plus-LLM safety check fails closed, Kokoro speaks on the CPU with the next line
+rendered ahead and bridge lines covering the wait between bits, and one operator's key presses (W, K, Space, D) are the
+reward. Every row needed to replay a show goes to a session log, the room's audio is recorded only with a consent tick, and
+at the end the operator logs a 1 to 5 rating of the set. Measured so far: the safety layers on fresh lines (Exp 19), timing
+and quota on simulated rooms (Exp 20), and the recording's alignment with the log (Exp 21). The acceptance run (Exp 22) is
+built and waits on the user's live show; its numbers (label spread, real per-bit reward noise against the sim's) go here
+when they exist. The laugh detector is planned and not built.
+
 ## 6. Key decisions and trade-offs
 
 One row per decision that changed the result (to become D-xx entries: options, trade-off, choice).

@@ -9,22 +9,88 @@ vehicle.
 
 ## Architecture
 
+What is built through T11 (solid boxes) and what is still planned (dashed). The judge, SFT and DPO plug in at the
+generator and the selector. The camera snapshot, speech recognition, banter and roasts are after the Dec 8 demo and are not drawn.
+
+```mermaid
+%%{init: {"theme": "default"}}%%
+flowchart LR
+    subgraph Browser["Browser: operator UI (Next.js)"]
+        UI["Operator UI<br/>start form, consent box,<br/>reaction keys W K Space D"]
+        WAVE["Waveform<br/>(playback audio only)"]
+        REC["Recorder<br/>mono 16 kHz, enhancements off"]
+        RATE["Rating prompt<br/>1 to 5 or Skip"]
+    end
+
+    subgraph Backend["Backend: FastAPI websocket, one show at a time"]
+        PROTO["Protocol<br/>checked messages"]
+        LOOP["Show loop<br/>8 bits x 5 jokes,<br/>render-ahead, bridge lines"]
+        DIR["Director<br/>LinUCB + eps 0.2,<br/>rebuilt by replay"]
+        GEN["Generator<br/>Gemini: 3 threads per bit,<br/>bank fallback"]
+        SAFE["Safety filter<br/>rules + LLM verdict,<br/>fails closed"]
+        TTS["Voice<br/>Kokoro on CPU"]
+        BTN["Button reward source<br/>last press wins"]
+        SIM["Simulated room<br/>(sim/audience.yaml)"]
+    end
+
+    subgraph Disk["data/sessions (gitignored)"]
+        LOG[("Session log v2<br/>JSONL, one file per show")]
+        WAV[("Room audio<br/>WAV beside the log")]
+    end
+
+    subgraph Offline["Offline scoring"]
+        ACC["Acceptance run<br/>sim/acceptance.py:<br/>checks, label spread, noise"]
+        METRICS[("reports/metrics<br/>numbers only")]
+    end
+
+    DET["Laugh detector<br/>(planned: Stage 1)"]
+    JUDGE["Judge, SFT, DPO<br/>(model track, planned)"]
+
+    UI -->|"start, context, consent"| PROTO
+    UI -->|"reaction keys"| PROTO
+    RATE -->|"rating 1 to 5"| PROTO
+    REC -->|"PCM frames"| PROTO
+    PROTO --> LOOP
+    LOOP -->|"bit context"| DIR
+    DIR -->|"mode"| LOOP
+    LOOP -->|"mode, bit"| GEN
+    GEN -->|"candidates"| SAFE
+    SAFE -->|"passing lines"| LOOP
+    LOOP -->|"line text"| TTS
+    TTS -->|"WAV"| LOOP
+    LOOP -->|"line + audio"| WAVE
+    BTN -->|"levels 0 to 3"| LOOP
+    SIM -->|"levels 0 to 3"| LOOP
+    PROTO --> BTN
+    LOOP -->|"every row"| LOG
+    PROTO -->|"rating row after show_end"| LOG
+    PROTO -->|"frames"| WAV
+    LOG -->|"replay at show start"| DIR
+    LOG --> ACC
+    WAV --> ACC
+    ACC --> METRICS
+    WAV -.->|"audio"| DET
+    DET -.->|"shadow labels"| LOG
+    JUDGE -.->|"selector, model"| GEN
+
+    classDef rl fill:#d4f4dd,stroke:#2e7d32,color:#000
+    classDef model fill:#e8dcf8,stroke:#6a1b9a,color:#000
+    classDef data fill:#fff4c2,stroke:#b8860b,color:#000
+    classDef infra fill:#d6e9fb,stroke:#1565c0,color:#000
+    classDef ui fill:#fbdce8,stroke:#ad1457,color:#000
+    classDef stop fill:#f8d7d7,stroke:#c62828,color:#000
+    classDef planned stroke-dasharray:5 5
+    class UI,WAVE,REC,RATE ui
+    class DIR,BTN,SIM rl
+    class GEN,JUDGE model
+    class LOG,WAV,METRICS data
+    class PROTO,LOOP,TTS,ACC infra
+    class SAFE stop
+    class DET,JUDGE planned
 ```
-[session start]  optional camera snapshot ─► VLM ─► scene text (venue, size, vibe) ─► discard image
-                                                          │
-mic ─► VAD ─┬─► laughter detector ─► laugh features ──────┼─► room state
-            └─► ASR ─► banter / roast classifier ─────────┘        │
-                                                                   ▼
-                                     DIRECTOR: contextual bandit picks persona mode
-                                                                   │
-                         GENERATOR: core identity × mode ─► K candidates (thought-leap prompting)
-                                                                   │
-                                     JUDGE: pairwise rerank (LLM judge → later learned RM)
-                                                                   │
-                                     safety filter ─► TTS (with timing marks) ─► waveform UI
-                                                                   │
-                                     laugh-aware turn-taking: hold during laugh, resume on decay
-```
+
+Invariants this keeps: audio only in the loop (no face or video), every row needed to replay a show is in the log, the
+mode never reaches the browser, and a rating is the reported outcome, never a training reward.
 
 ### Two learning timescales
 
