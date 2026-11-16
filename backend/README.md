@@ -77,7 +77,7 @@ The user runs the shows; `sim/acceptance.py` scores them. Needed: 3 simulated sh
 - The room is told the show is recorded and agrees, then tick the consent box. Without it the show runs and nothing is recorded.
 - `backend/.env` has the Gemini key and `backend/app/blocklist.local.txt` exists (a live room refuses to start without it).
 
-**Start the backend from the main checkout** (`D:/vs-code-workspace/humor-me`, not a worktree: the key and the blocklist are there), in a Python 3.12 venv as in Setup:
+**Start the backend from the main checkout** (`D:/vs-code-workspace/humor-me`, not a worktree: the key and the blocklist are there), in a Python 3.12 venv as in Setup (on the operator laptop the working one is `D:/vs-code-workspace/humor-me-demo/backend/.venv`; the main checkout's `backend/.venv` is a stale 3.14 venv):
 
 ```sh
 cd backend
