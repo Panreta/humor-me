@@ -251,18 +251,18 @@ def test_llm_without_its_settings_says_what_to_set(monkeypatch):
         llm.from_env()
 
 
-def clicked_show(tmp_path, true_times, start_at, rate=16000, seconds=60, speech_at=()):
+def clicked_show(tmp_path, true_times, start_at, rate=16000, seconds=60, speech_at=(), amp=0.5, floor=0.002, burst=0.2):
     """Beeps as `play` makes them over a quiet room; `speech_at` adds half-second broadband bursts starting just
     before those times, standing in for the voice and laughter."""
     rng = np.random.default_rng(0)
-    audio = rng.normal(0, 0.002, rate * seconds)
-    tone = 0.5 * np.sin(2 * np.pi * ev.BEEP_HZ * np.arange(int(rate * ev.BEEP_MS / 1000)) / rate)
+    audio = rng.normal(0, floor, rate * seconds)
+    tone = amp * np.sin(2 * np.pi * ev.BEEP_HZ * np.arange(int(rate * ev.BEEP_MS / 1000)) / rate)
     for t in true_times:
         i = int((t - start_at) * rate)
         audio[i : i + tone.size] += tone
     for t in speech_at:
         i = int((t - start_at - 0.1) * rate)
-        audio[i : i + rate // 2] += rng.normal(0, 0.2, rate // 2)
+        audio[i : i + rate // 2] += rng.normal(0, burst, rate // 2)
     rec = Recorder(tmp_path / "s.wav", clock=lambda: start_at + 4096 / RATE)
     pcm = (np.clip(audio, -1, 1) * 32767).astype("<i2").tobytes()
     for i in range(0, len(pcm), 8192):
@@ -285,8 +285,9 @@ def test_click_offsets_are_recovered_at_known_times(tmp_path):
     assert out["n_matched"] == 10 and out["n_missed"] == 0
     assert out["median_offset_s"] == pytest.approx(0.03, abs=0.002)
     assert out["p95_abs_offset_s"] == pytest.approx(0.03, abs=0.002)
-    assert out["pass_p95"] and out["pass_drift"] and out["pass_matched"] and abs(out["drift_over_show_s"]) < 0.002
-    assert "| 10/10 |" in ev.table(out)
+    assert out["pass_spread"] and out["pass_drift"] and out["pass_matched"] and out["pass_old_p95"]
+    assert abs(out["drift_over_show_s"]) < 0.002
+    assert "| 10/10 | 0 |" in ev.table(out)
 
 
 def test_speech_over_some_beeps_does_not_move_the_offsets(tmp_path):
@@ -303,13 +304,52 @@ def test_speech_alone_is_not_a_beep():
     assert ev.detect_clicks(speech, 16000) == []
 
 
-def test_a_drifting_clock_fails_the_drift_bar_and_a_late_one_the_p95_bar(tmp_path):
+def test_quiet_beeps_over_louder_broadband_noise_are_all_found(tmp_path):
+    # a laptop mic records the beeps at ~0.003; bursts of speech-like noise three times that loud sit on some of them
+    log_path, wav = clicked_show(tmp_path, TRUE, START, speech_at=[TRUE[1], TRUE[4], TRUE[5]], amp=0.003, floor=0.0003,
+                                 burst=0.01)
+    (tmp_path / "clicks.json").write_text(json.dumps([t - 0.03 for t in TRUE]))
+    out = ev.run(str(log_path), str(tmp_path / "clicks.json"), str(wav))
+    assert out["n_matched"] == 10 and out["n_missed"] == 0
+    assert out["median_offset_s"] == pytest.approx(0.03, abs=0.004) and out["max_spread_s"] < 0.005
+    assert out["peak_over_noise_min"] > ev.NOISE_FACTOR
+
+
+def test_beeps_outside_the_recording_are_counted_apart_and_are_not_misses(tmp_path):
+    log_path, wav = clicked_show(tmp_path, TRUE, START)
+    before, after = [START - 20, START - 1], [START + 60 - 0.2, START + 70]  # the third could not be heard in full
+    (tmp_path / "clicks.json").write_text(json.dumps(before + [t - 0.03 for t in TRUE] + after))
+    out = ev.run(str(log_path), str(tmp_path / "clicks.json"), str(wav))
+    assert out["n_logged"] == 10 and out["n_outside"] == 4 and out["n_matched"] == 10 and out["n_missed"] == 0
+    assert out["pass_matched"]
+
+
+def test_a_constant_offset_with_jitter_passes_the_spread_bar_and_misses_the_old_one(tmp_path):
+    jitter = np.random.default_rng(3).uniform(-0.02, 0.02, len(TRUE))  # 20 ms either way
+    log_path, wav = clicked_show(tmp_path, TRUE, START)
+    (tmp_path / "c.json").write_text(json.dumps([t - 0.24 + j for t, j in zip(TRUE, jitter)]))
+    out = ev.run(str(log_path), str(tmp_path / "c.json"), str(wav))
+    assert out["median_offset_s"] == pytest.approx(0.24, abs=0.01)
+    assert out["pass_spread"] and out["pass_drift"] and out["pass_matched"]
+    assert not out["pass_old_p95"] and out["p95_abs_offset_s"] > 0.2
+
+
+def test_sixty_milliseconds_of_drift_fails_the_drift_bar(tmp_path):
+    log_path, wav = clicked_show(tmp_path, TRUE, START)
+    drifting = [t - 0.24 - 0.06 * (t - TRUE[0]) / (TRUE[-1] - TRUE[0]) for t in TRUE]
+    (tmp_path / "c.json").write_text(json.dumps(drifting))
+    out = ev.run(str(log_path), str(tmp_path / "c.json"), str(wav))
+    assert out["drift_over_show_s"] == pytest.approx(0.06, abs=0.003)
+    assert not out["pass_drift"] and out["pass_spread"]  # 60 ms of drift is spread inside 100 ms, so only the drift bar sees it
+
+
+def test_a_drifting_clock_fails_the_drift_bar_and_a_late_one_the_old_p95_bar(tmp_path):
     log_path, wav = clicked_show(tmp_path, TRUE, START)
     drifting = [t - 0.2 * (t - TRUE[0]) / (TRUE[-1] - TRUE[0]) for t in TRUE]  # 200 ms across the show
     (tmp_path / "c.json").write_text(json.dumps(drifting))
     out = ev.run(str(log_path), str(tmp_path / "c.json"), str(wav))
     assert out["drift_over_show_s"] == pytest.approx(0.2, abs=0.005)
-    assert not out["pass_drift"] and not out["pass_p95"]
+    assert not out["pass_drift"] and not out["pass_old_p95"]
 
 
 def test_check_on_an_unrecorded_show_says_so_instead_of_crashing(tmp_path, monkeypatch):
