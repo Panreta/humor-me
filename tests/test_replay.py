@@ -353,3 +353,19 @@ def test_bridge_rows_are_ignored_by_replay(tmp_path, clock):
     a, b = load_director([plain]), load_director([bridged])
     assert np.array_equal(a.inner.A, b.inner.A) and np.array_equal(a.inner.b, b.inner.b)
     assert [x["reward"] for x in finished_bits([plain])] == [x["reward"] for x in finished_bits([bridged])]
+
+
+def test_rating_rows_change_nothing_in_replay(tmp_path):
+    bits = [("cynic", [2, 3, 2, 1, 2]), ("observer", [1, 0, 1, 1, 0])]
+    show(tmp_path / "a", bits)
+    rated = show(tmp_path / "b", bits)
+    path = next((tmp_path / "b").glob("*.jsonl"))
+    log = SessionLog(tmp_path / "b")
+    log.session_id, log.path = rated[0]["session"], path
+    log.write("rating", value=5)
+    rows = read_session(path)
+    assert rows[-1]["event"] == "rating" and rows[-2]["event"] == "show_end"
+    plain = read_session(next((tmp_path / "a").glob("*.jsonl")))
+    assert [(b["mode"], b["reward"], b["last_reward"]) for b in finished_bits([rows])] == \
+           [(b["mode"], b["reward"], b["last_reward"]) for b in finished_bits([plain])]
+    assert same(load_director([rows]), load_director([plain]))

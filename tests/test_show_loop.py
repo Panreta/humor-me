@@ -260,3 +260,55 @@ def test_the_selector_and_the_director_get_different_seeds(server, monkeypatch):
         pump(ws, stop=lambda m: m["type"] == "line")
     rows = only_log(server)
     assert seeds["director"] != seeds["selector"] and rows[0]["policy"]["seed"] == seeds["director"]
+
+
+def rate(ws, value):
+    ws.send_json({"type": "rating", "value": value})
+    return ws.receive_json()
+
+
+def test_a_finished_show_takes_one_rating_into_its_own_log_and_refuses_a_second(server):
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(start("sim"))
+        pump(ws)
+        assert rate(ws, 4) == {"type": "rating_saved", "value": 4}
+        second = rate(ws, 2)
+    assert second["type"] == "error" and "already rated" in second["message"]
+    rows = only_log(server)  # still one file, and still readable
+    assert [r["event"] for r in rows[-2:]] == ["show_end", "rating"] and rows[-1]["value"] == 4
+    assert [r["event"] for r in rows].count("rating") == 1
+
+
+def test_a_rating_with_no_show_or_a_show_in_progress_is_refused(server):
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        assert "no finished show" in rate(ws, 3)["message"]
+        ws.send_json(start("live"))
+        pump(ws, stop=lambda m: m["type"] == "reaction_window")
+        assert "no finished show" in rate(ws, 3)["message"]
+    assert "rating" not in {r["event"] for r in only_log(server)}
+
+
+def test_an_aborted_show_can_be_rated_but_a_show_that_never_started_cannot(server, monkeypatch):
+    class Boom:
+        selector_id = "boom"
+
+        def pick(self, texts):
+            raise RuntimeError("selector down")
+
+    monkeypatch.setattr(main, "UniformSelector", lambda seed: Boom())
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(start("live"))
+        seen = pump(ws, stop=lambda m: m["type"] == "show_end")
+        assert seen[-1]["status"] == "aborted"
+        assert rate(ws, 1) == {"type": "rating_saved", "value": 1}
+    rows = only_log(server)
+    assert [r["event"] for r in rows[-2:]] == ["show_end", "rating"] and rows[-2]["status"] == "aborted"
+
+
+def test_a_show_that_died_before_show_start_cannot_be_rated(server, monkeypatch):
+    monkeypatch.setattr(main, "make_stack", lambda room: 1 / 0)
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(start("sim"))
+        assert pump(ws)[-1]["status"] == "aborted"
+        assert "no finished show" in rate(ws, 5)["message"]
+    assert list(server.glob("*.jsonl")) == []  # no file: nothing a rating could corrupt

@@ -51,6 +51,11 @@ def parse(frame: dict) -> dict:
         if not isinstance(key, str) or key not in KEY_LEVELS:
             raise ProtocolError(f"key must be one of {tuple(KEY_LEVELS)}")
         return {"type": kind, "bit": _int(msg, "bit"), "joke": _int(msg, "joke"), "key": key}
+    if kind == "rating":
+        value = msg.get("value")
+        if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 5:
+            raise ProtocolError("value must be an integer from 1 to 5")
+        return {"type": kind, "value": value}
     if kind == "start":
         context = msg.get("context")
         if not isinstance(context, dict):
