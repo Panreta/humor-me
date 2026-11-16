@@ -5,16 +5,16 @@
   align-items: center;
   justify-content: flex-start;
   gap: 12px;
-  /* The wave's centre line sits a little above the middle (24dvh + 34dvh / 2 = 41dvh), leaving room for the
+  /* The wave's centre line sits a little above the middle (18dvh + 46dvh / 2 = 41dvh), leaving room for the
      subtitle and controls below without a scroll. */
   box-sizing: border-box;
-  padding: 24dvh 16px 20px;
+  padding: 18dvh 16px 20px;
   text-align: center;
 }
 
 .wave {
   width: 100vw;
-  height: 34dvh;
+  height: 46dvh;
   color: var(--foreground);
 }
 

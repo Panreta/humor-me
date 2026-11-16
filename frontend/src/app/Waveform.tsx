@@ -68,7 +68,7 @@ export default function Waveform({ analyser }: { analyser: AnalyserNode | null }
         const taper = 0.2 + 0.8 * Math.sin(Math.PI * x01) ** 0.6;
         // Fixed per-bar factor, from the mirrored index so left and right match, so neighbours differ in height.
         const jag = 0.45 + 0.55 * Math.abs(Math.sin(Math.min(i, bars - 1 - i) * 1.7));
-        const barHeight = level * taper * jag * height * 0.9;
+        const barHeight = Math.min(height, level * taper * jag * height * 1.15);
         if (barHeight <= scale) continue;
         ctx.fillStyle = colors[i];
         const x = i * pitch + gap / 2;
