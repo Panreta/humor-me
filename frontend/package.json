@@ -7,8 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:recorder": "node scripts/test-recorder.mjs",
-    "test:scope": "node scripts/test-scope.mjs"
+    "test:recorder": "node scripts/test-recorder.mjs"
   },
   "dependencies": {
     "next": "15.5",
