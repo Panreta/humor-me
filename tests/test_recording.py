@@ -226,7 +226,7 @@ def test_a_disk_error_stops_the_recording_but_not_the_show(server, monkeypatch):
         seen = pump(ws)
     stops = [m for m in seen if m["type"] == "record_stop"]
     assert len(stops) == 1 and "disk" in stops[0]["reason"] and not any(m["type"] == "error" for m in seen)
-    assert seen[-1] == {"type": "show_end", "status": "finished"}
+    assert seen[-1] == {"type": "show_end", "status": "finished", "ratable": True}
     assert frames(next(server.glob("*.wav")))[0] == 4096
 
 

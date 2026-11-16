@@ -12,7 +12,7 @@ from app.bank import BankGenerator
 from app.director import load_director
 from app.generate import llm_stack
 from app.live import AnnouncedSim, BankOnlySafety, ButtonSource, WebSocketPlayer, git_sha, load_sessions
-from app.log import SESSIONS, SessionLog
+from app.log import SESSIONS, SessionLog, read_session
 from app.protocol import ProtocolError, parse
 from app.recording import Recorder
 from app.rooms import REACTION, RealClock
@@ -112,6 +112,36 @@ async def _audio_frame(ws: WebSocket, live: types.SimpleNamespace, data: bytes) 
             await _release(ws, live, "the recording stopped: the disk refused the audio")
 
 
+def _rows_of(live: types.SimpleNamespace) -> list[dict]:
+    """The current show's log rows, [] when it never wrote a file. Blocking: call it off the event loop."""
+    path = live.log.path if live.log is not None else None
+    return read_session(path) if path is not None and path.exists() else []
+
+
+def _ended(rows: list[dict]) -> bool:
+    """A show can be rated once its log holds `show_end` (so also `show_start`): a rating row in a log with no
+    `show_start` would make the next start's replay fail."""
+    return any(r["event"] == "show_end" for r in rows)
+
+
+async def _rate(ws: WebSocket, live: types.SimpleNamespace, value: int) -> None:
+    """Append the room's rating to the show that just ended. The file itself is asked, not a flag. A failure to read
+    or write is an `error` that leaves the socket open, so the operator can retry or skip."""
+    try:
+        rows = await asyncio.to_thread(_rows_of, live)
+        if not _ended(rows):
+            refusal = "rating refused: no finished show to rate"
+        elif any(r["event"] == "rating" for r in rows):
+            refusal = "rating refused: this show was already rated"
+        else:
+            await asyncio.to_thread(live.log.write, "rating", value=value)
+            await ws.send_json({"type": "rating_saved", "value": value})
+            return
+    except (ValueError, OSError) as e:
+        refusal = f"couldn't save the rating: {e}"
+    await ws.send_json({"type": "error", "message": refusal})
+
+
 async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.SimpleNamespace) -> None:
     seed = secrets.randbits(32)  # the director's seed, logged as policy.seed; selector and sim draw their own
     try:
@@ -119,7 +149,7 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
                                                   asyncio.to_thread(git_sha), asyncio.to_thread(get_tts))
         director = load_director(sessions, seed=seed)
         clock = RealClock()
-        show_log = SessionLog(sessions_dir)
+        show_log = live.log = SessionLog(sessions_dir)
         audio = await _open_recorder(ws, live, show_log) if msg["consent"] else None
         if msg["room"] == "live":
             source = live.source = ButtonSource(ws.send_json, clock)
@@ -140,15 +170,19 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
     finally:
         live.source = None
         await _release(ws, live)
+    try:
+        ratable = _ended(await asyncio.to_thread(_rows_of, live))  # false when the show died before it wrote a log
+    except (ValueError, OSError):
+        ratable = False
     with contextlib.suppress(Exception):
-        await ws.send_json({"type": "show_end", "status": status})
+        await ws.send_json({"type": "show_end", "status": status, "ratable": ratable})
 
 
 @app.websocket("/ws")
 async def session(ws: WebSocket) -> None:
     await ws.accept()
     played: asyncio.Queue = asyncio.Queue()
-    live = types.SimpleNamespace(source=None, recorder=None, late=False, health=None)  # late: audio was asked for and ended
+    live = types.SimpleNamespace(source=None, recorder=None, late=False, health=None, log=None)  # late: audio was asked for and ended
     show = None
     try:
         while True:  # keeps running while the show does, so keys and "played" are heard
@@ -177,6 +211,8 @@ async def session(ws: WebSocket) -> None:
                     live.recorder.abandon(msg["reason"])
                 else:  # it failed after audio began: the file so far stays, the show goes on
                     await _release(ws, live, msg["reason"])
+            elif msg["type"] == "rating":
+                await _rate(ws, live, msg["value"])
             elif msg["type"] == "reaction":
                 if live.source is None:
                     log.info("ignored press %s: no live show", msg["key"])
@@ -184,6 +220,7 @@ async def session(ws: WebSocket) -> None:
                     live.source.press(msg["bit"], msg["joke"], msg["key"])
             else:
                 live.late = False
+                live.log = None  # the previous show can no longer be rated
                 show = asyncio.create_task(_show(ws, msg, played, live))
     except WebSocketDisconnect:
         pass
