@@ -10,9 +10,8 @@
 }
 
 .wave {
-  width: min(900px, 100%);
+  width: 100vw;
   height: 40dvh;
-  color: var(--foreground);
 }
 
 .line {
