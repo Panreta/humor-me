@@ -1,13 +1,16 @@
 """Exp 22: the Stage 0 acceptance run (docs/plans/live-loop.md, T11). Scores the shows the user ran.
 
 Usage:
-    python -m sim.acceptance <session id> [<session id> ...] [--dir data/sessions] [--rerun]
+    python -m sim.acceptance <session id> [<session id> ...] [--dir data/sessions] [--record]
 
 Reads the logs (and the recordings beside them) and reports, per show, whether it is a clean one, then the plan's
-pass checks. Nothing from the logs is stored but numbers: no text, no audio, no paths (`reports/metrics/acceptance.json`).
+pass checks. Plain, it prints and saves nothing, so trying ids out never touches the evidence. `--record` is the only
+way to write `reports/metrics/acceptance.json`, the Exp 22 evidence: numbers and the session ids only, no text, no
+audio, no paths. It holds one run, the last one recorded.
 
 Checks, from the plan:
-  (a) 3 simulated shows in a row, each valid and finished (no abort);
+  (a) 3 simulated shows in a row, each valid and finished (no abort). An unreadable log among the ids fails (a)
+      outright: it has no start time to place it in the row, so pass only the shows meant to count;
   (b) at least 1 live show, valid and finished;
   (c) label spread: a live show where one key takes more than 60% of the presses is flagged. A judgment call in
       the plan, so it is reported and never blocks;
@@ -33,15 +36,16 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
 from app.director import joke_levels  # noqa: E402
 from app.log import KEY_LEVELS, SESSIONS, read_session  # noqa: E402
-from app.reward import MIN_LABELS  # noqa: E402
+from app.reward import reward_v1  # noqa: E402
 from sim import cache  # noqa: E402
+from sim.env import MAX_LEVEL  # noqa: E402
 from sim.policies import BIT_REWARD_SD  # noqa: E402
 
 SPREAD_LIMIT = 0.60  # plan: one key over 60% of presses
 SIM_SD_MEASURED = 0.136  # evaluate_env.env_reward_sd, mean over the 27 rooms (0.128 to 0.140)
 RERUN_FACTOR = 0.5  # "differs by more than half"
 SIMS_IN_A_ROW = 3
-N_JOKES, N_BITS = 40, 8
+BANK_PREFIX = "bank"  # generator ids of BankGenerator, e.g. bank-v1
 KEY_OF = {level: key for key, level in KEY_LEVELS.items()}
 
 
@@ -64,28 +68,44 @@ def bit_levels(rows: list[dict]) -> list[list[int | None]]:
     return [joke_levels(rows, r["bit"]) for r in rows if r["event"] == "bit_end"]
 
 
-def noise(bits: list[list[int | None]]) -> dict:
-    """The live analogue of the sim's per-bit reward sd (module docstring), over bits with enough labels to count
-    as a reward. `ci95` is a normal approximation on the pooled sd with df = sum(n - 1); it assumes independent,
-    roughly normal residuals, which 3-4 level scores on few bits only roughly are, so read it as a guide."""
-    var_sum = df = inv_n = 0.0
+def noise_stats(bits: list[list[int | None]]) -> dict:
+    """Sufficient statistics of the estimate, which add across shows: bits that count as a reward (`reward_v1` is not
+    None, so the rule follows the frozen reward), their pooled sum of squares around each bit's own mean, df = sum of
+    (n - 1), and sum of 1/n."""
+    ss = df = inv_n = 0.0
     n_bits = 0
     for levels in bits:
-        given = [lv / 3 for lv in levels if lv is not None]
-        if len(given) < MIN_LABELS:
+        if reward_v1(levels) is None:
             continue
+        given = [lv / MAX_LEVEL for lv in levels if lv is not None]
         mean = sum(given) / len(given)
-        var_sum += sum((x - mean) ** 2 for x in given)
+        ss += sum((x - mean) ** 2 for x in given)
         df += len(given) - 1
         inv_n += 1 / len(given)
         n_bits += 1
-    if not df:
+    return {"n_bits": n_bits, "df": int(df), "ss": ss, "inv_n": inv_n}
+
+
+def pool(parts: list[dict]) -> dict:
+    return {k: sum(p[k] for p in parts) for k in ("n_bits", "df", "ss", "inv_n")}
+
+
+def finish_noise(stats: dict) -> dict:
+    """The live analogue of the sim's per-bit reward sd (module docstring), from `noise_stats` of one show or of
+    several pooled. `ci95` is a normal approximation on the pooled sd with df = sum(n - 1); it assumes independent,
+    roughly normal residuals, which 3-4 level scores on few bits only roughly are, so read it as a guide."""
+    if not stats["df"]:
         return {"n_bits": 0, "df": 0, "joke_sd": None, "bit_sd": None, "scale": None, "ci95": None}
-    joke_sd = math.sqrt(var_sum / df)
-    scale = math.sqrt(inv_n / n_bits)
+    df = stats["df"]
+    joke_sd = math.sqrt(stats["ss"] / df)
+    scale = math.sqrt(stats["inv_n"] / stats["n_bits"])
     se = joke_sd / math.sqrt(2 * df)
-    return {"n_bits": n_bits, "df": int(df), "joke_sd": joke_sd, "bit_sd": joke_sd * scale, "scale": scale,
+    return {"n_bits": stats["n_bits"], "df": df, "joke_sd": joke_sd, "bit_sd": joke_sd * scale, "scale": scale,
             "ci95": [max(0.0, joke_sd - 1.96 * se) * scale, (joke_sd + 1.96 * se) * scale]}
+
+
+def noise(bits: list[list[int | None]]) -> dict:
+    return finish_noise(noise_stats(bits))
 
 
 def noise_verdict(est: dict) -> dict:
@@ -110,10 +130,17 @@ def wav_seconds(path: pathlib.Path) -> float | None:
 
 
 def bank_jokes(rows: list[dict]) -> int:
-    """Jokes played from the hand-checked bank: the played item's reason says so (backend/app/show.py)."""
-    items = {(r["bit"], r["joke"]): r["items"] for r in rows if r["event"] == "candidates"}
-    return sum((items[(r["bit"], r["joke"])][r["chosen"]]["reason"] or "").startswith("hand-checked bank")
-               for r in rows if r["event"] == "joke_played")  # a passing generated item has reason null
+    """Jokes played from the bank. Two ways: a bank-only show (`GENERATOR=bank`) logs the bank's id on every
+    `candidates` row, and in an llm show a fallback line's item reason starts with "hand-checked bank"
+    (backend/app/show.py). A passing generated item has reason null."""
+    cands = {(r["bit"], r["joke"]): r for r in rows if r["event"] == "candidates"}
+    n = 0
+    for r in rows:
+        if r["event"] == "joke_played":
+            c = cands[(r["bit"], r["joke"])]
+            reason = c["items"][r["chosen"]]["reason"] or ""
+            n += c["generator_id"].startswith(BANK_PREFIX) or reason.startswith("hand-checked bank")
+    return n
 
 
 def audio_coverage(rows: list[dict], directory: pathlib.Path) -> dict | None:
@@ -136,15 +163,18 @@ def show_report(session: str, directory: pathlib.Path) -> dict:
         return {"session": session, "valid": False, "error": f"{type(e).__name__}: {e}"}
     start, ends = rows[0], [r for r in rows if r["event"] == "show_end"]
     played = [r for r in rows if r["event"] == "joke_played"]
-    levels = [lv for bit in bit_levels(rows) for lv in bit]
+    bits = bit_levels(rows)
+    levels = [lv for bit in bits for lv in bit]
+    banked = bank_jokes(rows)
+    stats = noise_stats(bits)
     ratings = [r["value"] for r in rows if r["event"] == "rating"]
     return {"session": session, "valid": True, "error": None, "at": start["at"], "room": start["room"],
             "status": ends[-1]["status"] if ends else "none", "generator_id": start["generator_id"],
             "n_jokes": len(played), "n_bits": sum(r["event"] == "bit_end" for r in rows),
-            "bank_jokes": bank_jokes(rows), "bank_share": bank_jokes(rows) / len(played) if played else None,
+            "bank_jokes": banked, "bank_share": banked / len(played) if played else None,
             "n_bridges": sum(r["event"] == "bridge" for r in rows), "labels": label_spread(levels),
             "rating": ratings[-1] if ratings else None, "audio": audio_coverage(rows, directory),
-            "noise": noise(bit_levels(rows))}
+            "noise_stats": stats, "noise": finish_noise(stats)}
 
 
 def clean(show: dict) -> bool:
@@ -152,31 +182,21 @@ def clean(show: dict) -> bool:
 
 
 def sims_in_a_row(shows: list[dict]) -> bool:
-    """Three simulated shows, consecutive in start order among the sim shows given, all clean."""
+    """Three simulated shows, consecutive in start order among the sim shows given, all clean. Any unreadable log among
+    the ids fails it: it has no start time, so it cannot be placed in the row, and quietly skipping it could hide a
+    broken show between two good ones."""
+    if not all(s["valid"] for s in shows):
+        return False
     sims = [s for s in sorted((s for s in shows if s["valid"]), key=lambda s: s["at"]) if s["room"] == "sim"]
     return any(all(clean(s) for s in sims[i:i + SIMS_IN_A_ROW]) for i in range(len(sims) - SIMS_IN_A_ROW + 1))
 
 
 def pooled_noise(shows: list[dict]) -> dict:
-    """Over every live show given: the pooled estimate and its verdict."""
+    """Over every finished live show given: the pooled estimate and its verdict."""
     live = [s for s in shows if s["valid"] and s["room"] == "live" and s["status"] == "finished"]
-    est = _combine([s["noise"] for s in live])
+    est = finish_noise(pool([s["noise_stats"] for s in live]))
     return {"n_live_shows": len(live), **est, "sim_sd_plan": BIT_REWARD_SD, "sim_sd_measured": SIM_SD_MEASURED,
             **noise_verdict(est)}
-
-
-def _combine(parts: list[dict]) -> dict:
-    """Pool per-show estimates exactly: joke_sd^2 is a df-weighted mean, and 1/n enters through the bit count."""
-    parts = [p for p in parts if p["df"]]
-    if not parts:
-        return {"n_bits": 0, "df": 0, "joke_sd": None, "bit_sd": None, "scale": None, "ci95": None}
-    df = sum(p["df"] for p in parts)
-    joke_sd = math.sqrt(sum(p["df"] * p["joke_sd"] ** 2 for p in parts) / df)
-    n_bits = sum(p["n_bits"] for p in parts)
-    scale = math.sqrt(sum(p["n_bits"] * p["scale"] ** 2 for p in parts) / n_bits)
-    se = joke_sd / math.sqrt(2 * df)
-    return {"n_bits": n_bits, "df": df, "joke_sd": joke_sd, "bit_sd": joke_sd * scale,
-            "ci95": [max(0.0, joke_sd - 1.96 * se) * scale, (joke_sd + 1.96 * se) * scale]}
 
 
 def run(sessions: list[str], key: str = "", directory: str | pathlib.Path = SESSIONS) -> dict:
@@ -184,7 +204,7 @@ def run(sessions: list[str], key: str = "", directory: str | pathlib.Path = SESS
     directory = pathlib.Path(directory)
     shows = [show_report(s, directory) for s in sessions]
     live = [s for s in shows if s["valid"] and s["room"] == "live"]
-    return {"shows": shows,
+    return {"sessions": list(sessions), "shows": shows,
             "pass_a_sims_in_a_row": sims_in_a_row(shows),
             "pass_b_live_show": any(clean(s) for s in live),
             "flag_c_label_spread": [s["session"] for s in live if s["labels"]["flagged"]],
@@ -192,21 +212,31 @@ def run(sessions: list[str], key: str = "", directory: str | pathlib.Path = SESS
 
 
 def digest(sessions: list[str], directory: str | pathlib.Path = SESSIONS) -> str:
-    """The cache key's stand-in for the log files, so an edited or newly rated log recomputes."""
-    h = hashlib.sha256()
-    for s in sessions:
-        path = pathlib.Path(directory) / f"{s}.jsonl"
+    """The cache key's stand-in for the files the report reads: each log's bytes and, for a recorded show, its WAV's
+    size and modification time, so an edited log, a newly rated one or a replaced recording recomputes."""
+    directory, h = pathlib.Path(directory), hashlib.sha256()
+    for sid in sessions:
+        path = directory / f"{sid}.jsonl"
         h.update(path.read_bytes() if path.exists() else b"missing")
+        try:
+            audio = read_session(path)[0]["audio"]
+            wav = directory / audio["path"] if audio.get("path") else None
+        except (OSError, ValueError, KeyError, IndexError):
+            wav = None
+        if wav is not None:
+            stat = wav.stat() if wav.exists() else None
+            h.update(f"{stat.st_size}:{stat.st_mtime_ns}".encode() if stat else b"nowav")
     return h.hexdigest()[:16]
 
 
-def cached(sessions: list[str], directory: str | pathlib.Path = SESSIONS, rerun: bool = False) -> dict:
-    return cache.run_or_load("acceptance", lambda sessions, key: run(sessions, key, directory), rerun=rerun,
-                       sessions=sessions, key=digest(sessions, directory))
+def record(sessions: list[str], directory: str | pathlib.Path = SESSIONS) -> dict:
+    """Score the shows and save the result as the Exp 22 evidence, replacing the previous record. The only writer."""
+    return cache.run_or_load("acceptance", lambda sessions, key: run(sessions, key, directory), rerun=True,
+                             sessions=sessions, key=digest(sessions, directory))
 
 
 def stored() -> dict | None:
-    """The last result `cached` saved, without needing the logs (they stay on the user's machine); None before a run."""
+    """The last result `record` saved, without needing the logs (they stay on the user's machine); None before a run."""
     path = cache.METRICS / "acceptance.json"
     return json.loads(path.read_text(encoding="utf-8"))["results"] if path.exists() else None
 
@@ -253,10 +283,11 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("sessions", nargs="+", help="session ids: the file names in data/sessions without .jsonl")
     ap.add_argument("--dir", default=str(SESSIONS))
-    ap.add_argument("--rerun", action="store_true")
+    ap.add_argument("--record", action="store_true", help="save the result as the Exp 22 evidence (replaces the last)")
     a = ap.parse_args()
-    res = cached(a.sessions, a.dir, rerun=a.rerun)
-    print(table(res), "", verdict(res), sep="\n")
+    res = record(a.sessions, a.dir) if a.record else run(a.sessions, directory=a.dir)
+    print(table(res), "", verdict(res), sep=chr(10))
+    print("recorded to reports/metrics/acceptance.json" if a.record else "not recorded (add --record to keep this as the Exp 22 evidence)")
 
 
 if __name__ == "__main__":

@@ -28,12 +28,12 @@ def real_clock():
 
 
 def write_show(directory, levels_per_bit, room="live", status="finished", rating=None, at=1000.0, bank_bits=(),
-               bridges=0, audio=None):
+               bridges=0, audio=None, generator="llm"):
     """A consistent show; `at` is the first row's time. `levels_per_bit`: one list of levels per bit. Returns its id."""
     clock = iter(range(int(at), int(at) + 100_000))
     log_module.time.time = lambda: next(clock)
     log = SessionLog(directory)
-    log.write("show_start", room=room, context=CTX, policy=POLICY, generator_id="llm", selector_id="uniform",
+    log.write("show_start", room=room, context=CTX, policy=POLICY, generator_id=generator, selector_id="uniform",
               git_sha="x", operator="t", audio=audio or {"consent": False, "path": None})
     for bit, levels in enumerate(levels_per_bit):
         log.write("bit_decision", bit=bit, obs={"t": bit, "n_bits": 8, "context": CTX, "last_mode": None},
@@ -42,7 +42,7 @@ def write_show(directory, levels_per_bit, room="live", status="finished", rating
             log.write("bridge", bit=bit, text="um", tts_seconds=0.1, audio_start_at=1.0, audio_end_at=2.0)
         for joke, level in enumerate(levels):
             reason = "hand-checked bank: x (bank-v1); rules: ok" if bit in bank_bits else None
-            log.write("candidates", bit=bit, joke=joke, prompt_id="p", prompt="p", generator_id="llm",
+            log.write("candidates", bit=bit, joke=joke, prompt_id="p", prompt="p", generator_id=generator,
                       items=[{"text": "t", "verdict": "pass", "reason": reason}])
             log.write("joke_played", bit=bit, joke=joke, chosen=0, pick_prob=1.0, text="t", tts_seconds=0.1,
                       audio_seconds=1.0, audio_start_at=1.0, audio_end_at=2.0)
@@ -94,6 +94,22 @@ def test_a_corrupt_log_is_invalid_not_an_exception_and_cannot_pass(tmp_path):
     assert res["shows"][1]["valid"] is False and "corrupt" in res["shows"][1]["error"]
     assert not res["pass_a_sims_in_a_row"]
     assert acceptance.show_report("nope", tmp_path)["valid"] is False
+
+
+def test_an_unreadable_log_among_the_ids_fails_the_row_even_between_clean_shows(tmp_path):
+    ids = [write_show(tmp_path, full(), room="sim", at=1000 * (i + 1)) for i in range(4)]
+    assert acceptance.run(ids, directory=tmp_path)["pass_a_sims_in_a_row"]
+    path = tmp_path / f"{ids[1]}.jsonl"
+    path.write_text("{torn" + chr(10) + path.read_text(encoding="utf-8"), encoding="utf-8")
+    assert not acceptance.run(ids, directory=tmp_path)["pass_a_sims_in_a_row"]  # three clean ones remain, still fails
+
+
+def test_bank_share_counts_a_bank_only_show_and_a_fallback_inside_an_llm_show(tmp_path):
+    bank_only = write_show(tmp_path, full(), generator="bank-v1", at=1000)
+    mixed = write_show(tmp_path, full(), bank_bits=(0, 1), at=5000)
+    plain = write_show(tmp_path, full(), at=9000)
+    shares = [acceptance.show_report(i, tmp_path)["bank_share"] for i in (bank_only, mixed, plain)]
+    assert shares == [1.0, 10 / 40, 0.0]
 
 
 def test_a_live_show_that_finished_passes_b_and_an_aborted_one_does_not(tmp_path):
@@ -156,6 +172,7 @@ def test_pooling_two_live_shows_equals_one_estimate_over_all_their_bits(tmp_path
     pooled = acceptance.run(ids, directory=tmp_path)["noise"]
     direct = acceptance.noise(a + b)
     assert pooled["bit_sd"] == pytest.approx(direct["bit_sd"]) and pooled["df"] == direct["df"]
+    assert {"joke_sd", "scale", "ci95"} <= acceptance.noise(a).keys() == acceptance.noise([]).keys()  # one shape
     assert pooled["n_live_shows"] == 2
 
 
@@ -181,13 +198,36 @@ def test_a_rated_show_scores_the_same_apart_from_its_rating(tmp_path):
     assert {k: v for k, v in plain.items() if k not in drop} == {k: v for k, v in rated.items() if k not in drop}
 
 
-def test_the_cached_result_holds_numbers_only(tmp_path, monkeypatch):
+def test_noise_follows_the_reward_rule_for_which_bits_count(tmp_path):
+    from app.reward import reward_v1
+    bits = [[1, 2, None, None, None], [1, 2, 3, None, None]]
+    assert acceptance.noise(bits)["n_bits"] == sum(reward_v1(b) is not None for b in bits) == 1
+
+
+def test_a_plain_run_saves_nothing_and_record_is_the_only_writer(tmp_path, monkeypatch):
     from sim import cache
     monkeypatch.setattr(cache, "METRICS", tmp_path / "metrics")
     sid = write_show(tmp_path, full())
-    assert acceptance.stored() is None  # before a run there is nothing to show
-    first = acceptance.cached([sid], tmp_path)
+    assert acceptance.run([sid], directory=tmp_path)["sessions"] == [sid]
+    assert acceptance.stored() is None
+    first = acceptance.record([sid], tmp_path)
     assert acceptance.stored() == first
-    assert acceptance.cached([sid], tmp_path) == first
     stored = (tmp_path / "metrics" / "acceptance.json").read_text()
     assert str(tmp_path) not in stored and "hand-checked" not in stored
+    assert f'"sessions": ["{sid}"]' in stored  # the notebook can say which shows the evidence is
+    other = write_show(tmp_path, full(), at=9000)
+    acceptance.run([other], directory=tmp_path)  # ad-hoc scoring afterwards leaves the record alone
+    assert acceptance.stored() == first
+
+
+def test_the_cache_key_changes_when_the_recording_does(tmp_path):
+    audio = {"consent": True, "path": "rec.wav", "start_at": 1000.0}
+    sid = write_show(tmp_path, full(), audio=audio)
+    wav = tmp_path / "rec.wav"
+    wav.write_bytes(b"RIFF" + bytes(40))
+    before = acceptance.digest([sid], tmp_path)
+    assert acceptance.digest([sid], tmp_path) == before
+    wav.write_bytes(b"RIFF" + bytes(80))
+    assert acceptance.digest([sid], tmp_path) != before
+    wav.unlink()
+    assert acceptance.digest([sid], tmp_path) not in (before,)  # a missing recording is not the same key either
