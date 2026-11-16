@@ -30,6 +30,22 @@ def parse(frame: dict) -> dict:
     kind = msg.get("type")
     if kind == "played":
         return {"type": kind}
+    if kind == "audio_health":
+        health = {}
+        for field in ("produced_s", "elapsed_s", "gap_ms", "wall_s", "rate"):
+            value = msg.get(field)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value < 1e9:
+                raise ProtocolError(f"{field} must be a non-negative number")
+            health[field] = value
+        return {"type": kind, **health}
+    if kind == "audio_start":  # when the first sample was captured, by the capture clock (epoch ms)
+        wall_ms = msg.get("wall_ms")
+        if isinstance(wall_ms, bool) or not isinstance(wall_ms, (int, float)) or not 0 < wall_ms < 1e14:
+            raise ProtocolError("wall_ms must be a positive number")
+        return {"type": kind, "wall_ms": wall_ms}
+    if kind == "audio_failed":
+        reason = msg.get("reason")
+        return {"type": kind, "reason": reason[:200] if isinstance(reason, str) and reason.strip() else None}
     if kind == "reaction":
         key = msg.get("key")
         if not isinstance(key, str) or key not in KEY_LEVELS:
@@ -47,6 +63,9 @@ def parse(frame: dict) -> dict:
         operator = msg.get("operator")
         if not isinstance(operator, str) or not operator.strip():
             raise ProtocolError("operator must be a non-empty string")
+        consent = msg.get("consent", False)
+        if not isinstance(consent, bool):
+            raise ProtocolError("consent must be true or false")
         return {"type": kind, "context": {f: context[f] for f in ("venue", "energy", "age")}, "room": msg["room"],
-                "operator": operator}
+                "operator": operator, "consent": consent}
     raise ProtocolError(f"unknown message type {kind!r}")

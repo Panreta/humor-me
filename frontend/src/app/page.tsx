@@ -28,6 +28,7 @@ export default function Home() {
     age: "mixed",
     operator: "",
     room: "sim",
+    consent: false,
   });
   const [confirming, setConfirming] = useState(false);
   const busy = state === "connecting" || state === "speaking";
@@ -61,6 +62,7 @@ export default function Home() {
   const launch = () => {
     setConfirming(false);
     start(setup);
+    set({ consent: false }); // consent is for one show; the next one asks again
   };
 
   const onSubmit = (event: React.FormEvent) => {
@@ -72,7 +74,7 @@ export default function Home() {
 
   const set = (patch: Partial<ShowSetup>) => setSetup((s) => ({ ...s, ...patch }));
 
-  const select = (name: keyof ShowSetup, text: string, options: string[]) => (
+  const select = (name: "venue" | "energy" | "age", text: string, options: string[]) => (
     <label className={styles.field}>
       <span>{text}</span>
       <select value={setup[name]} onChange={(e) => set({ [name]: e.target.value })}>
@@ -157,6 +159,10 @@ export default function Home() {
               </label>
             ))}
           </fieldset>
+          <label className={styles.consent}>
+            <input type="checkbox" checked={setup.consent} onChange={(e) => set({ consent: e.target.checked })} />
+            The room was told this show is recorded and agreed
+          </label>
           <button type="submit" className={styles.start} disabled={!setup.operator.trim()}>
             {state === "done" ? "Run it again" : "Start the show"}
           </button>
