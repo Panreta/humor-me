@@ -201,7 +201,10 @@ accepted, no file is created and the show runs as before (`show_start.audio` is 
   wall time); the server warns below 99% of either, and also on close when it received under 99% of the wall-clock span.
 - **Setup for a show:** no Bluetooth headsets (opening the mic switches them to a low-quality call profile and drops
   samples). In Windows Sound, Communications, choose "Do nothing", or Windows ducks the robot's voice by 80% while the
-  mic is open (observed: the voice fell to the noise floor after 20 s).
+  mic is open (observed: the voice fell to the noise floor after 20 s). Turn the microphone's **Audio enhancements off**
+  (Sound, Recording, the mic's Properties, Advanced or Enhancements) and quit vendor noise-cancellation apps: those drivers
+  run echo cancellation below the browser, so Chrome's `echoCancellation: false` cannot stop them, and on the test laptop
+  they removed the laptop's own speaker output from the recording (no beeps at all, the robot's voice faint).
 - **File:** `data/sessions/<session>.wav` beside `<session>.jsonl`, gitignored. The WAV header sizes are patched after
   every frame, so a dropped connection or a crash leaves a file any reader opens, cut at the last whole frame.
 - **Alignment:** `show_start.audio.start_at` is the wall-clock time (the log's `at` timebase) of the first sample,

@@ -218,7 +218,7 @@ Runs in parallel once T0 is merged: T1, T2, T7, T8.
 - **Build:** mono 16 kHz PCM from an AudioWorklet with echo cancellation, noise suppression and auto gain off. Sent as binary over the websocket and written straight to a WAV beside the log. Recording cannot start without the consent box. Store the audio start time in the log so joke timestamps line up.
 - **Tests:** without consent no file exists; a dropped connection leaves a readable WAV; the path is gitignored.
 - **Experiment (user runs it, needs a mic):** play clicks at known times during a 15-minute show. Measure the offset between logged time and the click in the WAV.
-- **Pass:** p95 offset ≤ 100 ms, with no drift over the show.
+- **Pass:** p95 offset ≤ 100 ms, with no drift over the show. **Re-tuned by the user, 2026-11-15, after the first run (decisions.md, Exp 21):** drift at most 50 ms; p95 of the offset around its median at most 100 ms; at least 90% of in-recording beeps matched. The constant offset is reported, not barred.
 
 ### T11: Rating and acceptance run
 
