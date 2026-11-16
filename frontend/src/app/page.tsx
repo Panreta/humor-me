@@ -89,7 +89,7 @@ export default function Home() {
 
   return (
     <main className={styles.stage}>
-      <div className={busy ? styles.wave : `${styles.wave} ${styles.idle}`} aria-hidden="true">
+      <div className={styles.wave} aria-hidden="true">
         <Waveform analyser={analyser} />
       </div>
       <p className={styles.line} aria-live="polite">
