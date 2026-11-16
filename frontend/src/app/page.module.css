@@ -3,9 +3,10 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 32px;
-  padding: 32px 16px;
+  justify-content: flex-start;
+  gap: 12px;
+  /* Pushes the wave's centre line (its box is 40dvh tall) to the middle of the viewport. */
+  padding: 30dvh 16px 32px;
   text-align: center;
 }
 
@@ -17,20 +18,22 @@
 
 .line {
   max-width: 46rem;
-  min-height: 6.5em;
-  font-size: clamp(1rem, 2.2vw, 1.35rem);
+  min-height: 4.8em;
+  font-size: clamp(0.9rem, 1.6vw, 1.1rem);
   line-height: 1.6;
+  opacity: 0.8;
   text-wrap: pretty;
 }
 
 .start {
-  padding: 12px 24px;
+  padding: 8px 16px;
   border: 1px solid var(--border-dim);
   border-radius: 8px;
   background: transparent;
   color: var(--accent);
   border-color: var(--accent);
   font: inherit;
+  font-size: 0.9rem;
   cursor: pointer;
 }
 
@@ -44,14 +47,10 @@
   cursor: default;
 }
 
-.idle {
-  height: 18dvh;
-}
-
 .form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 16px;
+  gap: 12px;
   width: min(720px, 100%);
   align-items: end;
   text-align: left;
@@ -61,13 +60,14 @@
 .toggle {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 1rem;
+  gap: 4px;
+  font-size: 0.9rem;
 }
 
 .field select,
 .field input {
-  padding: 10px 12px;
+  padding: 6px 10px;
+  font-size: 0.9rem;
   border: 1px solid var(--border-dim);
   border-radius: 8px;
   background: var(--background);
@@ -96,7 +96,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
   width: min(900px, 100%);
 }
 
@@ -110,8 +110,8 @@
   padding: 16px;
   border: 2px solid var(--border-dim);
   border-radius: 8px;
-  font-size: 1.15rem;
-  line-height: 1.4;
+  font-size: 1rem;
+  line-height: 1.5;
 }
 
 .notice {
@@ -124,10 +124,10 @@
 
 .windowIdle,
 .windowOpen {
-  padding: 8px 20px;
+  padding: 4px 12px;
   border: 2px solid var(--border-dim);
   border-radius: 999px;
-  font-size: 1.2rem;
+  font-size: 0.8rem;
   font-weight: 700;
 }
 
@@ -145,8 +145,9 @@
 .buttons {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+  gap: 10px;
   width: 100%;
+  max-width: 720px;
 }
 
 .reaction {
@@ -154,9 +155,9 @@
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  gap: 10px;
-  min-height: 150px;
-  padding: 16px 10px;
+  gap: 4px;
+  min-height: 70px;
+  padding: 8px 10px;
   border: 2px solid var(--border-dim);
   border-radius: 12px;
   background: transparent;
@@ -167,12 +168,12 @@
 }
 
 .hint {
-  font-size: 2rem;
+  font-size: 1.2rem;
   font-weight: 700;
 }
 
 .meaning {
-  font-size: 1rem;
+  font-size: 0.75rem;
   line-height: 1.3;
 }
 
