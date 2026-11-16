@@ -49,7 +49,7 @@ cd backend
 | `sim_reaction` | `bit`, `joke`, `key` | `sim` room only: the key the simulated room "pressed" |
 | `record` | none | Sent after a `start` with `consent`: begin sending audio. The show waits for the first frame (15 s) |
 | `record_stop` | `reason` (text or null) | Stop the microphone, sent once when the recording ends for any reason: the show ended, no audio arrived in time, the browser failed, or the disk refused a write (the show goes on) |
-| `show_end` | `status` (`finished`\|`aborted`) | The show is over. The connection stays open for a `rating` |
+| `show_end` | `status` (`finished`\|`aborted`), `ratable` (bool) | The show is over. `ratable` is false when it died before writing its log (nothing to rate; the `error` before it says why). The connection stays open for a `rating` |
 | `rating_saved` | `value` | The rating row was written |
 | `error` | `message` | A bad client message or a failed start or show. A bad message never ends the show |
 
@@ -87,13 +87,18 @@ cd ../frontend && npm run dev   # then open http://localhost:3000
 
 Set `GENERATOR=llm` in `backend/.env` (a one-command prefix differs between Bash and PowerShell, and `--env-file` reads it either way). Simulated shows can run on `GENERATOR=bank` (no quota) or `llm`; the live show uses `llm` (decisions.md 2026-11-15).
 
-**Run:** (1) three Simulated shows back to back, untouched; (2) one Live show, you press W / K / Space / D for every joke, consent ticked; (3) after each show answer the rating prompt (keys 1 to 5, or Skip). Then score them. The session ids are the file names in `data/sessions/` without `.jsonl`:
+**Run:** (1) three Simulated shows back to back, untouched; (2) one Live show, you press W / K / Space / D for every joke, consent ticked; (3) after each show answer the rating prompt (keys 1 to 5, or Skip; a show that failed before it began shows its error and no prompt). Then score them. The session ids are the file names in `data/sessions/` without `.jsonl`:
 
 ```sh
-.venv/Scripts/python -m sim.acceptance <sim id 1> <sim id 2> <sim id 3> <live id>   # from the repo root, root venv
+# from the repo root, root venv. Plain: prints the report and saves nothing, so try ids freely.
+python -m sim.acceptance <sim id 1> <sim id 2> <sim id 3> <live id>
+# When the right shows are in the list, keep it as the Exp 22 evidence (replaces the last record):
+python -m sim.acceptance <sim id 1> <sim id 2> <sim id 3> <live id> --record
 ```
 
-It prints a table per show (valid rows, status, bank share, bridges, label counts, rating, audio coverage) and the four verdicts: (a) 3 simulated in a row, (b) a valid finished live show, (c) label spread (one key over 60% of presses is flagged, reported only), (d) per-bit reward noise against the sim's 0.15, with "RERUN Exp 18" when it is more than half away. With one live show the noise rests on 8 bits and the interval is wide; the output says when the call is a guess. The result is saved as numbers only in `reports/metrics/acceptance.json` (no text, no audio, no paths); re-run `python scripts/run_notebook.py` to refresh the Exp 22 section. Logs and recordings in `data/sessions/` are gitignored: never commit them.
+Pass only the shows meant to count: an unreadable log among the ids fails check (a).
+
+It prints a table per show (valid rows, status, bank share, bridges, label counts, rating, audio coverage) and the four verdicts: (a) 3 simulated in a row, (b) a valid finished live show, (c) label spread (one key over 60% of presses is flagged, reported only), (d) per-bit reward noise against the sim's 0.15, with "RERUN Exp 18" when it is more than half away. With one live show the noise rests on 8 bits and the interval is wide; the output says when the call is a guess. `--record` saves numbers and the session ids only, in `reports/metrics/acceptance.json` (no text, no audio, no paths); then run `python scripts/run_notebook.py` to refresh the Exp 22 section, which lists the recorded ids. Logs and recordings in `data/sessions/` are gitignored: never commit them.
 
 ## Pick a provider first
 

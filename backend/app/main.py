@@ -112,20 +112,34 @@ async def _audio_frame(ws: WebSocket, live: types.SimpleNamespace, data: bytes) 
             await _release(ws, live, "the recording stopped: the disk refused the audio")
 
 
-async def _rate(ws: WebSocket, live: types.SimpleNamespace, value: int) -> None:
-    """Append the room's rating to the show that just ended. The file itself is asked, not a flag: a show that died
-    before `show_start` has no `show_end`, and a rating row there would make the next start's replay fail."""
+def _rows_of(live: types.SimpleNamespace) -> list[dict]:
+    """The current show's log rows, [] when it never wrote a file. Blocking: call it off the event loop."""
     path = live.log.path if live.log is not None else None
-    rows = read_session(path) if path is not None and path.exists() else []
-    if not any(r["event"] == "show_end" for r in rows):
-        refusal = "no finished show to rate"
-    elif any(r["event"] == "rating" for r in rows):
-        refusal = "this show was already rated"
-    else:
-        live.log.write("rating", value=value)
-        await ws.send_json({"type": "rating_saved", "value": value})
-        return
-    await ws.send_json({"type": "error", "message": f"rating refused: {refusal}"})
+    return read_session(path) if path is not None and path.exists() else []
+
+
+def _ended(rows: list[dict]) -> bool:
+    """A show can be rated once its log holds `show_end` (so also `show_start`): a rating row in a log with no
+    `show_start` would make the next start's replay fail."""
+    return any(r["event"] == "show_end" for r in rows)
+
+
+async def _rate(ws: WebSocket, live: types.SimpleNamespace, value: int) -> None:
+    """Append the room's rating to the show that just ended. The file itself is asked, not a flag. A failure to read
+    or write is an `error` that leaves the socket open, so the operator can retry or skip."""
+    try:
+        rows = await asyncio.to_thread(_rows_of, live)
+        if not _ended(rows):
+            refusal = "rating refused: no finished show to rate"
+        elif any(r["event"] == "rating" for r in rows):
+            refusal = "rating refused: this show was already rated"
+        else:
+            await asyncio.to_thread(live.log.write, "rating", value=value)
+            await ws.send_json({"type": "rating_saved", "value": value})
+            return
+    except (ValueError, OSError) as e:
+        refusal = f"couldn't save the rating: {e}"
+    await ws.send_json({"type": "error", "message": refusal})
 
 
 async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.SimpleNamespace) -> None:
@@ -156,8 +170,12 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
     finally:
         live.source = None
         await _release(ws, live)
+    try:
+        ratable = _ended(await asyncio.to_thread(_rows_of, live))  # false when the show died before it wrote a log
+    except (ValueError, OSError):
+        ratable = False
     with contextlib.suppress(Exception):
-        await ws.send_json({"type": "show_end", "status": status})
+        await ws.send_json({"type": "show_end", "status": status, "ratable": ratable})
 
 
 @app.websocket("/ws")
