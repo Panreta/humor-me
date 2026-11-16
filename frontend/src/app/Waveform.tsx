@@ -38,8 +38,12 @@ export default function Waveform({ analyser }: { analyser: AnalyserNode | null }
       ctx.fillRect(0, height / 2 - scale / 2, width, scale);
       ctx.globalAlpha = 1;
       for (let i = 0; i < bars; i++) {
-        const level = analyser ? bins[Math.floor((i / bars) * usable)] / 255 : 0;
-        const barHeight = level * height * 0.9;
+        // Mirrored from the centre: the strongest low bins sit in the middle, higher ones spread out to both edges.
+        const x01 = (i + 0.5) / bars;
+        const level = analyser ? bins[Math.floor(Math.abs(2 * x01 - 1) * usable)] / 255 : 0;
+        // Soft taper toward the edges, with a floor so edge bars still move when the voice is loud.
+        const taper = 0.2 + 0.8 * Math.sin(Math.PI * x01) ** 0.6;
+        const barHeight = level * taper * height * 0.9;
         if (barHeight <= scale) continue;
         const x = i * pitch + gap / 2;
         ctx.beginPath();
