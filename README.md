@@ -8,6 +8,10 @@ laughter, and uses a contextual bandit / sequential policy over "persona modes" 
 comes next. Stand-up transcripts are used **only** to learn structure and to label laughs,
 never as text the model imitates.
 
+![The operator screen mid-show: a full-width lilac-to-blue wave of the robot's voice, the line as a subtitle, and the four reaction keys](reports/figures/operator-ui.png)
+
+*The operator screen during a simulated show: the robot's voice as the wave, its line as a subtitle, and the keys the operator presses for the room's reaction.*
+
 - Design and decisions: [docs/](docs/README.md)
 - Agent instructions (rules that must not be broken): [CLAUDE.md](CLAUDE.md)
 
@@ -17,12 +21,12 @@ never as text the model imitates.
 |---|---|---|---|
 | [`pipeline/`](pipeline/README.md) | Transcript PDFs → beats/bits/sets (paused); rJokes prep | S0–S6 built, paused; R1 built | [README](pipeline/README.md) · [wiki](pipeline/wiki/README.md) |
 | [`data/`](data/README.md) | Corpus (local only) + committed config: lexicon, body trims | Active | [README](data/README.md) |
-| [`backend/`](backend/README.md) | FastAPI server: show loop, websocket to the UI | Scaffold | [README](backend/README.md) |
-| [`frontend/`](frontend/README.md) | Next.js UI: waveform avatar, operator panel | Scaffold | [README](frontend/README.md) |
+| [`backend/`](backend/README.md) | FastAPI server: show loop, Gemini generator, safety filter, consented room recording, websocket to the UI | Live loop built (T1–T10) | [README](backend/README.md) |
+| [`frontend/`](frontend/README.md) | Next.js operator screen: voice wave, subtitle, reaction keys, consent box | Built | [README](frontend/README.md) |
 | [`scripts/`](scripts/README.md) | One-off tools: paper PDF → markdown, LLM latency probe | Active | [README](scripts/README.md) |
 | [`docs/`](docs/README.md) | Design, roadmap, data sources, pipeline spec, decision log | Active | [README](docs/README.md) · [wiki](docs/wiki/README.md) |
 | [`notebooks/`](notebooks/decisions.ipynb) | **Decision notebooks**: `decisions.ipynb` indexes every decision; `decisions-data`, `decisions-director` and `decisions-live` re-run the experiments behind them, with claim checks | Active | [decisions.ipynb](notebooks/decisions.ipynb) |
-| [`explorer/`](explorer/README.md) | GPU batch jobs on Northeastern's Explorer cluster | Ready, not run | [README](explorer/README.md) |
+| [`explorer/`](explorer/README.md) | GPU batch jobs on Northeastern's Explorer cluster | Used for rJokes labels (90k) | [README](explorer/README.md) |
 | [`references/`](references/md/README.md) | Reference papers (local only) and their markdown conversions | Local | [README](references/md/README.md) |
 
 ## How the pieces depend on each other
