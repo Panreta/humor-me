@@ -2,7 +2,7 @@
 
 Next.js UI for the live show: a single operator screen.
 
-- **Waveform avatar**: frequency bars driven by the TTS audio.
+- **Waveform avatar**: one glowing line traced from the TTS audio; hue from pitch, glow from loudness.
 - **Before a show**: form for venue, energy, age, operator name and a Simulated/Live toggle. A Live show asks for confirmation first, because key presses are recorded as the room's reaction.
 - **During a show**: the current line, a "React now" indicator that follows `reaction_window` messages, and four buttons (W, K, Space, D) with the rubric meaning from the plan's "Reaction labels".
 - **Never shown**: the director's mode (the backend doesn't send it).
@@ -40,4 +40,4 @@ Next.js 15.5 (App Router, TypeScript, `src/` dir, ESLint, no Tailwind). Pinned t
 | `src/app/page.tsx` | Setup form, live-show confirmation, reaction buttons, global key listener |
 | `src/app/useShow.ts` | Websocket client and show state (window, highlight, notice, end status) |
 | `src/app/reactionKeys.ts` | Key mapping and the "should this key send?" rule |
-| `src/app/Waveform.tsx` | Canvas bars animated from audio amplitude |
+| `src/app/Waveform.tsx` | Canvas oscilloscope line from the robot's audio (`scope.ts` holds the math) |
