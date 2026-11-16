@@ -194,8 +194,10 @@ export function useShow() {
             closeWindow();
             setEndStatus(msg.status === "aborted" ? "aborted" : "finished");
             setState("done");
-            // The socket stays open: the rating row goes into this show's log over the same connection.
-            setRating("ask");
+            // The socket stays open for the rating row, unless the show died before it had a log: then there is
+            // nothing to rate, and the failure notice must stay on screen.
+            if (msg.ratable === true) setRating("ask");
+            else socket.close();
           }
           return;
         }

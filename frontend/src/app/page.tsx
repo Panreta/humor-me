@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useShow, type ShowSetup, type ShowState } from "./useShow";
-import { REACTIONS, ratingFor, reactionKeyFor, type Room } from "./reactionKeys";
+import { REACTIONS, keyInput, ratingFor, reactionKeyFor, type Room } from "./reactionKeys";
 import Waveform from "./Waveform";
 import styles from "./page.module.css";
 
@@ -40,17 +40,7 @@ export default function Home() {
   useEffect(() => {
     if (!busy) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      const key = reactionKeyFor({
-        code: event.code,
-        repeat: event.repeat,
-        ctrlKey: event.ctrlKey,
-        metaKey: event.metaKey,
-        altKey: event.altKey,
-        shiftKey: event.shiftKey,
-        targetTag: target?.tagName ?? null,
-        targetEditable: target?.isContentEditable ?? false,
-      });
+      const key = reactionKeyFor(keyInput(event));
       if (!key) return;
       event.preventDefault(); // Space would scroll the page
       react(key);
@@ -64,17 +54,7 @@ export default function Home() {
   useEffect(() => {
     if (!ratingOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      const value = ratingFor({
-        code: event.code,
-        repeat: event.repeat,
-        ctrlKey: event.ctrlKey,
-        metaKey: event.metaKey,
-        altKey: event.altKey,
-        shiftKey: event.shiftKey,
-        targetTag: target?.tagName ?? null,
-        targetEditable: target?.isContentEditable ?? false,
-      });
+      const value = ratingFor(keyInput(event));
       if (value === null) return;
       event.preventDefault();
       rate(value);

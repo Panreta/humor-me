@@ -28,6 +28,21 @@ export type KeyInput = {
   targetEditable: boolean;
 };
 
+// The fields of a keydown event that the key rules read, in one place for every handler.
+export function keyInput(event: KeyboardEvent): KeyInput {
+  const target = event.target instanceof HTMLElement ? event.target : null;
+  return {
+    code: event.code,
+    repeat: event.repeat,
+    ctrlKey: event.ctrlKey,
+    metaKey: event.metaKey,
+    altKey: event.altKey,
+    shiftKey: event.shiftKey,
+    targetTag: target?.tagName ?? null,
+    targetEditable: target?.isContentEditable ?? false,
+  };
+}
+
 export function isTyping(tag: string | null, editable: boolean): boolean {
   return editable || (tag !== null && TYPING_TAGS.has(tag.toUpperCase()));
 }
