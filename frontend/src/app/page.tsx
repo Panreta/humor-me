@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useShow, type ShowSetup, type ShowState } from "./useShow";
-import { REACTIONS, reactionKeyFor, type Room } from "./reactionKeys";
+import { REACTIONS, ratingFor, reactionKeyFor, type Room } from "./reactionKeys";
 import Waveform from "./Waveform";
 import styles from "./page.module.css";
 
@@ -21,7 +21,7 @@ const STATUS: Record<ShowState, string> = {
 const label = (value: string) => value.replace(/_/g, " ");
 
 export default function Home() {
-  const { state, line, analyser, start, room, reactionWindow, pressed, flash, notice, endStatus, react } = useShow();
+  const { state, line, analyser, start, room, reactionWindow, pressed, flash, notice, endStatus, rating, rate, react } = useShow();
   const [setup, setSetup] = useState<ShowSetup>({
     venue: "bar",
     energy: "normal",
@@ -58,6 +58,30 @@ export default function Home() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [busy, react]);
+
+  // The prompt owns the digit keys only while it is up; the form's fields are not on screen then.
+  const ratingOpen = rating === "ask";
+  useEffect(() => {
+    if (!ratingOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const value = ratingFor({
+        code: event.code,
+        repeat: event.repeat,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        altKey: event.altKey,
+        shiftKey: event.shiftKey,
+        targetTag: target?.tagName ?? null,
+        targetEditable: target?.isContentEditable ?? false,
+      });
+      if (value === null) return;
+      event.preventDefault();
+      rate(value);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [ratingOpen, rate]);
 
   const launch = () => {
     setConfirming(false);
@@ -124,6 +148,27 @@ export default function Home() {
                 </button>
               );
             })}
+          </div>
+        </section>
+      ) : rating === "ask" || rating === "saving" ? (
+        <section className={styles.panel} aria-label="Rating">
+          <p className={styles.confirm}>How did the room rate the set?</p>
+          <div className={styles.row}>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button
+                key={n}
+                type="button"
+                className={styles.rate}
+                disabled={rating === "saving"}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => rate(n)}
+              >
+                {n}
+              </button>
+            ))}
+            <button type="button" className={styles.start} disabled={rating === "saving"} onClick={() => rate(null)}>
+              Skip
+            </button>
           </div>
         </section>
       ) : confirming ? (

@@ -7,7 +7,8 @@ Next.js UI for the live show: a single operator screen.
 - **Before a show**: form for venue, energy, age, operator name and a Simulated/Live toggle. A Live show asks for confirmation first, because key presses are recorded as the room's reaction. A consent box ("The room was told this show is recorded and agreed") turns on room recording for that show only; without it nothing is recorded.
 - **During a show**: the current line, a "React now" indicator that follows `reaction_window` messages, and four buttons (W, K, Space, D) with the rubric meaning from the plan's "Reaction labels".
 - **Never shown**: the director's mode (the backend doesn't send it).
-- **Planned**: end-of-episode rating and pairwise "which bit was better?" votes.
+- **After a show** (finished or aborted): "How did the room rate the set?" with buttons 1 to 5 and Skip. Keys 1 to 5 work only while the prompt is up and never while typing. The rating goes over the same connection as `{type: "rating", value}`; a refusal shows as a notice and the prompt stays.
+- **Planned**: pairwise "which bit was better?" votes.
 
 ## Keys
 
@@ -40,6 +41,6 @@ Next.js 15.5 (App Router, TypeScript, `src/` dir, ESLint, no Tailwind). Pinned t
 |---|---|
 | `src/app/page.tsx` | Setup form, live-show confirmation, reaction buttons, global key listener |
 | `src/app/useShow.ts` | Websocket client and show state (window, highlight, notice, end status) |
-| `src/app/reactionKeys.ts` | Key mapping and the "should this key send?" rule |
+| `src/app/reactionKeys.ts` | Key mapping and the "should this key send?" rule, and the 1 to 5 rating keys |
 | `src/app/Waveform.tsx` | Canvas wave: mirrored, tapered, jagged bars with the lilac-to-blue gradient and a solid idle line |
 | `src/app/recorder.ts`, `public/capture.js`, `public/resampler.js` | Room recording on the mic's capture clock, resampled to 16 kHz |

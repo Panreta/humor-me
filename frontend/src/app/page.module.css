@@ -185,6 +185,30 @@
   color: var(--on-accent);
 }
 
+.rate {
+  width: 56px;
+  height: 56px;
+  border: 2px solid var(--border-dim);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 1.2rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rate:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.rate:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 @media (max-width: 640px) {
   .buttons {
     grid-template-columns: repeat(2, 1fr);

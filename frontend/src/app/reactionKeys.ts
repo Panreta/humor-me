@@ -42,3 +42,17 @@ export function reactionKeyFor(input: KeyInput): ReactionKey | null {
   if (isTyping(input.targetTag, input.targetEditable)) return null;
   return key;
 }
+
+const RATING_BY_CODE: Record<string, number> = {
+  Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5,
+  Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4, Numpad5: 5,
+};
+
+// The end-of-show rating, 1 to 5. Same guards as reactions: no repeats, no shortcuts, never while typing.
+export function ratingFor(input: KeyInput): number | null {
+  const value = RATING_BY_CODE[input.code];
+  if (!value || input.repeat) return null;
+  if (input.ctrlKey || input.metaKey || input.altKey || input.shiftKey) return null;
+  if (isTyping(input.targetTag, input.targetEditable)) return null;
+  return value;
+}

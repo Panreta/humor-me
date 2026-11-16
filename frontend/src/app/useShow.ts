@@ -9,6 +9,8 @@ const FLASH_MS = 700;
 
 export type ShowState = "idle" | "connecting" | "speaking" | "done" | "error";
 export type EndStatus = "finished" | "aborted";
+// ask: the prompt is up; saving: sent, waiting for the server; saved/skipped: done with this show.
+export type RatingState = "ask" | "saving" | "saved" | "skipped";
 export type ReactionWindow = { bit: number; joke: number };
 
 export type ShowSetup = {
@@ -30,6 +32,7 @@ export function useShow() {
   const [flash, setFlash] = useState<ReactionKey | null>(null);
   const [notice, setNotice] = useState("");
   const [endStatus, setEndStatus] = useState<EndStatus | null>(null);
+  const [rating, setRating] = useState<RatingState | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const contextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -85,6 +88,7 @@ export function useShow() {
       setLine("");
       setNotice("");
       setEndStatus(null);
+      setRating(null);
       setFlash(null);
       closeWindow();
       roomRef.current = setup.room;
@@ -121,7 +125,11 @@ export function useShow() {
       socket.onclose = () => {
         stopMic();
         closeWindow();
-        if (finished || failed) return;
+        if (finished) {
+          setRating((r) => (r === "ask" || r === "saving" ? "skipped" : r)); // nobody left to take the rating
+          return;
+        }
+        if (failed) return;
         // The server logs a dropped show as aborted; the operator must see that too.
         setEndStatus("aborted");
         setNotice("Lost the connection to the backend.");
@@ -176,13 +184,18 @@ export function useShow() {
             if (msg.reason) setNotice(String(msg.reason));
           } else if (msg.type === "error") {
             setNotice(String(msg.message));
+            setRating((r) => (r === "saving" ? "ask" : r)); // a refused rating can be tried again
+          } else if (msg.type === "rating_saved") {
+            setRating("saved");
+            socket.close();
           } else if (msg.type === "show_end") {
             finished = true;
             stopMic();
             closeWindow();
             setEndStatus(msg.status === "aborted" ? "aborted" : "finished");
             setState("done");
-            socket.close();
+            // The socket stays open: the rating row goes into this show's log over the same connection.
+            setRating("ask");
           }
           return;
         }
@@ -216,5 +229,16 @@ export function useShow() {
     return true;
   }, []);
 
-  return { state, line, analyser, start, room, reactionWindow, pressed, flash, notice, endStatus, react };
+  const rate = useCallback((value: number | null) => {
+    const socket = socketRef.current;
+    if (value === null || socket?.readyState !== WebSocket.OPEN) {
+      setRating("skipped");
+      socket?.close();
+      return;
+    }
+    setRating("saving");
+    socket.send(JSON.stringify({ type: "rating", value }));
+  }, []);
+
+  return { state, line, analyser, start, room, reactionWindow, pressed, flash, notice, endStatus, rating, rate, react };
 }
