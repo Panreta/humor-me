@@ -695,3 +695,21 @@ The one miss is an indirect drinking hint at `age: teens`, which the user judged
 | 30/30 | 5 | +241 ms | 20 ms | -2 ms | yes | yes | yes |
 
 Largest spread 28 ms; every beep at least 23x the noise (median 31x); drift slope -0.008 ms/s over 294 s. **Old bar:** p95 |offset| 261 ms against 100 ms, **missed.** The bar was re-tuned by the user after this result (decisions.md 2026-11-15): the constant (+241 ms, which includes PlaySound's output latency) is reported, not barred. **Caveats:** one laptop, one run, 30 beeps; the beeps and the recording share a machine, so this cannot say how large the robot's own voice offset is; with the microphone's Audio enhancements on, no beeps reached the WAV at all.
+
+## Acceptance run (Exp 22, 2026-11-15)
+
+The Stage 0 exit (T11). Three simulated shows back to back, then one live show with the user pressing a key for every joke and the room recorded with consent. All on Gemini (`GENERATOR=llm`), laptop mic and speakers, no Bluetooth, mic enhancements off. Scored with `python -m sim.acceptance ... --record` (`reports/metrics/acceptance.json`, numbers and session ids only).
+
+| Show | Room | Rows valid | Status | Jokes | Bank | Bridges | W / K / Space / D / none | Rating | Audio |
+|---|---|---|---|---|---|---|---|---|---|
+| 08c5b28d5a81 | sim | yes | finished | 40 | 0% | 10 | 0 / 3 / 15 / 22 / 0 | 4 | not recorded |
+| 64422d8243ee | sim | yes | finished | 40 | 12% | 10 | 3 / 6 / 11 / 20 / 0 | 2 | not recorded |
+| a086dcc40da8 | sim | yes | finished | 40 | **75%** | 21 | 8 / 11 / 11 / 10 / 0 | 2 | not recorded |
+| 43251e36e02d | live | yes | finished | 40 | 0% | 12 | 5 / 11 / 20 / 4 / 0 | 3 | 100% |
+
+- (a) 3 simulated shows in a row, all clean: **PASS**. (b) a live show, valid and finished: **PASS**.
+- (c) label spread, one key over 60% of a live show's presses: **none flagged** (Space 50%, K 28%, W 12%, D 10%).
+- (d) real per-bit reward noise **0.121** (95% CI 0.092 to 0.151) from 8 bits of one live show, against the sim's 0.15 (measured 0.136); the band is 0.075 to 0.225, so **Exp 18 does not need a rerun**. One show only: the interval is wide.
+- **Finding: the third simulated show took 75% of its jokes from the bank.** The generator answered, but the LLM safety check timed out (73 rejected candidates with `llm:error:LLMError:transport: ReadTimeout`, over 5 bits) and one verdict reply was malformed JSON (15 candidates). The filter fails closed, so those bits were rejected whole and the hand-checked bank filled them. The show itself held: no dead air, 21 bridge lines covered the waits. Cost: a show that is three quarters bank yields few Gemini preference pairs. The filter's budget (6 s per attempt, 8 s total) is far below the time a bit has to prepare while the previous one plays (about 40 s); a follow-up PR lengthens it and retries malformed replies, measured on the bank share.
+- Minor: the rules' name check flagged "Morse", "Yelp" and "LEDs" as people (false positives; each costs one candidate).
+- Ratings: simulated shows 4, 2, 2 (the user's taste of a simulated room); live show 3.
