@@ -1,6 +1,6 @@
 // `npm run test:scope`: the oscilloscope line's pure math under Node, no dependencies.
 import assert from "node:assert/strict";
-import { IDLE_HUE, centroidHz, hueFromCentroid, isSilent, loudness, rms, smooth } from "../src/app/scope.ts";
+import { HUE, brightness, centroidHz, isSilent, loudness, rms, smooth, trackPeak } from "../src/app/scope.ts";
 
 assert.equal(rms([]), 0);
 assert.ok(Math.abs(rms(Array.from({ length: 1000 }, (_, i) => Math.sin(i / 10))) - Math.SQRT1_2) < 0.01);
@@ -19,11 +19,19 @@ const hz = centroidHz(bins(100), 48000);
 assert.ok(Math.abs(hz - 100 * (24000 / 1024)) < 1e-6);
 assert.equal(centroidHz(bins(-1), 48000), 0);
 
-assert.equal(hueFromCentroid(0), IDLE_HUE);
-assert.equal(hueFromCentroid(300), IDLE_HUE);
-assert.equal(hueFromCentroid(1e6), 270);
-const hues = [200, 500, 1000, 2000].map(hueFromCentroid);
-assert.ok(hues.every((h, i) => i === 0 || h > hues[i - 1]), "hue rises with brightness");
-assert.ok(hues[0] >= 145 && hues[3] <= 270);
+assert.equal(HUE, 145);
+assert.equal(brightness(0), 0);
+assert.equal(brightness(300), 0);
+assert.equal(brightness(1e6), 1);
+const tones = [400, 800, 1600, 2800].map(brightness);
+assert.ok(tones.every((v, i) => i === 0 || v > tones[i - 1]), "brightness rises with the centroid");
+
+// The peak jumps up at once, decays slowly, and never drops below the floor, so silence is not amplified.
+assert.equal(trackPeak(0.1, 0.5), 0.5);
+assert.ok(trackPeak(0.5, 0.1) < 0.5 && trackPeak(0.5, 0.1) > 0.49);
+assert.equal(trackPeak(0, 0.001), 0.03);
+let p = 0.5;
+for (let i = 0; i < 600; i++) p = trackPeak(p, 0.05);
+assert.ok(p < 0.06, "forgets a loud moment within seconds");
 
 console.log("scope: ok");
