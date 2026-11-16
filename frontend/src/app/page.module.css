@@ -5,14 +5,16 @@
   align-items: center;
   justify-content: flex-start;
   gap: 12px;
-  /* Pushes the wave's centre line (its box is 40dvh tall) to the middle of the viewport. */
-  padding: 30dvh 16px 32px;
+  /* The wave's centre line sits a little above the middle (24dvh + 34dvh / 2 = 41dvh), leaving room for the
+     subtitle and controls below without a scroll. */
+  box-sizing: border-box;
+  padding: 24dvh 16px 20px;
   text-align: center;
 }
 
 .wave {
   width: 100vw;
-  height: 40dvh;
+  height: 34dvh;
   color: var(--foreground);
 }
 
