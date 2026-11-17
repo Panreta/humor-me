@@ -93,7 +93,7 @@ def test_a_whole_simulated_show_logs_40_reactions(server):
         ws.send_json(start("sim"))
         seen = pump(ws)
     rows = only_log(server)
-    assert seen[-1] == {"type": "show_end", "status": "finished"}
+    assert seen[-1] == {"type": "show_end", "status": "finished", "ratable": True}
     assert len(reactions(rows)) == 40 and {r["source"] for r in reactions(rows)} == {"sim"}
     assert rows[0]["room"] == "sim" and rows[0]["generator_id"] == "bank-v1" and rows[0]["operator"] == "t"
     assert isinstance(rows[0]["policy"]["seed"], int) and rows[0]["git_sha"]
@@ -222,13 +222,13 @@ def test_a_corrupt_session_log_fails_the_start_visibly(server):
         ws.send_json(start("sim"))
         first, second = ws.receive_json(), ws.receive_json()
     assert first["type"] == "error" and "corrupt" in first["message"]
-    assert second == {"type": "show_end", "status": "aborted"}
+    assert second == {"type": "show_end", "status": "aborted", "ratable": False}
     assert len(list(server.glob("*.jsonl"))) == 1  # no new show started
 
 
 def test_the_mode_never_reaches_the_client(server):
     fields = {"line": {"type", "text"}, "reaction_window": {"type", "state", "bit", "joke"},
-              "sim_reaction": {"type", "bit", "joke", "key"}, "show_end": {"type", "status"}}
+              "sim_reaction": {"type", "bit", "joke", "key"}, "show_end": {"type", "status", "ratable"}}
     with TestClient(main.app).websocket_connect("/ws") as ws:
         ws.send_json(start("sim"))
         seen = pump(ws)
@@ -260,3 +260,90 @@ def test_the_selector_and_the_director_get_different_seeds(server, monkeypatch):
         pump(ws, stop=lambda m: m["type"] == "line")
     rows = only_log(server)
     assert seeds["director"] != seeds["selector"] and rows[0]["policy"]["seed"] == seeds["director"]
+
+
+def rate(ws, value):
+    ws.send_json({"type": "rating", "value": value})
+    return ws.receive_json()
+
+
+def test_a_finished_show_takes_one_rating_into_its_own_log_and_refuses_a_second(server):
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(start("sim"))
+        pump(ws)
+        assert rate(ws, 4) == {"type": "rating_saved", "value": 4}
+        second = rate(ws, 2)
+    assert second["type"] == "error" and "already rated" in second["message"]
+    rows = only_log(server)  # still one file, and still readable
+    assert [r["event"] for r in rows[-2:]] == ["show_end", "rating"] and rows[-1]["value"] == 4
+    assert [r["event"] for r in rows].count("rating") == 1
+
+
+def test_a_rating_with_no_show_or_a_show_in_progress_is_refused(server):
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        assert "no finished show" in rate(ws, 3)["message"]
+        ws.send_json(start("live"))
+        pump(ws, stop=lambda m: m["type"] == "reaction_window")
+        assert "no finished show" in rate(ws, 3)["message"]
+    assert "rating" not in {r["event"] for r in only_log(server)}
+
+
+def test_an_aborted_show_can_be_rated_but_a_show_that_never_started_cannot(server, monkeypatch):
+    class Boom:
+        selector_id = "boom"
+
+        def pick(self, texts):
+            raise RuntimeError("selector down")
+
+    monkeypatch.setattr(main, "UniformSelector", lambda seed: Boom())
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(start("live"))
+        seen = pump(ws, stop=lambda m: m["type"] == "show_end")
+        assert seen[-1]["status"] == "aborted" and seen[-1]["ratable"] is True
+        assert rate(ws, 1) == {"type": "rating_saved", "value": 1}
+    rows = only_log(server)
+    assert [r["event"] for r in rows[-2:]] == ["show_end", "rating"] and rows[-2]["status"] == "aborted"
+
+
+def test_a_show_that_died_before_show_start_cannot_be_rated(server, monkeypatch):
+    monkeypatch.setattr(main, "make_stack", lambda room: 1 / 0)
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(start("sim"))
+        end = pump(ws)[-1]
+        assert end["status"] == "aborted" and end["ratable"] is False  # the UI keeps the failure notice, no prompt
+        assert "no finished show" in rate(ws, 5)["message"]
+    assert list(server.glob("*.jsonl")) == []  # no file: nothing a rating could corrupt
+
+
+def test_a_rating_that_cannot_be_written_is_an_error_and_can_be_retried(server, monkeypatch):
+    from app.log import SessionLog
+    real = SessionLog.write
+    failing = {"on": True}
+
+    def flaky(self, event, **fields):
+        if event == "rating" and failing["on"]:
+            raise OSError("disk full")
+        return real(self, event, **fields)
+
+    monkeypatch.setattr(SessionLog, "write", flaky)
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(start("sim"))
+        pump(ws)
+        refused = rate(ws, 4)
+        assert refused["type"] == "error" and refused["message"].startswith("couldn't save the rating") and "disk full" in refused["message"]
+        failing["on"] = False
+        assert rate(ws, 4) == {"type": "rating_saved", "value": 4}  # same socket, same show
+    assert [r["event"] for r in only_log(server)][-2:] == ["show_end", "rating"]
+
+
+def test_a_rating_on_an_unreadable_log_is_an_error_not_a_dropped_socket(server):
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(start("sim"))
+        pump(ws)
+        (path,) = server.glob("*.jsonl")
+        lines = path.read_text(encoding="utf-8").splitlines()
+        path.write_text(chr(10).join([lines[0], "{torn", *lines[1:]]) + chr(10), encoding="utf-8")
+        assert rate(ws, 2)["message"].startswith("couldn't save the rating")
+        ws.send_json({"type": "rating", "value": 2})
+        assert ws.receive_json()["type"] == "error"  # still answering
+

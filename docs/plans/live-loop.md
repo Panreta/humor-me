@@ -80,9 +80,9 @@ finished bit from shows with `room: live`, in order. Nothing from `room: sim` ev
 
 Uniform random among candidates that pass the safety filter. Log the pick probability.
 
-### Log schema v1
+### Log schema v2
 
-JSONL, one file per show in `data/sessions/`. Every row has `schema: 1`, `session`, `at`, `event`.
+JSONL, one file per show in `data/sessions/`. Every row has `schema: 2`, `session`, `at`, `event`. Version 2 adds the `bridge` event (decisions.md 2026-11-14); the reader still accepts `schema: 1` logs, which have no bridge rows.
 
 | Event | Fields |
 |---|---|
@@ -90,6 +90,7 @@ JSONL, one file per show in `data/sessions/`. Every row has `schema: 1`, `sessio
 | `bit_decision` | `bit`, raw `obs` (`t`, `n_bits`, `context`, `last_mode`), `scores` per mode, `greedy`, `action`, `probs` |
 | `candidates` | `bit`, `joke`, `prompt_id`, `prompt`, `generator_id`, `items` (text, verdict, reason) |
 | `joke_played` | `bit`, `joke`, `chosen`, `pick_prob`, `text`, `tts_seconds`, `audio_seconds`, `audio_start_at`, `audio_end_at` |
+| `bridge` | `bit` (the bit it precedes), `text`, `tts_seconds`, `audio_start_at`, `audio_end_at`; one per bridge line played, in play order (v2) |
 | `reaction` | `bit`, `joke`, `source` (`button`\|`detector`\|`sim`), `level` (0–3 or null), `key`, `latency_s` |
 | `gap` | `bit`, `joke`, `planned_hold_s`, `actual_gap_s` |
 | `bit_end` | `bit`, `n_labels`, `reward_version`, `reward` (cross-check only) |
@@ -199,7 +200,7 @@ Runs in parallel once T0 is merged: T1, T2, T7, T8.
 - **Fix in the rules:** words capitalized after an opening quote or inside a quoted sentence are not names; the spaced-letter join must not swallow a lone article; possessives match their base word; fictional names in the bank are allowed.
 - **Build:** after the rules, one LLM call per bit judges all surviving candidates, through the same OpenAI-compatible client as T9. A timeout, a malformed reply, a provider safety block or a missing verdict means rejected. A real slur list loads from a gitignored local file, and a live show refuses to start without it.
 - **Experiment:** Exp 19 re-run on the real bank and the existing red-team list, then scored once on the user's fresh lines, which no builder sees. Rule changes after that score need new lines.
-- **Pass:** 100% of hard-rule lines caught on the fresh lines; at most 10% of the real bank rejected; the check adds at most 2 s per bit; fits the free quota for 5 shows in a day. A miss goes to the user, and option (c) in decisions.md is the fallback.
+- **Pass:** at least 75% of a fresh set of indirect lines caught, with the user judging weak labels (re-tuned from 100%, decisions.md 2026-11-08); at most 10% of the real bank rejected; the check adds at most 3 s per bit at p95 (re-tuned from 2 s, decisions.md 2026-11-08); fits the free quota for 5 shows in a day. A miss goes to the user. Option (c) is no longer the plan for real rooms: generated lines reach the room through the two automatic layers and the bank fallback.
 
 ### T9: Gemini generator, render-ahead, Exp 20
 
@@ -217,7 +218,7 @@ Runs in parallel once T0 is merged: T1, T2, T7, T8.
 - **Build:** mono 16 kHz PCM from an AudioWorklet with echo cancellation, noise suppression and auto gain off. Sent as binary over the websocket and written straight to a WAV beside the log. Recording cannot start without the consent box. Store the audio start time in the log so joke timestamps line up.
 - **Tests:** without consent no file exists; a dropped connection leaves a readable WAV; the path is gitignored.
 - **Experiment (user runs it, needs a mic):** play clicks at known times during a 15-minute show. Measure the offset between logged time and the click in the WAV.
-- **Pass:** p95 offset ≤ 100 ms, with no drift over the show.
+- **Pass:** p95 offset ≤ 100 ms, with no drift over the show. **Re-tuned by the user, 2026-11-15, after the first run (decisions.md, Exp 21):** drift at most 50 ms; p95 of the offset around its median at most 100 ms; at least 90% of in-recording beeps matched. The constant offset is reported, not barred.
 
 ### T11: Rating and acceptance run
 

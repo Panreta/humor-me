@@ -161,3 +161,31 @@ Used in the rJokes results (notebook Exp 2, 10, 11). Examples are from the 90k l
 | **Inter-annotator agreement** | How often separate human judges give the same answer. It shows how much of a task people themselves agree on | HumorGen's evaluators: 31.7% of pairs |
 | **Bootstrap** | Estimates uncertainty from the data alone: draw a new sample of the same size from the data, with repeats allowed (a **resample**), recompute the number, and repeat. How much it moves gives the CI | 1,000 resamples for Exp 10 |
 | **Cohen's kappa** | How well two labelers agree after subtracting the agreement they'd reach by chance. 1 is perfect and 0 is no better than chance. Raw agreement can mislead: if most jokes get no laugh, always answering "no laugh" looks accurate, but its kappa is 0 | Laugh detector vs the operator's keys |
+
+## Safety filter terms
+
+Used in the safety filter ([wiki page](safety-filter.md), notebook Exp 19).
+
+| Term | Meaning here | Example |
+|---|---|---|
+| **Hard rule** | A safety rule that is never traded for a laugh: no jokes about bodies, appearance or protected attributes of people present, and no alcohol or sexual content for teens | The bar is 100% of hard-rule lines caught |
+| **Fail closed** | When the filter itself breaks, it says no. The opposite, failing open, would let a line through | A rule that raises an error rejects the line |
+| **Red-team list** | Lines written to break the filter, mild on purpose, each labelled with the rule it tests | 158 lines in `tests/red_team.yaml` |
+| **Held-out lines** | Test lines not looked at while writing the rules, so the score shows how the rules do on lines they weren't built for | The pass bar applies to these only |
+| **Indirect phrasing** | A line that is unsafe in meaning with no banned word in it | "Interesting choice of pants, sir" |
+| **False reject** | A clean line the filter blocks. It costs material, not safety | At most 10% allowed |
+| **Render-ahead** | Turning the next line into audio while the current line plays, so the voice never makes the room wait | Line 3 is synthesized during line 2's audio and hold |
+| **Bridge line** | A pre-rendered in-character line played between bits while the next bit is still being written and checked, so there is no dead air. Each one played is a `bridge` row in the session log (schema v2), because it is audio the room heard | "Give me a second. I'm checking my notes." |
+| **Within-bit gap** | Silence from the end of one joke's hold to the next joke's audio, inside a bit. Render-ahead has to keep it short | Bar: p95 at most 1 s |
+| **Between-bit gap** | The same silence across a bit boundary, where the next bit's mode is only known after the last reaction. Bridge lines cover it | Bar: never over 2 s |
+| **Thread** | One of the K alternative versions of a bit the generator writes at once; candidate i of every joke belongs to thread i. A bit plays one thread, so the closer's callback matches the opener | 3 threads of 5 lines per bit |
+| **Pick probability (`pick_prob`)** | The chance that the played line was the one picked, counting every route to it (its thread picked, or borrowed after its own thread's line was rejected). Replay and later preference training weight a line by it | A line that is picked half the time directly and borrowed a quarter of the time logs 0.75 |
+| **Bank fallback** | Using the hand-checked joke bank when the model call fails or the filter rejects every candidate, and logging why | A 503 on a bit's generation call plays the bank's bit instead |
+| **Retry with a deadline** | Trying a failed request again after a short wait, but only while the total time stays inside a budget | Up to 2 retries within 12 s for the generator call |
+| **Rating** | The operator's 1 to 5 answer to "How did the room rate the set?", asked once after a show ends (finished or aborted) and written to that show's log as a `rating` row. It is the episode outcome we report, never a training reward, and replay ignores it | A 4 after a show where most bits got a `K` |
+| **Acceptance run** | Stage 0's exit test: scoring the user's real shows (3 simulated in a row, 1 live, label spread, per-bit reward noise) with `sim/acceptance.py` | `python -m sim.acceptance <session ids>` |
+| **Label spread** | How the operator's presses divide among W, K, Space and D (and unanswered windows). If one key takes over 60% of presses the rubric or the jokes are suspect, because the labels then say little | 25 `W` of 40 labels is 62.5%: flagged |
+| **Per-bit reward noise** | How much a bit's reward (mean of its 5 levels / 3) varies by chance. The sim assumes 0.15; a live estimate more than half away from that sends us back to Exp 18 | Sim measured 0.136; the live estimate is the pooled within-bit sd scaled to a 5-label mean |
+| **Consent box** | The operator's tick that the room was told the show is recorded and agreed. Recording cannot start without it; the show still runs when it is off | "The room was told this show is recorded and agreed" |
+| **Audio start time** | The wall-clock time of the recording's first sample, logged in `show_start.audio.start_at`, so a logged time minus it is a position in the WAV | `audio_start_at - start_at` is where a line begins in the file |
+| **Click alignment** | Exp 21: how far logged times are from the same moments heard in the recording, measured with beeps played at known times | Bar: p95 at most 100 ms and no drift |

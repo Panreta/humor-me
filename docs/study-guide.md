@@ -56,14 +56,14 @@ flowchart LR
     end
 
     subgraph LIVE["Live demo (browser + FastAPI): weeks 3-5"]
-        MIC["mic -> VAD"]:::uiTodo
-        LAUGH["laughter detector<br/>+ operator button"]:::uiTodo
+        MIC["mic recording (done)<br/>-> VAD (todo)"]:::uiTodo
+        LAUGH["operator keys (done)<br/>+ laughter detector (todo)"]:::uiTodo
         ASR["ASR -> banter/roast"]:::uiTodo
-        DIR["Director<br/>LinUCB per bit"]:::rlTodo
-        GEN["Bit writer<br/>identity x mode, K candidates"]:::modelTodo
-        SAFE["safety filter<br/>teens = strict"]:::modelTodo
-        TTS["TTS -> waveform UI"]:::uiTodo
-        LOG["episode log"]:::dataTodo
+        DIR["Director<br/>LinUCB per bit"]:::rlDone
+        GEN["Bit writer: Gemini now<br/>identity x mode, K candidates"]:::modelDone
+        SAFE["safety filter<br/>teens = strict"]:::modelDone
+        TTS["TTS -> waveform UI"]:::uiDone
+        LOG["episode log"]:::dataDone
     end
 
     subgraph API["External API"]
@@ -95,6 +95,7 @@ flowchart LR
     classDef dataTodo fill:#fff4c2,stroke:#b8860b,stroke-dasharray:5 5,color:#000
     classDef infraDone fill:#d6e9fb,stroke:#1565c0,color:#000
     classDef infraTodo fill:#d6e9fb,stroke:#1565c0,stroke-dasharray:5 5,color:#000
+    classDef uiDone fill:#fbdce8,stroke:#ad1457,color:#000
     classDef uiTodo fill:#fbdce8,stroke:#ad1457,stroke-dasharray:5 5,color:#000
 ```
 

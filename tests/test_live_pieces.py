@@ -24,7 +24,7 @@ def test_valid_messages_parse():
     assert parse(frame({"type": "played"})) == {"type": "played"}
     assert parse(frame({"type": "reaction", "bit": 1, "joke": 2, "key": "Space"}))["key"] == "Space"
     start = parse(frame({"type": "start", "context": CTX, "room": "live", "operator": "me", "extra": 1}))
-    assert start == {"type": "start", "context": CTX, "room": "live", "operator": "me"}
+    assert start == {"type": "start", "context": CTX, "room": "live", "operator": "me", "consent": False}
 
 
 @pytest.mark.parametrize("msg", [
@@ -103,3 +103,10 @@ def test_bank_only_filter_passes_bank_text_and_rejects_the_rest():
 
 def test_git_sha_is_a_hash_or_unknown():
     assert git_sha() == "unknown" or len(git_sha()) == 40
+
+
+def test_rating_messages_parse_and_bad_ones_are_rejected():
+    assert parse(frame({"type": "rating", "value": 5})) == {"type": "rating", "value": 5}
+    for value in (0, 6, True, 3.0, "3", None):
+        with pytest.raises(ProtocolError):
+            parse(frame({"type": "rating", "value": value}))

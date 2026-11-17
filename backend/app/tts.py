@@ -1,5 +1,6 @@
 """Text to speech for the show loop. Kokoro runs locally, so the demo needs no network or quota."""
 import io
+import threading
 import wave
 
 import numpy as np
@@ -38,3 +39,16 @@ class KokoroTTS:
         if not parts:
             raise ValueError(f"no audio produced for: {text!r}")
         return to_wav(np.concatenate(parts))
+
+
+class SerialTTS:
+    """One lock for the whole process. Kokoro's pipeline is not promised to be thread-safe, and the show synthesizes
+    from several threads at once (render-ahead, bridge lines), so the lock lives on the engine, which every show in
+    the process shares, not on a show."""
+
+    def __init__(self, engine):
+        self.engine, self._lock = engine, threading.Lock()
+
+    def synthesize(self, text: str) -> bytes:
+        with self._lock:
+            return self.engine.synthesize(text)

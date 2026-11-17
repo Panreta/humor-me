@@ -243,3 +243,4 @@ llm_judgments.jsonl
 
 # Permission emails: personal addresses, and this repo is public
 data/permissions/
+backend/app/blocklist.local.txt

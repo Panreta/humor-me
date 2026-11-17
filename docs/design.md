@@ -9,22 +9,88 @@ vehicle.
 
 ## Architecture
 
+What is built through T11 (solid boxes) and what is still planned (dashed). The judge, SFT and DPO plug in at the
+generator and the selector. The camera snapshot, speech recognition, banter and roasts are after the Dec 8 demo and are not drawn.
+
+```mermaid
+%%{init: {"theme": "default"}}%%
+flowchart LR
+    subgraph Browser["Browser: operator UI (Next.js)"]
+        UI["Operator UI<br/>start form, consent box,<br/>reaction keys W K Space D"]
+        WAVE["Waveform<br/>(playback audio only)"]
+        REC["Recorder<br/>mono 16 kHz, enhancements off"]
+        RATE["Rating prompt<br/>1 to 5 or Skip"]
+    end
+
+    subgraph Backend["Backend: FastAPI websocket, one show at a time"]
+        PROTO["Protocol<br/>checked messages"]
+        LOOP["Show loop<br/>8 bits x 5 jokes,<br/>render-ahead, bridge lines"]
+        DIR["Director<br/>LinUCB + eps 0.2,<br/>rebuilt by replay"]
+        GEN["Generator<br/>Gemini: 3 threads per bit,<br/>bank fallback"]
+        SAFE["Safety filter<br/>rules + LLM verdict,<br/>fails closed"]
+        TTS["Voice<br/>Kokoro on CPU"]
+        BTN["Button reward source<br/>last press wins"]
+        SIM["Simulated room<br/>(sim/audience.yaml)"]
+    end
+
+    subgraph Disk["data/sessions (gitignored)"]
+        LOG[("Session log v2<br/>JSONL, one file per show")]
+        WAV[("Room audio<br/>WAV beside the log")]
+    end
+
+    subgraph Offline["Offline scoring"]
+        ACC["Acceptance run<br/>sim/acceptance.py:<br/>checks, label spread, noise"]
+        METRICS[("reports/metrics<br/>numbers only")]
+    end
+
+    DET["Laugh detector<br/>(planned: Stage 1)"]
+    JUDGE["Judge, SFT, DPO<br/>(model track, planned)"]
+
+    UI -->|"start, context, consent"| PROTO
+    UI -->|"reaction keys"| PROTO
+    RATE -->|"rating 1 to 5"| PROTO
+    REC -->|"PCM frames"| PROTO
+    PROTO --> LOOP
+    LOOP -->|"bit context"| DIR
+    DIR -->|"mode"| LOOP
+    LOOP -->|"mode, bit"| GEN
+    GEN -->|"candidates"| SAFE
+    SAFE -->|"passing lines"| LOOP
+    LOOP -->|"line text"| TTS
+    TTS -->|"WAV"| LOOP
+    LOOP -->|"line + audio"| WAVE
+    BTN -->|"levels 0 to 3"| LOOP
+    SIM -->|"levels 0 to 3"| LOOP
+    PROTO --> BTN
+    LOOP -->|"every row"| LOG
+    PROTO -->|"rating row after show_end"| LOG
+    PROTO -->|"frames"| WAV
+    LOG -->|"replay at show start"| DIR
+    LOG --> ACC
+    WAV --> ACC
+    ACC --> METRICS
+    WAV -.->|"audio"| DET
+    DET -.->|"shadow labels"| LOG
+    JUDGE -.->|"selector, model"| GEN
+
+    classDef rl fill:#d4f4dd,stroke:#2e7d32,color:#000
+    classDef model fill:#e8dcf8,stroke:#6a1b9a,color:#000
+    classDef data fill:#fff4c2,stroke:#b8860b,color:#000
+    classDef infra fill:#d6e9fb,stroke:#1565c0,color:#000
+    classDef ui fill:#fbdce8,stroke:#ad1457,color:#000
+    classDef stop fill:#f8d7d7,stroke:#c62828,color:#000
+    classDef planned stroke-dasharray:5 5
+    class UI,WAVE,REC,RATE ui
+    class DIR,BTN,SIM rl
+    class GEN,JUDGE model
+    class LOG,WAV,METRICS data
+    class PROTO,LOOP,TTS,ACC infra
+    class SAFE stop
+    class DET,JUDGE planned
 ```
-[session start]  optional camera snapshot ─► VLM ─► scene text (venue, size, vibe) ─► discard image
-                                                          │
-mic ─► VAD ─┬─► laughter detector ─► laugh features ──────┼─► room state
-            └─► ASR ─► banter / roast classifier ─────────┘        │
-                                                                   ▼
-                                     DIRECTOR: contextual bandit picks persona mode
-                                                                   │
-                         GENERATOR: core identity × mode ─► K candidates (thought-leap prompting)
-                                                                   │
-                                     JUDGE: pairwise rerank (LLM judge → later learned RM)
-                                                                   │
-                                     safety filter ─► TTS (with timing marks) ─► waveform UI
-                                                                   │
-                                     laugh-aware turn-taking: hold during laugh, resume on decay
-```
+
+Invariants this keeps: audio only in the loop (no face or video), every row needed to replay a show is in the log, the
+mode never reaches the browser, and a rating is the reported outcome, never a training reward.
 
 ### Two learning timescales
 
@@ -177,9 +243,44 @@ live audience response.
 Target: ≤ 1s from end-of-laugh to next line. Achieve by generating/judging the next
 candidates *while* the bot is speaking or the room is laughing. Distill to a small model later.
 
+## Audio and consent
+
+The only audio kept is the room's, and only when the operator ticks "The room was told this show is recorded and agreed"
+before the show (Massachusetts prohibits secret recording, so the notice comes first). Without the tick no audio is
+accepted, no file is created and the show runs as before (`show_start.audio` is `{consent: false, path: null}`).
+
+- **Capture:** the microphone track's own frames (`MediaStreamTrackProcessor`, Chrome), read in a worker when the track
+  transfers and on the main thread otherwise, with echo cancellation, noise suppression and auto gain off (they are built
+  for calls and would erase the laughter this recording exists for).
+- **Transport:** binary frames of 4096 16-bit samples (256 ms) on the same websocket. Binary only ever carries audio and
+  every control message is a text frame, so the two cannot be confused. The server answers `start` with `record`, the
+  browser opens the mic, and the show begins when the first frame arrives; a mic that fails or stays silent for 15 s
+  means the show runs unrecorded.
+- **Capture clock, not render clock:** every frame carries a timestamp from the capture clock. Gaps are filled with
+  silence and overlaps trimmed, so the WAV sample index equals (timestamp - first timestamp) x 16 kHz whatever the CPU is
+  doing; frames are resampled from the device rate to 16 kHz with a windowed-sinc low-pass that keeps its phase. An
+  AudioWorklet is driven by Chrome's audio render thread, which misses deadlines while Kokoro uses the CPU and then is
+  simply not called: it recorded 65% of real time (see the dev-log), and every later timestamp drifted early.
+- **Start time:** the browser sends `audio_start` with the first sample's capture time (epoch ms) before the first chunk,
+  and the server uses it for `start_at`; the arrival-based estimate is the fallback.
+- **Diagnostics:** the browser reports `audio_health` every ~5 s (audio delivered against capture time, silence filled,
+  wall time); the server warns below 99% of either, and also on close when it received under 99% of the wall-clock span.
+- **Setup for a show:** no Bluetooth headsets (opening the mic switches them to a low-quality call profile and drops
+  samples). In Windows Sound, Communications, choose "Do nothing", or Windows ducks the robot's voice by 80% while the
+  mic is open (observed: the voice fell to the noise floor after 20 s). Turn the microphone's **Audio enhancements off**
+  (Sound, Recording, the mic's Properties, Advanced or Enhancements) and quit vendor noise-cancellation apps: those drivers
+  run echo cancellation below the browser, so Chrome's `echoCancellation: false` cannot stop them, and on the test laptop
+  they removed the laptop's own speaker output from the recording (no beeps at all, the robot's voice faint).
+- **File:** `data/sessions/<session>.wav` beside `<session>.jsonl`, gitignored. The WAV header sizes are patched after
+  every frame, so a dropped connection or a crash leaves a file any reader opens, cut at the last whole frame.
+- **Alignment:** `show_start.audio.start_at` is the wall-clock time (the log's `at` timebase) of the first sample,
+  estimated as the first frame's arrival minus its length. A line's time in the WAV is `audio_start_at - start_at`.
+  Exp 21 measures how far that is off (`python -m sim.evaluate_clock`): beeps are played through the speakers during a
+  15-minute show in a simulated room (`GENERATOR=bank`, consent box ticked) and compared with the logged times. Bar: p95 at most 100 ms, no drift.
+
 ## Safety
 
 - Hard filter on output: appearance, bodies, protected attributes, named individuals' traits.
 - Banter responses target the content of what was said.
 - Camera consent notice on UI; no persistence of images/audio of identifiable people beyond
-  derived features unless explicit consent in training mode.
+  derived features unless explicit consent in training mode (see Audio and consent above).

@@ -1,12 +1,19 @@
+/* One lilac-tinted palette; every control and the waveform read from these. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f6f4fb;
+  --foreground: #17141f;
+  --border-dim: #cfc8e2;
+  --accent: #6e5bd6;
+  --on-accent: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #0f0d16;
+    --foreground: #ece7f8;
+    --border-dim: #3d3654;
+    --accent: #b9a8ff;
+    --on-accent: #0f0d16;
   }
 }
 
@@ -19,7 +26,7 @@ body {
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-mono), ui-monospace, Menlo, Consolas, monospace;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -39,4 +46,14 @@ a {
   html {
     color-scheme: dark;
   }
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
 }
