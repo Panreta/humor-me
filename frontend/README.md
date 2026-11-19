@@ -14,10 +14,7 @@ Next.js UI for the live show: a single operator screen.
 
 Rules live in `src/app/reactionKeys.ts` (pure, one function). Keys use `event.code` (`KeyW`, `KeyK`, `Space`, `KeyD`), ignore repeats and typing in inputs, and only act in a Live show while a window is open. Space is `preventDefault`-ed so the page doesn't scroll.
 
-**Pause:** the Pause button or `P` (same guards) suspends the playback audio, so the line stops mid-word and the
-server, which waits for `played` with no time limit, starts nothing new; Resume continues the same line. Nothing is sent
-to the server. A Live reaction window already open still closes on the server's clock, the room recording keeps running,
-and the log's timings include the pause.
+**Pause:** the Pause button or `P` pauses the show; press again to resume.
 
 - **Live:** a press sends `{type: "reaction", bit, joke, key}`; the button stays lit until the window closes and a later press moves the highlight.
 - **Simulated:** buttons send nothing; the one matching `sim_reaction` lights briefly.
