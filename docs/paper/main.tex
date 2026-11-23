@@ -1,0 +1,29 @@
+% Minimal wrapper so the paper compiles on Overleaf. Swap in the venue template later;
+% introduction.tex and references.bib move over unchanged.
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[numbers]{natbib}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+\title{humor-me: A Stand-Up Agent That Reads the Room}
+\author{Tingyu Zhang}
+\date{}
+
+\begin{document}
+\maketitle
+
+\input{introduction}
+
+% Placeholders so the roadmap's \ref{}s resolve until the real sections exist.
+\section{Related Work}\label{sec:related}
+\section{System}\label{sec:system}
+\section{Simulated Audience}\label{sec:sim}
+\section{Experiments}\label{sec:experiments}
+\section{Limitations and Future Work}\label{sec:limitations}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+\end{document}
