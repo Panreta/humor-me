@@ -406,3 +406,34 @@ Two points the pseudo-code makes visible:
   allowed because the surrogate (5.8) splits into one independent term per joke.
 - The uncertainty block uses the **uncentered** scores, because the dummy is at exactly 0 only before
   centering. Centering waits until the report.
+
+## 8. Comparing two jokes with the fit
+
+Once $\hat\theta$ is fitted, (2.1) answers "which is funnier?" for **any** two jokes in the fit,
+including pairs the judge never compared:
+
+```math
+\hat p_{ij} = \sigma(\hat\theta_i - \hat\theta_j). \qquad\qquad (8.1)
+```
+
+Centering doesn't change it, since only the difference enters. A rough band comes from the
+diagonal standard errors, ignoring the covariance between $\hat\theta_i$ and $\hat\theta_j$:
+
+```math
+\sigma\Bigl(\hat\theta_i - \hat\theta_j \pm z\sqrt{\mathrm{se}_i^2 + \mathrm{se}_j^2}\Bigr). \qquad\qquad (8.2)
+```
+
+Code: `bt.win_prob`, `bt.win_prob_interval`, and `Ranking.win_prob` / `Ranking.compare`. A joke
+that wasn't in the fit has no $\theta$, so (8.1) can't score it: a new joke needs judge calls
+(or a model trained on the judge's answers).
+
+## Code map
+
+| File | What it holds |
+|---|---|
+| `bt.py` | Sections 3–6 and 8: `fit_bt`, `bt_se`, `win_prob`, `win_prob_interval`, `borda_scores` |
+| `judges.py` | `SimulatedJudge` (known θ, for tests) and `LLMJudge` (llama3.1:8b on Ollama). A judge is any object with `name` and `compare(prompt, first, second) -> 0 \| 1` |
+| `select.py` | Which pairs to ask: all pairs, warm start, adaptive LUCB |
+| `rank.py` | Section 7: `rank()` flips the order coin, asks, fits, stops; `write_judgments()` |
+| `records.py` | `Comparison` (one call) and `Ranking` (one prompt's result) |
+| `run_llm.py` | `python -m judge.run_llm`: rank a joke list with the LLM judge |

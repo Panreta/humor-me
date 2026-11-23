@@ -1,4 +1,4 @@
-python -m judge.test_judge --model llama3.1:8b
+python -m judge.run_llm --model llama3.1:8b
 8 jokes -> 28 judge calls to llama3.1:8b
 
 Headline: Study finds cats recognize their own names but often choose to ignore them

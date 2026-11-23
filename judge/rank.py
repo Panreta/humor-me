@@ -6,15 +6,14 @@ from typing import Sequence
 
 import numpy as np
 
-from .backends import Judge
-from .functions import borda_scores, bt_se, fit_bt, games_matrix
+from .bt import borda_scores, bt_se, fit_bt, games_matrix  # NEW
+from .records import Comparison, Ranking  # NEW
 from .select import adaptive_next, all_pairs, warm_start_pairs
-from .orders import Comparison, Ranking
 
 METHODS = ("adaptive", "all_pairs")
 
 
-def _ask(prompt: str, prompt_id: str, jokes: Sequence[str], judge: Judge, a: int, b: int,
+def _ask(prompt: str, prompt_id: str, jokes: Sequence[str], judge, a: int, b: int,  # NEW
          rng: np.random.Generator) -> Comparison:
     """The only place a judge is called: a fair coin decides which joke is shown first."""
     shown_first = "a" if rng.random() < 0.5 else "b"
@@ -33,11 +32,12 @@ def _fit(n: int, comparisons: list[Comparison], alpha: float) -> tuple[np.ndarra
     return theta, bt_se(raw, games_matrix(n, pairs), alpha=alpha)
 
 
-def rank(prompt: str, jokes: Sequence[str], judge: Judge, *, method: str = "adaptive",
+def rank(prompt: str, jokes: Sequence[str], judge, *, method: str = "adaptive",  # NEW
          budget: int | None = 80, top_cutoffs: Sequence[int] = (5, 10),
          bottom_cutoffs: Sequence[int] = (5,), warm_rounds: int = 2, beta: float = 1.96,
          alpha: float = 1.0, seed: int = 0, prompt_id: str | None = None) -> Ranking:
-    """Rank `jokes` for `prompt` with Bradley-Terry fitted to judge comparisons.
+    """Rank `jokes` for `prompt` with Bradley-Terry fitted to judge comparisons. `judge` is any
+    object with `name` and `compare(prompt, first, second) -> 0 | 1` (see judges.py).
 
     method="all_pairs": every pair once, in random order, until done or `budget` calls
     (None = no limit). method="adaptive": `warm_rounds` random matchings, then LUCB picks the

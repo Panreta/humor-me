@@ -3,6 +3,8 @@ from dataclasses import asdict, dataclass
 
 import numpy as np
 
+from .bt import win_prob, win_prob_interval  # NEW
+
 SIDES = ("a", "b")
 STOP_REASONS = ("separated", "budget", "exhausted")
 
@@ -51,3 +53,15 @@ class Ranking:
     def bottom(self, k: int) -> np.ndarray:
         """The k least funny, least funny first."""
         return self.order()[::-1][:k]
+
+    def win_prob(self, i: int, j: int) -> float:  # NEW
+        """P(joke i beats joke j) from the fitted theta, including pairs the judge never compared."""  # NEW
+        return win_prob(self.theta, i, j)  # NEW
+
+    def win_prob_interval(self, i: int, j: int, z: float = 1.96) -> tuple[float, float]:  # NEW
+        """Rough band around win_prob(i, j) from the standard errors (see bt.win_prob_interval)."""  # NEW
+        return win_prob_interval(self.theta, self.se, i, j, z)  # NEW
+
+    def compare(self, i: int, j: int) -> int:  # NEW
+        """Same convention as a judge: 0 if joke i is the funnier by theta, 1 if joke j is."""  # NEW
+        return 0 if self.theta[i] >= self.theta[j] else 1  # NEW

@@ -1,5 +1,8 @@
-"""Bradley-Terry fit with a prior (Hunter 2004 MM), diagonal-Fisher standard errors, and
-empirical Borda scores. Math: judge/README.md."""
+"""Bradley-Terry: fit one score theta per joke from (winner, loser) pairs, give its standard
+errors, and use the fit to compare two jokes. Plus empirical Borda scores. Math: judge/README.md.
+
+Model: P(i beats j) = sigmoid(theta_i - theta_j).
+"""
 import numpy as np
 
 
@@ -38,6 +41,16 @@ def fit_bt(n_items: int, comparisons, alpha: float = 1.0, iters: int = 500,
 
 def _sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
+
+
+def win_prob(theta: np.ndarray, i: int, j: int) -> float:  # 1/(1 + exp(-(theta[i] - theta[j])))
+    return float(_sigmoid(theta[i] - theta[j]))  
+
+
+def win_prob_interval(theta: np.ndarray, se: np.ndarray, i: int, j: int,  
+                      z: float = 1.96) -> tuple[float, float]: # CI approximate, 2-sigma
+    d, half = theta[i] - theta[j], z * np.hypot(se[i], se[j])  
+    return float(_sigmoid(d - half)), float(_sigmoid(d + half))  
 
 
 def bt_se(theta_raw: np.ndarray, N: np.ndarray, alpha: float = 1.0) -> np.ndarray:

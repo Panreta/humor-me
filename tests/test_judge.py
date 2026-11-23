@@ -5,8 +5,9 @@ import json
 import numpy as np
 import pytest
 
-from judge import LLMJudge, SimulatedJudge, fit_bt, rank, write_judgments
-from judge.functions import borda_scores
+from judge import LLMJudge, Ranking, SimulatedJudge, fit_bt, rank, write_judgments  # NEW
+from judge.bt import borda_scores, win_prob, win_prob_interval  # NEW
+from judge.judges import parse_ab  # NEW
 from judge.select import adaptive_next
 
 N_JOKES = 24
@@ -129,11 +130,62 @@ def test_input_validation():
         rank("p", JOKES, judge, budget=None)  # adaptive needs a budget
 
 
-def test_llm_judge_is_a_stub():
-    judge = LLMJudge("some-model")
-    assert judge.name == "llm:some-model"
-    with pytest.raises(NotImplementedError):
-        judge.compare("p", "a", "b")
+def test_parse_ab():  # NEW
+    assert parse_ab("A") == 0 and parse_ab(" b.") == 1  # NEW
+    assert parse_ab("<think>A is better... or B</think>Answer: B") == 1  # NEW
+    assert parse_ab("A is clever, but B is funnier. B") == 1  # NEW
+    assert parse_ab("Neither.") is None and parse_ab("<think>A") is None  # NEW
+
+
+def test_llm_judge_reads_the_jokes_in_order(tmp_path):  # NEW
+    """Fake transport that answers by content (the joke containing 'funny' wins): the judge must
+    map it to the right position, rank() must undo the coin, and every answer is logged."""
+    def chat(model, system, user):  # NEW
+        a = user.split("Joke A:")[1].split("Joke B:")[0]  # NEW
+        return "A" if "funny" in a else "B"  # NEW
+    jokes = ["plain 0", "plain 1", "funny 2", "plain 3"]  # NEW
+    judge = LLMJudge(chat=chat, log_path=str(tmp_path / "log.jsonl"))  # NEW
+    assert judge.name == "llm:llama3.1:8b"  # NEW
+    assert judge.compare("p", "funny x", "plain y") == 0 and judge.compare("p", "plain y", "funny x") == 1  # NEW
+    r = rank("p", jokes, judge, method="all_pairs", budget=None)  # NEW
+    assert r.order()[0] == 2 and r.borda[2] == 1.0  # NEW
+    assert len((tmp_path / "log.jsonl").read_text().splitlines()) == 2 + 6  # NEW
+
+
+def test_llm_judge_retries_then_raises(monkeypatch):  # NEW
+    monkeypatch.setattr("judge.judges.time.sleep", lambda s: None)  # NEW
+    replies = iter(["no idea", "B"])  # NEW
+    assert LLMJudge(chat=lambda *a: next(replies)).compare("p", "x", "y") == 1  # NEW
+    with pytest.raises(RuntimeError):  # NEW
+        LLMJudge(chat=lambda *a: "neither").compare("p", "x", "y")  # NEW
+
+
+def test_win_prob_is_bt_formula_and_symmetric():  # NEW
+    theta = np.array([1.0, 0.0, -2.0])  # NEW
+    assert win_prob(theta, 0, 1) == pytest.approx(1 / (1 + np.exp(-1)))  # NEW
+    assert win_prob(theta, 0, 2) + win_prob(theta, 2, 0) == pytest.approx(1)  # NEW
+    assert win_prob(theta, 1, 1) == 0.5  # NEW
+    lo, hi = win_prob_interval(theta, np.array([0.5, 0.5, 0.5]), 0, 1)  # NEW
+    assert lo < win_prob(theta, 0, 1) < hi  # NEW
+
+
+def test_ranking_predicts_a_pair_it_never_asked():  # NEW
+    """A beat B 3/4, B beat C 3/4, A and C never met: the fit still says A beats C, more
+    confidently than either observed pair."""
+    comps = [(0, 1)] * 3 + [(1, 0)] + [(1, 2)] * 3 + [(2, 1)]  # NEW
+    theta, _ = fit_bt(3, comps, alpha=0.01)  # NEW
+    r = Ranking(theta=theta, se=np.ones(3), borda=np.zeros(3), comparisons=[], n_calls=0, stop_reason="budget")  # NEW
+    assert r.win_prob(0, 2) > r.win_prob(0, 1) > 0.5  # NEW
+    assert r.compare(0, 2) == 0 and r.compare(2, 0) == 1  # NEW
+
+
+def test_simulated_ranking_predictions_track_true_probabilities():  # NEW
+    theta_true = np.linspace(2, -2, 8)  # NEW
+    judge = SimulatedJudge(theta_true, JOKES[:8], seed=3)  # NEW
+    comps = [c for s in range(20) for c in rank("p", JOKES[:8], judge, method="all_pairs", budget=None, seed=s).comparisons]  # NEW
+    theta, _ = fit_bt(8, [c.winner_loser() for c in comps])  # NEW
+    true_p = 1 / (1 + np.exp(-(theta_true[0] - theta_true[7])))  # NEW
+    assert abs(win_prob(theta, 0, 7) - true_p) < 0.05  # NEW
 
 
 def test_write_judgments(tmp_path):
