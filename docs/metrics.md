@@ -678,6 +678,8 @@ The one miss is an indirect drinking hint at `age: teens`, which the user judged
 **Verdict:** not adopted; the filter's default stays on Gemini. One run, so p95 is rough; the prompt was not re-tuned.
 **Bug found on the way:** the cache key ignored provider and model (dev-log 2026-11-25); it now includes both.
 
+**Thinking off (D-99):** `--no-thinking`, raw `reports/metrics/safety_filter_anthropic_no_thinking.json`. Held-out 71/71; false rejects clean 2/60 and 1/60, bank 5/120 and 1/120; **p50 3.12 s, p95 3.61 s, bar missed.** Output tokens 14,356 (thinking on: 15,519), so thinking was not the cost; the reply's per-line reasons are. $0.011. Not adopted.
+
 ## Generated show timing (Exp 20, 2026-11-14)
 
 `python -m sim.evaluate_live --env-file backend/.env --quota-rpd 500 --quota-rpm 15` (notebook Exp 20, task T9). Raw: `reports/metrics/live_generator.json`, keyed by the model, the quota inputs and a digest of the prompt (`gen-v3`), bridge lines and timing constants. Three whole shows of 8 bits, `SimRoom` (ages mixed, teens, mixed), real Kokoro on the CPU behind the shared `SerialTTS` lock, the real model (`gemini-flash-lite-latest`), real time. Dead air is read from the session log (schema v2: `joke_played`, `bridge` and `gap` rows). Bars fixed before the first run: within-bit dead air p95 at most 1 s; no between-bit silence over 2 s; the API requests for 5 shows fit the free quota.

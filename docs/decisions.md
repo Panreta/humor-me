@@ -100,6 +100,7 @@ What we decided and why, one line each. Click an ID for the full record (options
 | [D-94](agent/decisions-detail.md#d-94) | Nov 24 | Compare Gemini Flash-Lite, Gemini Flash and Claude Haiku 5.5 for writing bits on 60 prompts, with your blind ranking of the first 30; the bar was fixed before the run: a model must be fast, rarely time out and rarely fail, and a model with no safe thread is ranked last. |
 | [D-95](agent/decisions-detail.md#d-95) | Nov 24 | A judge on Explorer (Ollama qwen3.8 27b first, Qwen 7B as fallback), taught by your votes, may rank prompts 31 to 60, but only if it agrees with your own rankings and favors no model; its added risk of a false winner is stated. |
 | [D-98](agent/decisions-detail.md#d-98) | Nov 25 | Exp 19 rerun: the safety filter on Claude Haiku 5.5 catches every held-out line and rejects few clean ones, but its p95 is 4.9 s against the 3 s bar, so the filter stays on Gemini (user) |
+| [D-99](agent/decisions-detail.md#d-99) | Nov 25 | Same check with Haiku's thinking turned off: still too slow (3.6 s against 3 s). Thinking was not the cause; the long reply is. The filter stays on Gemini (user) |
 
 New decision: add its full entry to the detailed log with the next ID, then a row here in the same PR.
 A test fails if the two files' IDs don't match.
