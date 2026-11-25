@@ -6,3 +6,10 @@
 --extra-index-url https://download.pytorch.org/whl/cu121
 torch==2.5.1+cu121
 transformers>=4.56,<5
+# Model pipeline (docs/plans/sft-dpo-ogrpo.md): the versions tested with transformers 4.57.6 on 2026-11-24.
+# trl 0.24 needs transformers >= 4.56.1. httpx: explorer/safety_rules.py imports backend/app/safety.py.
+trl==0.24.0
+peft==0.17.1
+datasets>=3,<6
+accelerate>=1.4
+httpx>=0.27

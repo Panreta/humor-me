@@ -6,6 +6,8 @@
 - precision: bf16 on GPUs that have it (H200), fp16 on a V100 (no bfloat16), fp32 on CPU (tests).
 Heavy imports happen inside the functions, so importing this module needs no torch.
 """
+from __future__ import annotations  # cluster venv was Python 3.9: keeps `X | None` hints unevaluated
+
 import os
 
 

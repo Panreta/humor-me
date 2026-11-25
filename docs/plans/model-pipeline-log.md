@@ -87,3 +87,61 @@ baseline import failures now pass.
 **Morning note, judge run length:** 91,522 records ÷ 32 per step = 2,860 steps. The logged H200 run took
 about 9 s per step, so a full epoch is about 7 h, longer than `train_dpo.sbatch`'s 4 h. The default stays at
 20,000 records (625 steps, about 1.6 h); resubmitting resumes from the last checkpoint if you want more.
+
+### 1.3 Steps 1–4 code: premises, candidates, ranking, sets, SFT and O-GRPO
+
+| Step | File | What it does |
+|---|---|---|
+| 1 | `explorer/joke_prompts.py` | The teacher prompt (one per mode, technique after HumorGen Appendix J, recast as the one robot identity, asks for N lines as JSON) and the **student** prompt the 7B sees everywhere (identity + rules + `Mode: …` + `Premise: …`, or premise only). `MODES` text = the live generator's (a test keeps them equal). `PROMPT_ID = joke-v1` |
+| 1a | `explorer/gen_premises.py` | Option A premises: the teacher lists premises over 20 areas; near-duplicates and unsafe ones dropped; stable id = hash of the normalized text; ~10% `eval` by id |
+| 1b | `explorer/gen_candidates.py` | One call per (premise, mode) for 4 lines; short cells retried up to 2 times, never padded; resumable per premise; refuses to mix teachers or prompt versions in one file |
+| — | `explorer/hf_generate.py`, `explorer/pool_io.py` | Batched sampling with OOM split; resumable JSONL with torn-line repair (same rule as `label_modes.py`) |
+| — | `explorer/safety_rules.py` | The live show's rules layer (`backend/app/safety.py check_rules`) under **teens** rules, the strictest, so no training line is one the show would refuse in any room |
+| 2 | `explorer/rank_pool.py`, `judge/judges.py LogitJudge`, `judge/rank.py rank_from_probs, ordered_pairs` | Screen (safety, exact dups), score all n(n-1) ordered pairs in one batched call per chunk of premises, fit Bradley–Terry with the existing `judge/` code. Reports per premise: first-shown win share, order consistency, unsafe lines with reasons |
+| 3 | `explorer/build_sets.py` | SFT top 10; DPO pairs; O-GRPO with group z-score advantage and softmax weight stored as `w·G`; drops premises whose θ are all equal; ~5% of train premises as dev; eval premises only in `eval_prompts.jsonl`; `stats.json` |
+| 4 | `explorer/train_sft.py` | `--stage sft` (HumorGen SFT settings) and `--stage ogrpo` (weighted loss, from the SFT adapter). Custom `WeightedTrainer` |
+| — | `*.sbatch` | One per step, H200 on `gpu` like `train_dpo.sbatch`, resumable with `--requeue` |
+| — | `explorer/requirements-cluster.txt` | Added `trl==0.24.0`, `peft==0.17.1`, `datasets`, `accelerate`, `httpx` (versions tested locally) |
+
+**Design decision for you (default chosen, easy to flip): the mode in the student prompt.** The live show's
+director picks a mode, so the trained model should take one. But a DPO pair shares one prompt, and HumorGen's
+"random top-5 vs bottom-5" would often pair lines of different modes under one mode's prompt. Default: mode in
+the prompt, and DPO pairs are made **within a mode**, that mode's best line vs its worst, up to 6 pairs per
+premise. `build_sets --no-mode` gives HumorGen's exact form (premise-only prompt, global pairs) for a
+faithful replication. Judgment call, not measured.
+
+**Smoke runs** (0.5B model, CPU, 3 hand-written premises):
+- `gen_candidates`: 54 of 72 lines in 43 s; 12 cells short after retries (the 0.5B often ignores the JSON
+  format; the 32B should not, check the "short cells" count in the job log).
+- `rank_pool`: 306/272/240 calls for 18/17/16 lines, as n(n-1) says. 3 lines rejected by the safety rules
+  (`body_or_appearance:jeans`, `teens_sexual:sleep with`, `named_person:Why`). The last is a false positive:
+  the show's rule treats a capital letter mid-sentence as a possible name. It fails closed by design, so it will
+  over-reject some lines (brand names too). Left as is; `stats.json` reports the unsafe share.
+- **Found: a position-biased judge makes a silent, meaningless ranking.** The smoke judge always says "A", so
+  every pair splits 1–1, every θ is 0 and the "ranking" is input order (`consistent_share` 0.0). Guard added:
+  `build_sets` drops premises whose θ are all equal and reports the median consistency. If the real judge's
+  median consistency is low, the pool ranking is mostly noise: look at it before training.
+- `build_sets` on a synthetic ranking (random judge scores): O-GRPO weights per premise sum to exactly G (17.0
+  for 17 lines); DPO pairs share one mode's prompt; the eval premise went only to `eval_prompts`.
+- `train_sft --stage sft` 3 steps: dev loss 1.98 → 1.88. `--stage ogrpo` and `train_dpo --stage generator`
+  from that adapter: both run and save.
+- **Checked: "start from SFT" really starts from SFT.** The merged model (`load_policy`) and base + SFT adapter
+  unmerged give the same logits (max difference 0.0004, float rounding); both differ from the plain base by up to
+  1.0. So DPO's reference and O-GRPO's start are the SFT model.
+
+**Caught before it ran: a 4× learning rate in the weighted trainer.** transformers 4.57 skips dividing the loss
+by the gradient-accumulation steps when the model's `forward` takes `**kwargs` (Qwen's does), assuming a
+custom `compute_loss` normalizes by `num_items_in_batch` itself. Ours doesn't, so with accumulation 4 the
+effective learning rate would have been 4× the setting. Fixed by setting `model_accepts_loss_kwargs = False`
+(the Trainer's own docstring says to); a test checks it.
+
+**Caught before it ran: 32B teacher would not fit the job's RAM.** `from_pretrained(...).to("cuda")` loads on
+the CPU first: ~65 GB for the 32B, more than `--mem=64G`. Now loads with `device_map` straight to the GPU.
+
+**Tests:** 25 in `tests/test_model_pipeline.py`. A mutation check: breaking the O-GRPO weight (`w` instead of
+`w·G`) and the ranking's winner rule each made a test fail, so the tests bite. Full suite: **494 passed,
+3 skipped**. The rule that explorer scripts carry `from __future__ import annotations` (Python 3.9) now covers
+the new files.
+
+**My own slip, fixed:** restoring a file after the mutation check, `git checkout judge/rank.py` reverted it to
+the last commit and wiped the uncommitted `rank_from_probs`. Re-applied the same code and re-ran the full suite.

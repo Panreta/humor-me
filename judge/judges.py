@@ -107,3 +107,28 @@ class LLMJudge:
             if attempt < self.retries - 1:  # NEW
                 time.sleep(2 ** attempt)  # NEW
         raise RuntimeError(f"{self.name}: no A/B answer after {self.retries} tries; last reply: {reply!r}")  # NEW
+
+
+class LogitJudge:
+    """A judge that scores instead of generating: `prob_first(prompt, first, second)` is P(first is funnier),
+    read from a model's A/B logits (explorer/judge_model.py). `score(user_prompts) -> [P(A)]` is the transport,
+    so tests pass a fake one. `template` turns (prompt, first, second) into the user message; the default is
+    the rJokes judge's training prompt, which has no premise. compare() fits the rank() interface; bulk
+    ranking calls `score` once per batch through judge.rank.rank_from_probs instead.
+    """
+
+    RJOKES = "Which joke is funnier?\nJoke A: {first}\nJoke B: {second}\nAnswer with A or B."
+    WITH_PREMISE = ("Premise: {prompt}\n\nWhich joke on this premise is funnier?\nJoke A: {first}\n"
+                    "Joke B: {second}\nAnswer with A or B.")
+
+    def __init__(self, score: Callable[[list[str]], list[float]], name: str = "logit", template: str = RJOKES):
+        self.score, self.name, self.template = score, name, template
+
+    def message(self, prompt: str, first: str, second: str) -> str:
+        return self.template.format(prompt=prompt, first=first, second=second)
+
+    def prob_first(self, prompt: str, first: str, second: str) -> float:
+        return self.score([self.message(prompt, first, second)])[0]
+
+    def compare(self, prompt: str, first: str, second: str) -> int:
+        return 0 if self.prob_first(prompt, first, second) > 0.5 else 1

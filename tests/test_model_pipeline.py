@@ -114,3 +114,188 @@ def test_to_chat_wraps_judge_strings_and_passes_messages():
     msgs = {"prompt": [{"role": "user", "content": "p"}], "chosen": [{"role": "assistant", "content": "x"}],
             "rejected": [{"role": "assistant", "content": "y"}], "extra": 1}
     assert train_dpo.to_chat(msgs) == {k: msgs[k] for k in ("prompt", "chosen", "rejected")}
+
+
+# --- step 1: prompts, premises, candidates --------------------------------------------------------------
+
+from explorer import build_sets, gen_candidates, gen_premises, joke_prompts, rank_pool  # noqa: E402
+from judge.rank import ordered_pairs, rank_from_probs  # noqa: E402
+
+
+def test_modes_match_the_live_generator():
+    pytest.importorskip("httpx")
+    import pathlib
+    import sys
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "backend"))
+    from app.generate import MODES
+    assert joke_prompts.MODES == MODES
+
+
+def test_parse_lines_cleans_and_caps():
+    reply = 'Sure! ["one joke", "one joke", 3, "  two   jokes ", "???", "' + "w " * 50 + '", "three"]'
+    assert joke_prompts.parse_lines(reply) == ["one joke", "two jokes", "three"]
+    assert joke_prompts.parse_lines(reply, 2) == ["one joke", "two jokes"]
+    assert joke_prompts.parse_lines("no list here") == [] and joke_prompts.parse_lines("[broken") == []
+
+
+def test_student_prompt_with_and_without_mode():
+    with_mode = joke_prompts.student_messages("queues", "cynic")[1]["content"]
+    assert "cynic" in with_mode and "queues" in with_mode
+    assert joke_prompts.student_messages("queues")[1]["content"] == "Premise: queues"
+
+
+def test_premises_dedupe_and_split_stably():
+    replies = [("work", '["The office printer", "office printer!", "a meeting that could be an email"]'),
+               ("food", '["Microwave popcorn", "x"]')]
+    rows = gen_premises.collect(replies, n=10)
+    assert [r["premise"] for r in rows] == ["The office printer", "Microwave popcorn",
+                                            "a meeting that could be an email"]   # round-robin, dup and 1-word gone
+    assert all(r["split"] == gen_premises.split_of(r["id"]) for r in rows)
+    assert gen_premises.premise_id("The office printer") == gen_premises.premise_id("office printer!!")
+    ids = [gen_premises.premise_id(f"premise number {i}") for i in range(2000)]
+    assert 0.07 < sum(gen_premises.split_of(i) == "eval" for i in ids) / 2000 < 0.13
+
+
+def test_fill_retries_short_cells_and_never_invents():
+    calls = []
+
+    def fake_generate(convs):
+        calls.append(len(convs))
+        return ['["a", "b"]' if len(calls) == 1 else '["c", "d", "e"]' for _ in convs]
+
+    premises = [{"id": "p1", "premise": "queues", "split": "train"}]
+    rows, short = gen_candidates.fill(premises, fake_generate, per_mode=4, retries=1)
+    assert calls == [6, 6] and short == 0
+    assert all(sum(r["mode"] == m for r in rows) == 4 for m in joke_prompts.MODES)
+    rows, short = gen_candidates.fill(premises, lambda c: ["[]"] * len(c), per_mode=4, retries=2)
+    assert rows == [] and short == 6
+
+
+# --- step 2: ranking ------------------------------------------------------------------------------------
+
+def test_rank_from_probs_recovers_the_true_order():
+    strength = [0.0, 1.0, 2.0, 3.0, 4.0]
+    p = {(i, j): 1 / (1 + 2.718 ** -(strength[i] - strength[j])) for i, j in ordered_pairs(5)}
+    rk = rank_from_probs(5, p, "fake")
+    assert list(rk.order()) == [4, 3, 2, 1, 0] and rk.n_calls == 20 and rk.stop_reason == "exhausted"
+
+
+def test_always_first_judge_gives_a_flat_ranking():
+    rk = rank_from_probs(4, {pair: 0.99 for pair in ordered_pairs(4)}, "biased")
+    assert max(rk.theta) - min(rk.theta) < 1e-9          # build_sets drops these premises
+
+
+class FakeJudge:
+    name = "fake"
+
+    def message(self, prompt, first, second):
+        return f"{first}|{second}"
+
+    def score(self, prompts):                              # longer line wins
+        return [1.0 if len(a) > len(b) else 0.0 for a, b in (p.split("|") for p in prompts)]
+
+
+def candidates(premise_id="p1", split="train", texts=None):
+    texts = texts or [f"line {'x' * i}" for i in range(12)]
+    modes = list(joke_prompts.MODES)
+    return [{"premise_id": premise_id, "premise": "queues", "split": split, "mode": modes[i % 6], "k": i // 6,
+             "text": t} for i, t in enumerate(texts)]
+
+
+def test_rank_chunk_screens_scores_and_skips():
+    unsafe = lambda t: (False, "test") if "bad" in t else (True, "ok")
+    good = candidates()
+    small = candidates("p2", texts=["a", "b", "bad"])
+    dup = candidates("p3", texts=[f"line {'x' * i}" for i in range(12)] + ["line "])
+    rows, skipped = rank_pool.rank_chunk([good, small, dup], FakeJudge(), unsafe, min_lines=8)
+    assert skipped == ["p2"] and len(rows) == 2
+    r = rows[0]
+    assert r["n_calls"] == 12 * 11 and r["consistent_share"] == 1.0
+    assert [l["text"] for l in r["lines"]] == sorted((c["text"] for c in good), key=len, reverse=True)
+    assert len(rows[1]["lines"]) == 12                     # the exact duplicate was dropped
+
+
+# --- step 3: sets ---------------------------------------------------------------------------------------
+
+def ranked(premise_id, split="train", n=24, flat=False):
+    modes = list(joke_prompts.MODES)
+    lines = [{"text": f"{premise_id} line {i}", "mode": modes[i % 6], "k": i // 6,
+              "theta": 0.0 if flat else float(n - i), "se": 0.1, "borda": 0.0} for i in range(n)]
+    return {"premise_id": premise_id, "premise": f"premise {premise_id}", "split": split, "lines": lines,
+            "unsafe": [], "consistent_share": 0.9, "first_shown_win_share": 0.5}
+
+
+def pids(n, start=1):
+    """Hex ids that are train premises (not eval: id % 10 != 0)."""
+    out, i = [], start
+    while len(out) < n:
+        if i % 10:
+            out.append(f"{i:010x}")
+        i += 1
+    return out
+
+
+def test_sets_follow_humorgen_rules():
+    rows = [ranked(p) for p in pids(60)] + [ranked("00000000a0", split="eval"), ranked(pids(1, 900)[0], flat=True)]
+    sets, stats = build_sets.build(rows)
+    assert stats["dropped_flat_premises"] == 1 and stats["eval_premises"] == 1
+    assert sets["sft_dev"] and sets["sft_train"]                                       # some premises are dev
+    train_ids = {r["premise_id"] for r in sets["sft_train"]}
+    assert not train_ids & {r["premise_id"] for r in sets["sft_dev"]}                  # dev disjoint
+    assert "00000000a0" not in train_ids | {r["premise_id"] for k in sets for r in sets[k] if k != "eval_prompts"}
+    per = {}
+    for r in sets["sft_train"]:
+        per.setdefault(r["premise_id"], []).append(r["theta"])
+    assert all(sorted(v, reverse=True) == [24.0 - i for i in range(10)] for v in per.values())   # top 10
+    for r in sets["dpo_train"]:
+        assert r["theta_gap"] > 0 and r["mode"] in r["prompt"][1]["content"]           # within one mode
+    assert len(sets["dpo_train"]) == 6 * len(per)
+    sums = {}
+    for r in sets["ogrpo_train"]:
+        sums[r["premise_id"]] = sums.get(r["premise_id"], 0) + r["weight"]
+    assert all(abs(s - 24) < 1e-9 for s in sums.values())                              # w * G sums to G
+
+
+def test_sets_without_mode_use_global_pairs():
+    sets, stats = build_sets.build([ranked(p) for p in pids(5)], use_mode=False)
+    assert not stats["mode_in_prompt"]
+    for r in sets["dpo_train"] + sets["dpo_dev"]:
+        assert r["prompt"][1]["content"].startswith("Premise:")
+        assert r["theta_gap"] >= 24 - 5 - 5 + 1                                       # top 5 vs bottom 5
+
+
+def test_advantages_are_z_scores_with_softmax_weights():
+    a, w = build_sets.advantages([3.0, 1.0, 1.0, 1.0])
+    assert abs(sum(a)) < 1e-9 and a[0] > 0 > a[1]
+    assert abs(sum(w) - 1) < 1e-12 and w[0] > w[1] == w[2] == w[3]
+
+
+# --- step 4: the weighted loss --------------------------------------------------------------------------
+
+def test_weighted_loss_is_weighted_mean_of_per_line_losses():
+    torch = pytest.importorskip("torch")
+    from explorer.train_sft import weighted_loss
+    logits = torch.randn(2, 5, 7)
+    labels = torch.tensor([[-100, -100, 1, 2, 3], [-100, 4, 5, -100, -100]])
+    one = weighted_loss(logits, labels, torch.tensor([1.0, 1.0]))
+    l0 = weighted_loss(logits[:1], labels[:1], torch.tensor([1.0]))
+    l1 = weighted_loss(logits[1:], labels[1:], torch.tensor([1.0]))
+    assert torch.isclose(one, (l0 + l1) / 2)
+    assert torch.isclose(weighted_loss(logits, labels, torch.tensor([2.0, 0.0])), l0)
+
+
+def test_weighted_trainer_lets_the_trainer_scale_for_accumulation():
+    pytest.importorskip("transformers")
+    from explorer.train_sft import make_trainer_class
+    src = make_trainer_class().__init__.__code__.co_names
+    assert "model_accepts_loss_kwargs" in src
+
+
+def test_train_sft_stage_presets():
+    from explorer import train_sft
+    s = train_sft.parse_args(["--stage", "sft", "--out_dir", "x"])
+    assert (s.lr, s.epochs, s.batch * s.accum, s.weighted) == (2e-4, 3, 16, False)
+    o = train_sft.parse_args(["--stage", "ogrpo", "--init_adapter", "sft", "--out_dir", "x"])
+    assert (o.lr, o.epochs, o.weighted, o.warmup_steps) == (1e-6, 5, True, 10)
+    with pytest.raises(SystemExit):
+        train_sft.parse_args(["--stage", "ogrpo", "--out_dir", "x"])

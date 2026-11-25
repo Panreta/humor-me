@@ -88,6 +88,30 @@ def rank(prompt: str, jokes: Sequence[str], judge, *, method: str = "adaptive", 
                    n_calls=len(comparisons), stop_reason=stop_reason)
 
 
+def ordered_pairs(n: int) -> list[tuple[int, int]]:
+    """Every pair in both orders, as (shown first, shown second): n(n-1) judge calls."""
+    return [(i, j) for i in range(n) for j in range(n) if i != j]
+
+
+def rank_from_probs(n: int, p_first: dict[tuple[int, int], float], judge_name: str, *,
+                    prompt_id: str = "", alpha: float = 1.0) -> Ranking:
+    """Rank n jokes from judge scores computed in bulk: p_first[(i, j)] = P(joke i wins when shown first
+    against joke j). Each score becomes one Comparison (winner = first when p > 0.5), so the result is the
+    same Ranking rank() returns for these calls. Asking both orders of every pair cancels position bias
+    without a coin: order-inconsistent pairs simply count as one win each."""
+    comparisons = []
+    for (i, j), p in p_first.items():
+        a, b = min(i, j), max(i, j)
+        winner_index = i if p > 0.5 else j
+        comparisons.append(Comparison(prompt_id=prompt_id, a=a, b=b, shown_first="a" if i == a else "b",
+                                      winner="a" if winner_index == a else "b", judge=judge_name))
+    theta, se = _fit(n, comparisons, alpha)
+    pairs = [c.winner_loser() for c in comparisons]
+    stop = "exhausted" if len(comparisons) == n * (n - 1) else "budget"
+    return Ranking(theta=theta, se=se, borda=borda_scores(n, pairs), comparisons=comparisons,
+                   n_calls=len(comparisons), stop_reason=stop)
+
+
 def write_judgments(path, comparisons: Sequence[Comparison]) -> pathlib.Path:
     """One JSON object per comparison per line."""
     path = pathlib.Path(path)

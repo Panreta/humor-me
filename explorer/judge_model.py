@@ -5,6 +5,8 @@ token, i.e. the probability of A when only A or B is allowed. One forward pass p
 Used by eval_judge.py (step 0 gate) and rank_pool.py (step 2), so both score the same way.
 Heavy imports happen inside the functions, so importing this module needs no torch.
 """
+from __future__ import annotations  # cluster venv was Python 3.9: keeps `X | None` hints unevaluated
+
 import math
 
 
@@ -32,7 +34,8 @@ def load(base: str, adapter: str | None = None, dtype: str = "auto"):
     tok = AutoTokenizer.from_pretrained(base, padding_side="left")
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
-    model = AutoModelForCausalLM.from_pretrained(base, dtype=pick_dtype(dtype)).to(device)
+    # straight to the GPU: a 32B teacher is ~65 GB, more than a job's RAM if it is loaded on the CPU first
+    model = AutoModelForCausalLM.from_pretrained(base, dtype=pick_dtype(dtype), device_map=device)
     if adapter:
         from peft import PeftModel
         model = PeftModel.from_pretrained(model, adapter)
