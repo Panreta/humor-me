@@ -14,7 +14,7 @@ Next.js UI for the live show: a single operator screen.
 
 Rules live in `src/app/reactionKeys.ts` (pure, one function). Keys use `event.code` (`KeyW`, `KeyK`, `Space`, `KeyD`), ignore repeats and typing in inputs, and only act in a Live show while a window is open. Space is `preventDefault`-ed so the page doesn't scroll.
 
-**Pause:** the Pause button or `P` pauses the show; press again to resume.
+**Pause:** the Pause button or `P` pauses the show; press again to resume. It suspends playback and sends `{type: "pause"}` / `{type: "resume"}`; the server logs both on the show clock and answers `pause_state`, or an `error` (shown as a notice, and the button goes back) when no show is running. **What it does to the data:** a joke that was playing when you paused is not counted toward the bit's reward, whatever you press for it, and its audio is left out of laugh-detector training. A pause between lines or in the reaction window costs nothing. A show you paused or cut short is rated as usual, but its rating is not counted in the reported rating. The microphone keeps recording while paused.
 
 - **Live:** a press sends `{type: "reaction", bit, joke, key}`; the button stays lit until the window closes and a later press moves the highlight.
 - **Simulated:** buttons send nothing; the one matching `sim_reaction` lights briefly.
