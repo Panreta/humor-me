@@ -34,6 +34,12 @@ export function useShow() {
   const [endStatus, setEndStatus] = useState<EndStatus | null>(null);
   const [rating, setRating] = useState<RatingState | null>(null);
   const [paused, setPaused] = useState(false);
+  // What the browser last asked for and the server has not answered yet, so a refusal can be undone.
+  const pendingPauseRef = useRef<"pause" | "resume" | null>(null);
+  const pausedRef = useRef(false);
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
   const socketRef = useRef<WebSocket | null>(null);
   const contextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -92,6 +98,7 @@ export function useShow() {
       setRating(null);
       setFlash(null);
       setPaused(false);
+      pendingPauseRef.current = null;
       closeWindow();
       roomRef.current = setup.room;
       setRoom(setup.room);
@@ -187,11 +194,22 @@ export function useShow() {
           } else if (msg.type === "error") {
             setNotice(String(msg.message));
             setRating((r) => (r === "saving" ? "ask" : r)); // a refused rating can be tried again
+            const refused = pendingPauseRef.current; // a refused pause or resume leaves the show as it was
+            pendingPauseRef.current = null;
+            if (refused) {
+              setPaused(refused === "resume");
+              void (refused === "resume" ? context.suspend() : context.resume());
+            }
+          } else if (msg.type === "pause_state") {
+            pendingPauseRef.current = null;
+            setPaused(msg.paused === true);
+            void (msg.paused === true ? context.suspend() : context.resume());
           } else if (msg.type === "rating_saved") {
             setRating("saved");
             socket.close();
           } else if (msg.type === "show_end") {
             finished = true;
+            pendingPauseRef.current = null;
             setPaused(false);
             void context.resume();
             stopMic();
@@ -227,14 +245,18 @@ export function useShow() {
 
   // Pausing freezes playback: the line in progress stops mid-word, and the server waits for its `played` without a
   // time limit, so nothing new starts. A reaction window already open still closes on the server's clock. The room
-  // recording keeps running, since it has its own capture path.
+  // recording keeps running, since it has its own capture path. The server logs the pause on the show clock and drops
+  // the label of any joke that was playing (D-92); it answers `pause_state`, or `error` when the show can't pause.
   const togglePause = useCallback(() => {
     const context = contextRef.current;
-    if (!context) return;
-    setPaused((was) => {
-      void (was ? context.resume() : context.suspend());
-      return !was;
-    });
+    const socket = socketRef.current;
+    if (!context || socket?.readyState !== WebSocket.OPEN || pendingPauseRef.current) return;
+    const kind = pausedRef.current ? "resume" : "pause";
+    pendingPauseRef.current = kind;
+    pausedRef.current = kind === "pause";
+    setPaused(pausedRef.current);
+    void (kind === "pause" ? context.suspend() : context.resume());
+    socket.send(JSON.stringify({ type: kind }));
   }, []);
 
   // Only a Live show with an open window sends; a simulated room answers for itself.
