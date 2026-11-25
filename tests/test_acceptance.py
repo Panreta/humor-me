@@ -1,5 +1,6 @@
 """The acceptance scorer (Exp 22) on synthetic logs: it must call a clean show clean, an aborted one not, and recover a
 known noise level, so a verdict on the user's real shows means something."""
+import json
 import pathlib
 import sys
 import wave
@@ -242,7 +243,8 @@ def test_a_pause_is_reported_with_its_seconds_and_the_jokes_it_cost(tmp_path):
     sid = write_show(tmp_path, full(), pauses=[(11.0, 20.0)])
     s = acceptance.show_report(sid, tmp_path)
     assert s["pauses"] == {"count": 1, "paused_s": 9.0, "jokes_dropped": 1}
-    assert s["labels"]["counts"]["none"] == 1  # the dropped label counts as unlabeled, not as a press
+    assert s["labels"]["counts"]["K"] == 40 and s["labels"]["counts"]["none"] == 0  # key bias is the operator's presses
+    assert s["noise_stats"]["n_bits"] == 8  # the reward side still drops the label: bit 0 has 4 of 5
     assert acceptance.show_report(write_show(tmp_path, full()), tmp_path)["pauses"] ==         {"count": 0, "paused_s": 0.0, "jokes_dropped": 0}
 
 
@@ -276,3 +278,15 @@ def test_a_paused_show_is_not_marked_as_missing_audio(tmp_path):
         w.setframerate(16000)
         w.writeframes(b"\0\0" * 16000 * int(span))
     assert acceptance.show_report(sid, tmp_path)["audio"]["coverage"] == pytest.approx(1.0, abs=0.05)
+
+
+def test_a_pause_row_after_show_end_is_not_part_of_the_show(tmp_path):
+    sid = write_show(tmp_path, full())
+    path = tmp_path / f"{sid}.jsonl"
+    rows = path.read_text(encoding="utf-8").splitlines()
+    last = json.loads(rows[-1])
+    assert last["event"] == "show_end"
+    stray = {**last, "event": "pause", "paused_at": 11.0, "at": last["at"] + 5}
+    stray.pop("status")
+    path.write_text("\n".join(rows + [json.dumps(stray)]) + "\n", encoding="utf-8")
+    assert acceptance.show_report(sid, tmp_path)["pauses"] == {"count": 0, "paused_s": 0.0, "jokes_dropped": 0}

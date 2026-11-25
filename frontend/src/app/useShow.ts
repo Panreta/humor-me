@@ -133,6 +133,9 @@ export function useShow() {
       };
       socket.onclose = () => {
         stopMic();
+        pendingPauseRef.current = null;
+        setPaused(false); // nobody is left to resume the show, and the context must not stay suspended
+        void context.resume();
         closeWindow();
         if (finished) {
           setRating((r) => (r === "ask" || r === "saving" ? "skipped" : r)); // nobody left to take the rating
@@ -194,8 +197,10 @@ export function useShow() {
           } else if (msg.type === "error") {
             setNotice(String(msg.message));
             setRating((r) => (r === "saving" ? "ask" : r)); // a refused rating can be tried again
-            const refused = pendingPauseRef.current; // a refused pause or resume leaves the show as it was
-            pendingPauseRef.current = null;
+            // Only the server's refusal of our own pause or resume (`about: "pause"`) undoes it; any other error
+            // arriving meanwhile must not flip the state.
+            const refused = msg.about === "pause" ? pendingPauseRef.current : null;
+            if (msg.about === "pause") pendingPauseRef.current = null;
             if (refused) {
               setPaused(refused === "resume");
               void (refused === "resume" ? context.suspend() : context.resume());

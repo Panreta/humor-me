@@ -66,7 +66,7 @@ only during a reaction window and never while typing in a form. Use `event.code`
 ### Reward
 
 - `reward_v1(levels)`: per bit, mean of the non-null levels ÷ 3. With fewer than 3 labels out of 5 it returns `None`, and the director does not update.
-- A joke whose playback overlapped a pause counts as a null label (D-92): `app.pauses.overlaps(audio_start_at, audio_end_at, pauses)` decides, in the live loop and in replay alike. The `reaction` row keeps the pressed level; only the reward ignores it.
+- A joke whose playback overlapped a pause counts as a null label (D-92): `app.pauses.overlaps(audio_start_at, audio_end_at, pauses)` decides, in the live loop and in replay alike. The show holds while paused (no line starts, the reaction window and the hold freeze), so only a line that was playing is hit. The `reaction` row keeps the pressed level; only the reward ignores it.
 - A "laugh" in any reported rate is level ≥ 2.
 - Labels are the record. Reward is always derived from them and never stored as the source of truth.
 - A key press overrides any future detector output for the same joke.

@@ -51,8 +51,9 @@ KEY_OF = {level: key for key, level in KEY_LEVELS.items()}
 
 
 def label_spread(levels: list[int | None]) -> dict:
-    """Count and share per key of each joke's final label (the last press, which is what the reward uses), `none` for
-    a window nobody answered. `presses` excludes `none`, and the flag looks at presses only."""
+    """Count and share per key of each joke's final press (the last one), `none` for a window nobody answered. Fed
+    from the raw reaction rows, so a joke dropped from the reward for a pause still counts as the press the operator
+    made: this check is about the operator's key bias, not the reward. `presses` excludes `none`, and the flag looks at presses only."""
     counts = {key: 0 for key in (*KEY_LEVELS, "none")}
     for level in levels:
         counts["none" if level is None else KEY_OF[level]] += 1
@@ -64,9 +65,10 @@ def label_spread(levels: list[int | None]) -> dict:
             "flagged": presses > 0 and counts[top] / presses > SPREAD_LIMIT}
 
 
-def bit_levels(rows: list[dict]) -> list[list[int | None]]:
-    """Per finished bit (one with a `bit_end` row), the final level of each joke."""
-    return [joke_levels(rows, r["bit"]) for r in rows if r["event"] == "bit_end"]
+def bit_levels(rows: list[dict], keep_paused: bool = False) -> list[list[int | None]]:
+    """Per finished bit (one with a `bit_end` row), the final level of each joke; a joke whose playback a pause
+    interrupted is None unless `keep_paused` (D-92)."""
+    return [joke_levels(rows, r["bit"], keep_paused) for r in rows if r["event"] == "bit_end"]
 
 
 def noise_stats(bits: list[list[int | None]]) -> dict:
@@ -148,7 +150,9 @@ def pause_report(rows: list[dict]) -> dict:
     """Pauses in one show (D-92): how many, how many seconds, and how many jokes lost their label to one. An unmatched
     pause (the show ended paused) counts to the last row's time. Seconds are on the show clock, and the log's `at` is
     the same timebase for a real show."""
-    end = next((r["at"] for r in rows if r["event"] == "show_end"), rows[-1]["at"])
+    cut = next((i for i, r in enumerate(rows) if r["event"] == "show_end"), len(rows))
+    rows = rows[:cut + 1]  # a row after show_end is not part of the show
+    end = rows[-1]["at"]
     spans = intervals(rows)
     bits = {r["bit"] for r in rows if r["event"] == "joke_played"}
     return {"count": len(spans), "paused_s": sum(max(0.0, min(q, end) - p) for p, q in spans),
@@ -178,7 +182,7 @@ def show_report(session: str, directory: pathlib.Path) -> dict:
     start, ends = rows[0], [r for r in rows if r["event"] == "show_end"]
     played = [r for r in rows if r["event"] == "joke_played"]
     bits = bit_levels(rows)
-    levels = [lv for bit in bits for lv in bit]
+    levels = [lv for bit in bit_levels(rows, keep_paused=True) for lv in bit]
     banked = bank_jokes(rows)
     stats = noise_stats(bits)
     ratings = [r["value"] for r in rows if r["event"] == "rating"]

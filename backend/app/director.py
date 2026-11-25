@@ -10,11 +10,12 @@ from sim.policies import EpsilonSoft, LinUCB, prior_means
 EPSILON = 0.2
 
 
-def joke_levels(rows: list[dict], bit: int) -> list[int | None]:
+def joke_levels(rows: list[dict], bit: int, keep_paused: bool = False) -> list[int | None]:
     """One level per joke of the bit. Among button rows the last in log order wins, a null timeout included
     (a later press overrides an earlier one, a later timeout does not resurrect it). With no button row, the
-    last row of any other source. A joke whose playback overlapped a pause is None whatever was pressed (D-92)."""
-    spoiled = paused_jokes(rows, bit)
+    last row of any other source. A joke whose playback overlapped a pause is None whatever was pressed (D-92), unless
+    `keep_paused` asks for what the operator really pressed (the key-bias check, which is about the operator)."""
+    spoiled = set() if keep_paused else paused_jokes(rows, bit)
     by_joke: dict[int, dict[str, dict]] = {}
     for r in rows:
         if r["event"] == "reaction" and r["bit"] == bit:
