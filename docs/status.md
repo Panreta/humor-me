@@ -1,6 +1,6 @@
 # Status (read this first in a new session)
 
-Last updated: 2026-11-15 (Exp 22 recorded). Update this file whenever the state below changes.
+Last updated: 2026-11-24 (cached bits built, Exp 23 not run). Update this file whenever the state below changes.
 
 Learning the material from scratch (RL foundations → our experiments → Explorer runbook):
 [study-guide.md](study-guide.md).
@@ -18,7 +18,7 @@ Learning the material from scratch (RL foundations → our experiments → Explo
 | Decision notebooks | Split by section so no notebook grows without limit: `decisions-data` (Exp 1, 2, 9–12), `decisions-director` (Exp 3–8, 13–16, 18), `decisions-live` (Exp 19 onward: 19, 20, 21, 22); `decisions.ipynb` is the index. `decisions-model` comes with the first judge/SFT/DPO experiment (Exp 17 is reserved for the judge). All 94 claim checks ✅. Run `python scripts/run_notebook.py` (all notebooks) before committing |
 | Decision log | Two files joined by D-xx IDs (D-86, D-87): [decisions.md](decisions.md) is the short plain log for people; [agent/decisions-detail.md](agent/decisions-detail.md) is the full record agents append to. Human docs stay short and plain (CLAUDE.md "Writing docs"). `tests/test_docs.py` fails if the IDs differ |
 | Decision plots | [notebooks/decision-plot.ipynb](../notebooks/decision-plot.ipynb): the deck's results redrawn from `reports/metrics`, with checks that each chart still matches its slide and that every experiment has a chart or a stated reason (15 charted, 5 with a stated reason). PNGs in `reports/figures/decision-plot/`, swapped into slides 14, 18, 20, 29, 30, 31 and 33 of `docs/slides/humor-me.pptx` and `slides.md`, and added to the Google Slides copy along with slides 15, 16 and 25 |
-| Tests | `.venv/Scripts/python -m pytest tests -q`: 415 passing, 3 skipped, synthetic data only |
+| Tests | `.venv/Scripts/python -m pytest tests -q`: 464 passing, 3 skipped, synthetic data only |
 | rJokes | R1 prep done (403k jokes). **R2 done: 90k labeled**, `modes.jsonl` on the laptop (30k copy kept as `modes_30k.jsonl`). **Precision rule met:** every mode within ±0.02 (optimist 1,170 jokes, ±0.016). **Human vs judge ranking:** agree only in part (neurotic up, wordsmith down, optimist clearly disagrees; Spearman ρ +0.20 to +0.37), and mode makes a small difference in upvotes (win rates 0.480–0.527, Exp 10, [metrics.md](metrics.md#human-vs-judge-mode-ranking-2026-11-01)). **Correlation map:** no flag or safety label needs an extra adjustment, so Exp 10 stands (Exp 12). **Hand check (105 jokes):** mode labels 92% precise at the labeled mode mix, misses lean to wordsmith; judge safety flags caught 0 of 16 human-flagged rows (Exp 9) |
 | Explorer (NEU HPC) | Working env: Python 3.13 module, `torch==2.5.1+cu121`, `transformers` 4.57, V100 in float16, 5.2 jokes/s in batch ([explorer/README.md](../explorer/README.md)) |
 | Transcript pipeline | **Paused 2026-10-26**. Bits F1 0.80 on Bargatze; kept for structure stats + report appendix |
@@ -57,7 +57,7 @@ Learning the material from scratch (RL foundations → our experiments → Explo
 1. **Model track (Explorer):** own premises → 6-mode candidates → judge comparison → SFT → DPO, latest
    Nov 22 (decisions-detail.md 2026-11-01). The trained model speaks in the Dec 8 demo.
 2. **Demo track:** tasks T1–T11 in [plans/live-loop.md](plans/live-loop.md), each PR built by a Sonnet agent and reviewed before
-   it reaches the user. T1–T10 merged, Exp 21 met, operator UI revamped; T11 merged and the acceptance run passed (Exp 22). Next: lengthen the safety check's timeout (measured on bank share), then real live shows to collect DPO and detector data. Laugh detection follows T11.
+   it reaches the user. T1–T10 merged, Exp 21 met, operator UI revamped; T11 merged and the acceptance run passed (Exp 22). **Cached bits** (D-88, branch `feat/cached-bits`): shows open with the best bits of earlier live shows instead of 7.5 to 11.5 s of silence. Exp 23 waits for the user's 3 simulated `GENERATOR=llm` shows (bar: open silence at most 2 s each; `python -m sim.evaluate_cached <ids> --record`). Next: lengthen the safety check's timeout (measured on bank share), then real live shows to collect DPO and detector data. Laugh detection follows T11.
 3. Week 6: final sim figures for the report.
 4. Callbacks (C2) after the demo and DPO. C1 is closed as a negative result unless the user reopens it.
 
