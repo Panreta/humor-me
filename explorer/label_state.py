@@ -1,5 +1,5 @@
 """Label the R2 sample (the jokes in modes.jsonl) with the room each joke suits best: venue, energy,
-age, in the sim's vocabulary (a test keeps them equal; sim isn't imported so the cluster venv needs no yaml). For DPO experiments (D-88); the labels are the LLM's guess,
+age, in the sim's vocabulary (a test keeps them equal; sim isn't imported so the cluster venv needs no yaml). For DPO experiments (D-89); the labels are the LLM's guess,
 not anything measured in a room.
 
 Usage (on an Explorer GPU node, from the repo root; -m so the explorer package imports):
@@ -101,7 +101,7 @@ def export(modes_path, state_path, input_path, out_path) -> tuple[int, int]:
 EXPORT_PATH = "data/processed/rjokes/dpo_state.jsonl"
 STATE_PATH = "data/processed/rjokes/state.jsonl"
 MODES_PATH = "data/processed/rjokes/modes.jsonl"
-INFO_BAR = 0.80  # a field whose top value covers more than this tells the judge almost nothing (D-88, fixed before the run)
+INFO_BAR = 0.80  # a field whose top value covers more than this tells the judge almost nothing (D-89, fixed before the run)
 
 
 def run(export: str = EXPORT_PATH, state: str = STATE_PATH, modes: str = MODES_PATH) -> dict:
