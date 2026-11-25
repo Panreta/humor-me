@@ -13,4 +13,4 @@
 source ~/humor-me/explorer/env.sh
 export HF_HUB_OFFLINE=1
 cd ~/humor-me
-python explorer/train_dpo.py "$@"
+python -m explorer.train_dpo "$@"
