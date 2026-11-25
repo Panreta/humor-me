@@ -231,7 +231,7 @@ def variant_delta(r: dict, base: str, new: str) -> dict:
             "steady_change": q(new, "steady_curve") - q(base, "steady_curve")}
 
 
-GAIN_MIN, STEADY_MIN = 0.05, -0.01  # pass criteria, fixed before step A ran (decisions.md #29)
+GAIN_MIN, STEADY_MIN = 0.05, -0.01  # pass criteria, fixed before step A ran (decisions-detail.md D-29)
 
 
 def passes(d: dict) -> bool:

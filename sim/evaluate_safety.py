@@ -25,9 +25,9 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 RED_TEAM = ROOT / "tests" / "red_team.yaml"
 CLEAN = ROOT / "tests" / "clean_lines.yaml"
 BANK = ROOT / "backend" / "app" / "bank" / "bank-v1.yaml"
-BAR_CATCH, BAR_FALSE_REJECT, BAR_SECONDS = 1.0, 0.10, 3.0  # latency re-tuned from 2 s (decisions.md 2026-11-08)
+BAR_CATCH, BAR_FALSE_REJECT, BAR_SECONDS = 1.0, 0.10, 3.0  # latency re-tuned from 2 s (decisions-detail.md 2026-11-08)
 AGES = ("mixed", "teens")
-BITS_PER_SHOW = 8  # one batched call per bit (decisions.md, live loop plan)
+BITS_PER_SHOW = 8  # one batched call per bit (decisions-detail.md, live loop plan)
 RETRY_STATUS = (429, 503)  # 503 is the provider saying "overloaded, try again"; the live filter retries neither
 
 sys.path.insert(0, str(ROOT / "backend"))

@@ -1,7 +1,7 @@
 # rJokes dataset
 
 **Where it fits:** the working joke dataset for M1, replacing transcripts as the main data
-source (decisions.md 2026-10-26).
+source (decisions-detail.md 2026-10-26).
 **Used in:** `pipeline/rjokes.py` (prep, R1), `explorer/label_modes.py` (mode + safety labels,
 R2), sim priors (PR 3), a learned joke scorer (stretch).
 
@@ -9,7 +9,7 @@ R2), sim priors (PR 3), a learned joke scorer (stretch).
 
 ~570k posts from Reddit's r/Jokes (2008–2019) with upvote-based scores. The official splits
 hold 432k jokes with an integer score 0–11 (≈ ln upvotes). One-liners and setup/punch jokes,
-Reddit taste, much offensive material. Terms: Reddit's, so use locally and never redistribute the dataset; quoting a few rows in docs is fine (decisions.md 2026-10-31).
+Reddit taste, much offensive material. Terms: Reddit's, so use locally and never redistribute the dataset; quoting a few rows in docs is fine (decisions-detail.md 2026-10-31).
 
 ## What prep had to fix
 

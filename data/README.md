@@ -29,7 +29,7 @@ Marks: `>>>` new bit · `>>> continues: note` same topic as the previous bit (th
 ## Examples for the report (`examples/`)
 
 Small, committed samples that show *how* the hand labeling was done, since the real work files
-can't be published (transcripts: copyright; rJokes: Reddit terms, decisions.md 2026-10-31).
+can't be published (transcripts: copyright; rJokes: Reddit terms, decisions-detail.md 2026-10-31).
 See [examples/README.md](examples/README.md).
 
 ## Two datasets that grow independently

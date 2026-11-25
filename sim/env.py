@@ -2,7 +2,7 @@
 next **bit** and the room answers every joke in it with a laugh level 0-3.
 
 Decisions are per bit, not per joke: a comedian commits to one premise and attitude for a bit
-and varies between bits (decisions.md 2026-10-27). Within a bit the mode is fixed.
+and varies between bits (decisions-detail.md 2026-10-27). Within a bit the mode is fixed.
 
 Latent per joke: mu(mode, context, joke time, bit history) + N(0, noise); level = thresholds
 cleared. Bit reward = mean level / 3, so samplers work on [0, 1] while logs keep the 0-3 levels

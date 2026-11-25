@@ -1,7 +1,7 @@
 # Transcript Pipeline
 
 Turns locally stored stand-up transcripts into **structure and reward data**: never into
-text the model imitates (see decisions.md, 2026-10-20). All data lives in `data/` (gitignored).
+text the model imitates (see decisions-detail.md, 2026-10-20). All data lives in `data/` (gitignored).
 
 ## Overview
 

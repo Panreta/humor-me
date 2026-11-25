@@ -31,7 +31,7 @@ Best mode over all 27 contexts: absurdist, cynic, neurotic or observer (4 distin
 
 ### v2: one decision per bit (merged version)
 
-Decision (decisions.md 2026-10-27): the policy picks the mode once per bit (8 bits × 5 jokes),
+Decision (decisions-detail.md 2026-10-27): the policy picks the mode once per bit (8 bits × 5 jokes),
 like a comedian committing to one premise and attitude; fatigue counts uses in the last 2 bits
 (fixed mode at steady state: −0.3, below the largest venue offset of +0.4).
 
@@ -257,7 +257,7 @@ NSFW). Labels: `data/labels/rjokes_hand_check.csv`. No pass criterion was fixed 
    of them. Notes were opportunistic, so only misses are measured, not false alarms.
 
 **Examples** (verbatim from r/Jokes via [rJokes](https://github.com/orionw/rJokesData); a few rows
-quoted for illustration only, the full set stays local, see decisions.md 2026-10-31). Row = `n` in
+quoted for illustration only, the full set stays local, see decisions-detail.md 2026-10-31). Row = `n` in
 `data/labels/rjokes_hand_check.csv`.
 
 | Row | Joke | Judge | Hand | What it shows |
@@ -309,7 +309,7 @@ section to rank modes; this table only answers the precision rule.
 
 Do people rank the six modes the way HumorGen's LLM judge does? 89,200 labeled jokes (no parse
 failures, no `none`, year known). Design and pass criteria were fixed before running
-(decisions.md 2026-11-01). Terms: [glossary](wiki/glossary.md#reading-the-results-statistics-terms).
+(decisions-detail.md 2026-11-01). Terms: [glossary](wiki/glossary.md#reading-the-results-statistics-terms).
 Run: `explorer/mode_ranking.py`, notebook Exp 10.
 
 | Mode | Judge win rate | Raw mean `pct` | Win rate vs the field, deciles [95% CI] | Regression effect, deciles |
@@ -345,7 +345,7 @@ not a wrong taste and a true one.
 
 ## rJokes correlation map (2026-11-01)
 
-Did Exp 10 adjust for the right things? Rule fixed before running (decisions.md 2026-11-01). Spearman ρ
+Did Exp 10 adjust for the right things? Rule fixed before running (decisions-detail.md 2026-11-01). Spearman ρ
 with `pct`, on the 89,200 labeled jokes, 200 bootstrap resamples. Run:
 `explorer/rjokes_correlations.py`, notebook Exp 12. Full map:
 [rjokes_correlations.png](../reports/figures/rjokes_correlations.png).
@@ -389,7 +389,7 @@ order of the middle modes is unsettled. Exp 10's values stay in use, because thi
 
 ## Two tastes in the sim (2026-11-01)
 
-Same setup as Exp 4 (300 shows, 10 seeds), with criteria fixed before running (decisions.md 2026-11-01). Only
+Same setup as Exp 4 (300 shows, 10 seeds), with criteria fixed before running (decisions-detail.md 2026-11-01). Only
 `base` changes: the judge's values vs Exp 10's decile win rates, so its spread drops from 0.57 to 0.09.
 Run: `sim/evaluate_tastes.py`, notebook Exp 13.
 
@@ -431,7 +431,7 @@ One test-client show and three browser shows.
 ## Show state step C1, first run (2026-11-01)
 
 `LinQ`: LinUCB's model and bonus, with target = reward + the next bit's best value, no discount. Same protocol
-and criteria as steps A and B, fixed before running (decisions.md 2026-11-01). Run: `sim/evaluate_shift.py`,
+and criteria as steps A and B, fixed before running (decisions-detail.md 2026-11-01). Run: `sim/evaluate_shift.py`,
 notebook Exp 14. Raw: `reports/metrics/show_state_c1.json`, `show_state_c1_behaviour.json`.
 
 | Set | After the shift: LinUCB → LinQ | Gain (need ≥ +0.05) | Steady: LinUCB → LinQ | Change (need ≥ −0.01) | Pass |
@@ -612,7 +612,7 @@ judge taste with doubled gaps** (change -1.00 ± 0.14, far end -1.13). Reported,
 3. **The cost follows the gaps between modes under judge taste** (-0.24, -0.48, -1.00 for halved, as is, doubled), since a wrong pick costs more when modes differ more.
    Human taste costs -0.19, -0.16 and -0.22, flat, because its modes are close together.
 4. **ε = 0.1 costs about half:** -0.06, -0.21, -0.44 under judge taste, and -0.04, -0.01, -0.09 under human taste.
-5. **A career of 5 shows has about 6.7 non-greedy picks** (40 bits x 0.2 x 5/6), so offline evaluation from live logs needs about 30 shows, as decisions.md says.
+5. **A career of 5 shows has about 6.7 non-greedy picks** (40 bits x 0.2 x 5/6), so offline evaluation from live logs needs about 30 shows, as decisions-detail.md says.
 6. **30 shows:** the changes at ε = 0.2 run from -0.06 to -1.36 laughs a show, with CIs of about ±0.14. In the doubled-judge room the cost per show is larger at 30 shows and the CIs don't overlap (5 shows spans -1.14 to -0.86, 30 shows -1.52 to -1.20); in the other five rooms they overlap. No bar was fixed, so this is descriptive.
 
 **Limits.** Mode gaps in the sim are made up apart from `base`'s source. Doubled judge gaps put wordsmith's `base` below zero and are a stress test, not a measured room.
@@ -653,7 +653,7 @@ rejected clean lines about "tall" and "thin" in the robot's own voice, so its re
 ## Safety filter: fresh lines and prompt v2 (2026-11-08)
 
 **Fresh lines (user-scored, not re-runnable):** 25 indirect lines the builder never saw, scored once with prompt v1 (`--fresh`). Rules alone 5/25. Rules + LLM 19/25 (76%, Wilson 95% CI about 57% to 88%): appearance 4/5, bodies 3/5, named people 5/5, protected 4/5, teens alcohol 3/5.
-`teens_sexual` was not scored (the model writing the lines declined it). After the user's review of the six misses (four not real violations, two real and mild): 23/25 (92%, CI about 75% to 98%). The review followed the result, so it is biased; n = 25 is wide. Bar re-tuned to at least 75% (decisions.md 2026-11-08).
+`teens_sexual` was not scored (the model writing the lines declined it). After the user's review of the six misses (four not real violations, two real and mild): 23/25 (92%, CI about 75% to 98%). The review followed the result, so it is biased; n = 25 is wide. Bar re-tuned to at least 75% (decisions-detail.md 2026-11-08).
 
 **Prompt v2 re-run on the repo's sets** (`python -m sim.evaluate_safety --env-file <.env>`, `reports/metrics/safety_filter.json`, same model). v2 adds the rule against singling out one identifiable person in the room; nothing else changed.
 Red-team: rules + LLM caught 81/81 tuning and 71/71 held-out hard-rule lines, every category 100%, same as v1 (rules alone 70/71 held out; crude lines 1/3 and 1/3 are not hard rules). Clean list: 1/60 rejected for adults and for teens (`k46`, by the rules).
@@ -703,7 +703,7 @@ Requests 21, 16 and 19 per show (about 93 for 5 shows, peak 4 a minute, against 
 |---|---|---|---|---|---|---|---|
 | 30/30 | 5 | +241 ms | 20 ms | -2 ms | yes | yes | yes |
 
-Largest spread 28 ms; every beep at least 23x the noise (median 31x); drift slope -0.008 ms/s over 294 s. **Old bar:** p95 |offset| 261 ms against 100 ms, **missed.** The bar was re-tuned by the user after this result (decisions.md 2026-11-15): the constant (+241 ms, which includes PlaySound's output latency) is reported, not barred. **Caveats:** one laptop, one run, 30 beeps; the beeps and the recording share a machine, so this cannot say how large the robot's own voice offset is; with the microphone's Audio enhancements on, no beeps reached the WAV at all.
+Largest spread 28 ms; every beep at least 23x the noise (median 31x); drift slope -0.008 ms/s over 294 s. **Old bar:** p95 |offset| 261 ms against 100 ms, **missed.** The bar was re-tuned by the user after this result (decisions-detail.md 2026-11-15): the constant (+241 ms, which includes PlaySound's output latency) is reported, not barred. **Caveats:** one laptop, one run, 30 beeps; the beeps and the recording share a machine, so this cannot say how large the robot's own voice offset is; with the microphone's Audio enhancements on, no beeps reached the WAV at all.
 
 ## Acceptance run (Exp 22, 2026-11-15)
 

@@ -3,7 +3,7 @@
 Usage (laptop, no GPU):
     python explorer/mode_ranking.py [--boots 1000]
 
-Design and pass criteria were fixed before running (decisions.md 2026-11-01). Joke length predicts
+Design and pass criteria were fixed before running (decisions-detail.md 2026-11-01). Joke length predicts
 upvotes and differs by mode, so every estimate compares jokes of similar length from the same year:
 - WR: win rate vs the field, within year x length-bin cells (ties half). HumorGen's unit.
 - REG: OLS pct ~ mode (sum-to-zero) + year + length bin. Effect in pct units vs the average mode.

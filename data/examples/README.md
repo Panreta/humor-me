@@ -2,7 +2,7 @@
 
 Samples of the two hand-labeling tasks, for the report and slides. The real work files stay
 local: transcripts are copyrighted specials, and rJokes is under Reddit's terms (quote a few rows,
-never the dataset; decisions.md 2026-10-31).
+never the dataset; decisions-detail.md 2026-10-31).
 
 | File | Task | What it is |
 |---|---|---|

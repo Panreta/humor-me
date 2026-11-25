@@ -3,7 +3,7 @@
 Usage (laptop, no GPU):
     python explorer/rjokes_correlations.py [--boots 200]
 
-Design and rule were fixed before running (decisions.md 2026-11-01). Spearman rho, because upvotes are
+Design and rule were fixed before running (decisions-detail.md 2026-11-01). Spearman rho, because upvotes are
 heavily skewed. Each feature is measured raw and within the same year and length group: a feature that
 only looks linked to upvotes through length or year fades in the second number.
 """

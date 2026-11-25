@@ -97,7 +97,7 @@ mode never reaches the browser, and a rating is the reported outcome, never a tr
 | Timescale | Mechanism | Updates |
 |---|---|---|
 | Within a set (seconds–minutes) | Contextual bandit over persona modes | Bandit posterior, in-context "what landed" memory |
-| Before the demo (M1) | SFT, then DPO on the generator, from judge preference pairs on our own premises (decisions.md 2026-11-01) | Model weights, offline |
+| Before the demo (M1) | SFT, then DPO on the generator, from judge preference pairs on our own premises (decisions-detail.md 2026-11-01) | Model weights, offline |
 | Across sets (days–weeks, after M1) | Reward model from logged laughs + votes → DPO on generator | Model weights, offline |
 
 No gradient updates during a live show.
