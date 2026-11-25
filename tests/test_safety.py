@@ -500,3 +500,23 @@ def test_a_partial_reply_survives_a_re_ask_that_stalls(monkeypatch):
     safety.prefetch(LINES, "mixed", client)
     assert safety.check(LINES[0], "mixed").ok and not safety.check(LINES[1], "mixed").ok
     assert client.bad_replies == 1 and client.retried == provider.calls - 2  # the re-ask isn't counted as a retry
+
+
+def test_cache_key_differs_by_provider_and_model(tmp_path, monkeypatch):
+    from sim import cache
+    monkeypatch.setattr(cache, "METRICS", tmp_path)
+    calls = []
+
+    def fake_run(**params):
+        calls.append(params)
+        return {"model": params["model"], "provider": params["provider"]}
+
+    def load(provider, model):
+        name, params = evaluate_safety.cache_entry(provider, model)
+        return cache.run_or_load(name, fake_run, **params)
+
+    assert load("gemini", "flash-lite")["provider"] == "gemini"
+    assert load("anthropic", "claude-haiku-5-5")["provider"] == "anthropic"  # not the Gemini result
+    assert load("gemini", "flash-lite")["model"] == "flash-lite" and len(calls) == 2  # Gemini still cached
+    assert load("anthropic", "claude-sonnet-5-5")["model"] == "claude-sonnet-5-5" and len(calls) == 3  # new model reruns
+    assert evaluate_safety.cache_entry("gemini", "x")[0] == "safety_filter"

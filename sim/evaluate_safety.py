@@ -160,12 +160,33 @@ def criteria(res: dict, bar_catch=BAR_CATCH, bar_false_reject=BAR_FALSE_REJECT, 
             "latency_pass": p95 is not None and p95 <= bar_seconds}
 
 
-def run(fixtures: str = "", prompt: str = "") -> dict:
+def resolve(provider: str | None = None, model: str | None = None) -> tuple[str, str]:
+    """(provider, model) after env defaults, so the cache key names what actually answers."""
+    provider = provider or os.environ.get("SAFETY_CHECK_PROVIDER") or "gemini"
+    return provider, llm.from_env(timeout=30.0, role="safety_check", provider=provider, model=model).model
+
+
+def cache_entry(provider: str, model: str) -> tuple[str, dict]:
+    """Cache file name and params. The provider and model are in the key: without them a rerun on another model
+    silently loaded the previous model's result. One file per provider, so the Gemini result stays in `safety_filter`."""
+    name = "safety_filter" if provider == "gemini" else f"safety_filter_{provider}"
+    return name, {"fixtures": digest(), "prompt": prompt_digest(), "provider": provider, "model": model}
+
+
+def cached(provider: str, model: str, rerun: bool = False) -> dict:
+    from sim.cache import run_or_load
+    name, params = cache_entry(provider, model)
+    return run_or_load(name, run, rerun=rerun, **params)
+
+
+def run(fixtures: str = "", prompt: str = "", provider: str = "gemini", model: str = "") -> dict:
     assert fixtures in ("", digest()) and prompt in ("", prompt_digest()), "fixtures or prompt changed since this call was built"
-    raw = llm.from_env(timeout=30.0, role="safety_check")
+    raw = llm.from_env(timeout=30.0, role="safety_check", provider=provider, model=model or None)
     client = EvalClient(raw)
     res = evaluate(client, load(RED_TEAM), load(CLEAN), load_bank())
-    res.update(model=raw.model, n_red_team=len(load(RED_TEAM)), n_clean=len(load(CLEAN)), n_bank=len(load_bank()))
+    res.update(model=raw.model, provider=provider, n_red_team=len(load(RED_TEAM)), n_clean=len(load(CLEAN)), n_bank=len(load_bank()))
+    if hasattr(raw, "input_tokens"):  # Claude client counts tokens; for the cost line
+        res["tokens"] = {"input": raw.input_tokens, "output": raw.output_tokens}
     res["criteria"] = criteria(res)
     return res
 
@@ -212,6 +233,8 @@ def print_fresh(out: dict) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--env-file", help="a .env holding GEMINI_BASE_URL, GEMINI_API_KEY, SAFETY_CHECK_MODEL (backend/sample.env); its values are never printed")
+    ap.add_argument("--provider", help="gemini or anthropic; default SAFETY_CHECK_PROVIDER, then gemini")
+    ap.add_argument("--model", help="default SAFETY_CHECK_MODEL")
     ap.add_argument("--fresh", help="YAML list of {text, cat, age}, scored once and not cached")
     ap.add_argument("--tune-only", action="store_true", help="score the tuning split only, not cached")
     a = ap.parse_args()
@@ -219,17 +242,16 @@ def main() -> None:
         from dotenv import load_dotenv
         load_dotenv(a.env_file, override=True)
     if a.fresh:
-        print_fresh(score_fresh(load(pathlib.Path(a.fresh)), EvalClient(llm.from_env(timeout=30.0, role="safety_check"))))
+        print_fresh(score_fresh(load(pathlib.Path(a.fresh)), EvalClient(llm.from_env(timeout=30.0, role="safety_check", provider=a.provider, model=a.model))))
     elif a.tune_only:
-        res = evaluate(EvalClient(llm.from_env(timeout=30.0, role="safety_check")), load(RED_TEAM), [], [], splits=("tune",))
+        res = evaluate(EvalClient(llm.from_env(timeout=30.0, role="safety_check", provider=a.provider, model=a.model)), load(RED_TEAM), [], [], splits=("tune",))
         for layer in ("rules", "llm"):
             print(layer, {c: cell(v["tune"]) for c, v in res[layer]["per_category"].items()},
                   "hard", cell(res[layer]["hard_overall"]["tune"]))
             print("  missed:", [m["id"] for m in res[layer]["missed_hard"]])
         print(res["latency"])
     else:
-        from sim.cache import run_or_load
-        out = run_or_load("safety_filter", run, fixtures=digest(), prompt=prompt_digest())
+        out = cached(*resolve(a.provider, a.model))
         print(table(out))
         print(out["criteria"], out["latency"])
         print("missed (rules + LLM):", *[f"\n  {m['id']} [{m['split']}] {m['text']}" for m in out["llm"]["missed_hard"]])
