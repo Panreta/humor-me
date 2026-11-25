@@ -66,6 +66,7 @@ only during a reaction window and never while typing in a form. Use `event.code`
 ### Reward
 
 - `reward_v1(levels)`: per bit, mean of the non-null levels ÷ 3. With fewer than 3 labels out of 5 it returns `None`, and the director does not update.
+- A joke whose playback overlapped a pause counts as a null label (D-92): `app.pauses.overlaps(audio_start_at, audio_end_at, pauses)` decides, in the live loop and in replay alike. The show holds while paused (no line starts, the reaction window and the hold freeze), so only a line that was playing is hit. The `reaction` row keeps the pressed level; only the reward ignores it.
 - A "laugh" in any reported rate is level ≥ 2.
 - Labels are the record. Reward is always derived from them and never stored as the source of truth.
 - A key press overrides any future detector output for the same joke.
@@ -95,6 +96,8 @@ JSONL, one file per show in `data/sessions/`. Every row has `schema: 2`, `sessio
 | `reaction` | `bit`, `joke`, `source` (`button`\|`detector`\|`sim`), `level` (0–3 or null), `key`, `latency_s` |
 | `gap` | `bit`, `joke`, `planned_hold_s`, `actual_gap_s` |
 | `bit_end` | `bit`, `n_labels`, `reward_version`, `reward` (cross-check only) |
+| `pause` | `paused_at`: the show clock (same timebase as `audio_start_at`), written when the browser pauses, even between bits or in the reaction window (v2, D-92) |
+| `resume` | `resumed_at`: the show clock. A pause with no resume means the show ended paused and runs to the end of the show (v2, D-92) |
 | `rating` | `value` (1–5) |
 | `show_end` | `status` (`finished`\|`aborted`) |
 
@@ -167,7 +170,7 @@ Runs in parallel once T0 is merged: T1, T2, T7, T8.
 
 - **Goal:** the browser can start a show and send reactions.
 - **Files:** `backend/app/main.py`, new `backend/app/protocol.py`, `tests/test_show_loop.py`, `backend/README.md`.
-- **Build:** client messages `start` (context, room), `played`, `reaction` (bit, joke, key). Server messages `line`, `reaction_window` (open, closed), `show_end`. Reject malformed messages without ending the show. Reactions for a closed window are logged and ignored.
+- **Build:** client messages `start` (context, room), `played`, `reaction` (bit, joke, key), `pause`, `resume` (D-92; out of order is an `error`). Server messages `line`, `reaction_window` (open, closed), `pause_state`, `show_end`. Reject malformed messages without ending the show. Reactions for a closed window are logged and ignored.
 - **Tests:** a whole show over `TestClient` with fake TTS; a late reaction doesn't change the reward; a disconnect marks the show aborted.
 - **Experiment:** none.
 
