@@ -38,6 +38,7 @@ Learning the material from scratch (RL foundations → our experiments → Explo
 | Use | Provider / model | Notes |
 |---|---|---|
 | Live show loop | Gemini `gemini-flash-lite-latest` (`JOKE_WRITER_MODEL`) | TTFT ~0.6 s measured |
+| Safety check | Claude `claude-haiku-5-5`, thinking off (`SAFETY_CHECK_*`, D-100) | p95 3.6 s per bit against a 7 s bar (moved from 3 s after the data); about $0.003 a show. Moved off Gemini's free tier for its 503s |
 | Offline pipeline (S4/S5) | Gemini `gemini-flash-latest` (`TRANSCRIPT_PIPELINE_MODEL`) | Paused with the transcript pipeline |
 | rJokes mode/safety labels | `Qwen/Qwen2.5-7B-Instruct` via `transformers`, greedy, on Explorer V100 | `explorer/label_modes.py`; vLLM can't run on Explorer's driver/GPUs |
 | Config | `backend/.env` (gitignored), template `backend/sample.env`; settings are named by job (D-93) | Gemini's OpenAI-compatible endpoint |
