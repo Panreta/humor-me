@@ -64,6 +64,17 @@ def test_request_shape_and_no_temperature_ever():
     assert call["output_config"] == {"effort": "low"}
 
 
+def test_thinking_is_left_to_the_model_by_default_and_disabled_only_when_asked():
+    on, sdk_on = client(message(text("ok")))
+    off, sdk_off = client(message(text("ok")), thinking=False)
+    on.chat("s", "u", json_reply={"type": "object"})
+    off.chat("s", "u", json_reply={"type": "object"})
+    assert "thinking" not in sdk_on.calls[0]
+    assert sdk_off.calls[0]["thinking"] == {"type": "disabled"}
+    # Effort and the schema are unchanged, so only thinking differs between the two D-99 arms.
+    assert sdk_off.calls[0]["output_config"] == sdk_on.calls[0]["output_config"]
+
+
 def test_tokens_are_counted_even_for_a_refusal():
     c, _ = client(message(text("ok"), usage=(100, 50)), message(stop="refusal", usage=(7, 0)))
     c.chat("s", "u")

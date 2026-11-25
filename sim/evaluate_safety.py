@@ -166,22 +166,33 @@ def resolve(provider: str | None = None, model: str | None = None) -> tuple[str,
     return provider, llm.from_env(timeout=30.0, role="safety_check", provider=provider, model=model).model
 
 
-def cache_entry(provider: str, model: str) -> tuple[str, dict]:
+def cache_entry(provider: str, model: str, thinking: bool = True) -> tuple[str, dict]:
     """Cache file name and params. The provider and model are in the key: without them a rerun on another model
-    silently loaded the previous model's result. One file per provider, so the Gemini result stays in `safety_filter`."""
+    silently loaded the previous model's result. One file per provider, so the Gemini result stays in `safety_filter`.
+    Thinking off (Claude only, D-99) gets its own file and key, so it never overwrites or loads the thinking-on run."""
     name = "safety_filter" if provider == "gemini" else f"safety_filter_{provider}"
-    return name, {"fixtures": digest(), "prompt": prompt_digest(), "provider": provider, "model": model}
+    params = {"fixtures": digest(), "prompt": prompt_digest(), "provider": provider, "model": model}
+    if not thinking:
+        name, params = f"{name}_no_thinking", dict(params, thinking=False)
+    return name, params
 
 
-def cached(provider: str, model: str, rerun: bool = False) -> dict:
+def cached(provider: str, model: str, rerun: bool = False, thinking: bool = True) -> dict:
     from sim.cache import run_or_load
-    name, params = cache_entry(provider, model)
+    name, params = cache_entry(provider, model, thinking)
     return run_or_load(name, run, rerun=rerun, **params)
 
 
-def run(fixtures: str = "", prompt: str = "", provider: str = "gemini", model: str = "") -> dict:
+def client_options(provider: str, thinking: bool) -> dict:
+    if not thinking and provider != "anthropic":
+        raise ValueError("turning thinking off is a Claude setting; Gemini Flash-Lite does not think")
+    return {} if thinking else {"thinking": False}
+
+
+def run(fixtures: str = "", prompt: str = "", provider: str = "gemini", model: str = "", thinking: bool = True) -> dict:
     assert fixtures in ("", digest()) and prompt in ("", prompt_digest()), "fixtures or prompt changed since this call was built"
-    raw = llm.from_env(timeout=30.0, role="safety_check", provider=provider, model=model or None)
+    raw = llm.from_env(timeout=30.0, role="safety_check", provider=provider, model=model or None,
+                       **client_options(provider, thinking))
     client = EvalClient(raw)
     res = evaluate(client, load(RED_TEAM), load(CLEAN), load_bank())
     res.update(model=raw.model, provider=provider, n_red_team=len(load(RED_TEAM)), n_clean=len(load(CLEAN)), n_bank=len(load_bank()))
@@ -235,6 +246,7 @@ def main() -> None:
     ap.add_argument("--env-file", help="a .env holding GEMINI_BASE_URL, GEMINI_API_KEY, SAFETY_CHECK_MODEL (backend/sample.env); its values are never printed")
     ap.add_argument("--provider", help="gemini or anthropic; default SAFETY_CHECK_PROVIDER, then gemini")
     ap.add_argument("--model", help="default SAFETY_CHECK_MODEL")
+    ap.add_argument("--no-thinking", action="store_true", help="Claude only: send thinking disabled (D-99); cached apart")
     ap.add_argument("--fresh", help="YAML list of {text, cat, age}, scored once and not cached")
     ap.add_argument("--tune-only", action="store_true", help="score the tuning split only, not cached")
     a = ap.parse_args()
@@ -251,7 +263,7 @@ def main() -> None:
             print("  missed:", [m["id"] for m in res[layer]["missed_hard"]])
         print(res["latency"])
     else:
-        out = cached(*resolve(a.provider, a.model))
+        out = cached(*resolve(a.provider, a.model), thinking=not a.no_thinking)
         print(table(out))
         print(out["criteria"], out["latency"])
         print("missed (rules + LLM):", *[f"\n  {m['id']} [{m['split']}] {m['text']}" for m in out["llm"]["missed_hard"]])

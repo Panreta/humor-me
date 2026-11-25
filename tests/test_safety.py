@@ -520,3 +520,13 @@ def test_cache_key_differs_by_provider_and_model(tmp_path, monkeypatch):
     assert load("gemini", "flash-lite")["model"] == "flash-lite" and len(calls) == 2  # Gemini still cached
     assert load("anthropic", "claude-sonnet-5-5")["model"] == "claude-sonnet-5-5" and len(calls) == 3  # new model reruns
     assert evaluate_safety.cache_entry("gemini", "x")[0] == "safety_filter"
+
+
+def test_thinking_off_is_cached_apart_and_never_touches_the_thinking_on_run():
+    on_name, on_params = evaluate_safety.cache_entry("anthropic", "claude-haiku-5-5")
+    off_name, off_params = evaluate_safety.cache_entry("anthropic", "claude-haiku-5-5", thinking=False)
+    assert on_name != off_name and on_params != off_params
+    assert "thinking" not in on_params  # the recorded thinking-on run keeps its key and still loads
+    with pytest.raises(ValueError):
+        evaluate_safety.client_options("gemini", thinking=False)
+    assert evaluate_safety.client_options("anthropic", thinking=False) == {"thinking": False}
