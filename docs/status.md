@@ -53,8 +53,9 @@ Learning the material from scratch (RL foundations → our experiments → Explo
 
 ## Next steps
 
-1. **Model track (Explorer):** own premises → 6-mode candidates → judge comparison → SFT → DPO, latest
-   Nov 22 (decisions.md 2026-11-01). The trained model speaks in the Dec 8 demo.
+1. **Model track (Explorer), simplified 2026-11-24:** SFT → DPO → O-GRPO (offline) from one judge-ranked
+   candidate pool, following HumorGen. The DPO-trained rJokes judge is the ranker, not a training stage. Plan and
+   state: [plans/sft-dpo-ogrpo.md](plans/sft-dpo-ogrpo.md). The trained model speaks in the Dec 8 demo.
 2. **Demo track:** tasks T1–T11 in [plans/live-loop.md](plans/live-loop.md), each PR built by a Sonnet agent and reviewed before
    it reaches the user. T1–T10 merged, Exp 21 met, operator UI revamped; T11 merged and the acceptance run passed (Exp 22). Next: lengthen the safety check's timeout (measured on bank share), then real live shows to collect DPO and detector data. Laugh detection follows T11.
 3. Week 6: final sim figures for the report.
