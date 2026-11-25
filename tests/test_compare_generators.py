@@ -3,6 +3,7 @@ bar. No network."""
 import json
 import math
 import pathlib
+import re
 import sys
 
 import numpy as np
@@ -13,8 +14,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "backend"))
 from app import llm, safety  # noqa: E402
 from sim import compare_generators as cg  # noqa: E402
 
-MODELS = ["gemini-flash-lite", "gemini-flash", "claude-haiku-5-5"]
-TAG = {"gemini-flash-lite": "alpha", "gemini-flash": "bravo", "claude-haiku-5-5": "charlie"}  # text must not name a model
+MODELS = ["qwen3-4b-instruct", "bonsai-2-4b", "claude-haiku-5-5"]
+GEMMA = "gemma4-12b"  # a reference: on the ballot, never picked (D-97)
+TAG = {"qwen3-4b-instruct": "alpha", "bonsai-2-4b": "bravo", "claude-haiku-5-5": "charlie", GEMMA: "delta"}  # text must not name a model
 BY_ID = {cg.MODELS[k].model: t for k, t in TAG.items()}
 
 
@@ -30,8 +32,11 @@ class FakeModel:
         self.model, self.fail, self.tokens, self.vary = model, fail, tokens, vary
         self.attempts = self.input_tokens = self.output_tokens = 0
         self.calls = 0
+        self.events = None  # a shared list: the order in which the harness touches models, warm-ups and /api/ps
 
     def chat(self, system, user, *, json_reply=False, temperature=0.0, validate=None):
+        if self.events is not None:
+            self.events.append(("call", self.model))
         self.attempts += 1
         self.calls += 1
         fail = self.fail.pop(0) if isinstance(self.fail, list) and self.fail else (None if isinstance(self.fail, list) else self.fail)
@@ -57,6 +62,21 @@ class FakeFilter:
                                         for i in items]})
 
 
+class FakeWarm:
+    """The warm-up client: answers anything, or raises `fail`, and never touches the model's own call counters."""
+
+    def __init__(self, model, events=None, fail=None):
+        self.model, self.events, self.fail = model, events, fail
+
+    def chat(self, system, user, *, json_reply=False, temperature=0.0, validate=None):
+        if self.events is not None:
+            self.events.append(("warm", self.model))
+        fail = self.fail.pop(0) if isinstance(self.fail, list) and self.fail else (None if isinstance(self.fail, list) else self.fail)
+        if fail:
+            raise fail
+        return '{"ready": true}'
+
+
 class NoWait(cg.Pacer):
     def __init__(self):
         super().__init__(sleep=lambda s: None)
@@ -73,10 +93,45 @@ def data(tmp_path, monkeypatch):
     return tmp_path
 
 
-def run(n=6, models=MODELS, clients=None, filt=None, **kw):
+class FakeOllama:
+    """Ollama's /api/ps and /api/tags: every tag in `share` is loaded with that share of a 6 GB file on the GPU.
+    `ps` replaces the /api/ps body (empty, implausible); `raises` makes the server unreachable."""
+
+    FILE = 6_000_000_000
+
+    def __init__(self, share=None, ps=None, raises=None, context=cg.GATE_CONTEXT, tags=None):
+        self.share = {cg.MODELS[m].tag(): 1.0 for m in MODELS[:2]} if share is None else share
+        self.ps, self.raises, self.context, self.urls = ps, raises, context, []
+        self.events = None
+        self.tags = list(self.share) if tags is None else tags
+
+    def __call__(self, url):
+        self.urls.append(url)
+        if self.events is not None and url.endswith("/api/ps"):
+            self.events.append(("ps", url))
+        if self.raises:
+            raise self.raises
+        if url.endswith("/api/tags"):
+            return {"models": [{"name": t, "size": self.FILE} for t in self.tags]}
+        assert url.endswith("/api/ps") and "/v1" not in url  # the native API, not the OpenAI-compatible one
+        if self.ps is not None:
+            return self.ps
+        return {"models": [{"name": t, "size": self.FILE, "size_vram": int(self.FILE * sh), "context_length": self.context}
+                           for t, sh in self.share.items()]}
+
+
+def run(n=6, models=MODELS, clients=None, filt=None, events=None, warm_fail=None, log_lines=None, **kw):
     clients = {} if clients is None else clients
-    done = cg.run_comparison(n, models, lambda spec: clients.setdefault(spec.key, FakeModel(spec.model)),
-                             filt or FakeFilter(), pacer=NoWait(), log=lambda s: None, **kw)
+    http = kw.pop("http", None) or FakeOllama()
+    http.events = events
+
+    def client(spec):
+        c = clients.setdefault(spec.key, FakeModel(spec.model))
+        c.events = events
+        return c
+
+    done = cg.run_comparison(n, models, client, filt or FakeFilter(), pacer=NoWait(), log=(log_lines.append if log_lines is not None else (lambda s: None)),
+                             http=http, make_warm_client=lambda spec: FakeWarm(spec.model, events, warm_fail), **kw)
     return done, clients
 
 
@@ -122,6 +177,68 @@ def test_the_filter_client_uses_the_production_filter_timing_and_stays_gemini(mo
     assert (c.timeout, c.deadline_s, c.retries) == (*cg.generate.FILTER_TIMING, cg.generate.FILTER_RETRIES)
 
 
+def test_the_candidates_are_haiku_and_two_local_ollama_models_and_the_digest_follows_them(monkeypatch):
+    assert list(cg.MODELS) == MODELS + [GEMMA]
+    qwen, bonsai, haiku = (cg.MODELS[m] for m in MODELS)
+    gemma = cg.MODELS[GEMMA]
+    assert (gemma.tag(), gemma.local, gemma.reference, gemma.price_in) == ("gemma4:12b", True, True, 0.0)
+    assert not (qwen.reference or bonsai.reference or haiku.reference)  # the gate decides about qwen, not a flag
+    assert (qwen.tag(), bonsai.tag(), haiku.provider) == ("qwen3:4b-instruct", "bonsai-2:4b", "anthropic")
+    assert qwen.local and bonsai.local and not haiku.local and (qwen.price_in, qwen.price_out) == (0.0, 0.0)
+    assert qwen.base_url() == cg.OLLAMA_URL and haiku.base_url() == ""
+    before = cg.gen_digest()
+    monkeypatch.setenv("QWEN_OLLAMA_TAG", "qwen3:4b-instruct-q8")  # the tag `ollama list` shows may differ
+    assert qwen.tag() == "qwen3:4b-instruct-q8" and cg.gen_digest() != before
+    monkeypatch.delenv("QWEN_OLLAMA_TAG")
+    monkeypatch.setenv("GEMMA_OLLAMA_TAG", "gemma4:12b-q8")
+    assert gemma.tag() == "gemma4:12b-q8" and cg.gen_digest() != before
+    monkeypatch.delenv("GEMMA_OLLAMA_TAG")
+    monkeypatch.setenv("OLLAMA_URL", "http://other:11434/v1")
+    assert cg.gen_digest() != before
+    monkeypatch.undo()
+    assert cg.gen_digest() == before
+
+
+def test_a_local_client_has_no_key_the_production_timing_and_asks_for_no_thinking(monkeypatch):
+    monkeypatch.setenv("OLLAMA_URL", "http://box:11434/v1")
+    c = cg.make_client(cg.MODELS["bonsai-2-4b"])
+    assert isinstance(c, llm.Client) and (c.base_url, c.api_key, c.model) == ("http://box:11434/v1", "", "bonsai-2:4b")
+    assert (c.timeout, c.deadline_s, c.retries) == (*cg.generate.GENERATOR_TIMING, cg.generate.RETRIES)
+    assert c.extra_body == llm.OLLAMA_NO_THINK
+    assert c.json_schema is True and cg.make_warmup_client(cg.MODELS["bonsai-2-4b"]).json_schema is True  # D-101
+
+
+def test_the_json_mode_is_part_of_the_digest_so_no_folder_mixes_modes(monkeypatch):
+    before = cg.gen_digest()
+    monkeypatch.setattr(cg, "LOCAL_JSON_MODE", "json_object")
+    assert cg.gen_digest() != before
+    assert cg.make_client(cg.MODELS["bonsai-2-4b"]).json_schema is False  # the constant drives the client too
+
+
+def test_the_candidates_are_haiku_bonsai_and_qwen_with_gemma_as_the_reference():
+    assert [m for m, s in cg.MODELS.items() if not s.reference] == ["qwen3-4b-instruct", "bonsai-2-4b", "claude-haiku-5-5"]
+    assert [m for m, s in cg.MODELS.items() if s.reference] == ["gemma4-12b"] and "mimo-v2.6-9b" not in cg.MODELS
+    assert cg.MODELS["qwen3-4b-instruct"].tag() == "qwen3:4b-instruct" and cg.MODELS["qwen3-4b-instruct"].price_in == 0.0
+
+
+def test_nothing_listening_on_a_models_first_call_is_a_config_stop_with_the_ollama_hint(data):
+    down = llm.LLMError("transport: ConnectError", retryable=True)
+    with pytest.raises(cg.ConfigError, match=r"ollama serve.*ollama pull qwen3:4b-instruct"):
+        run(n=2, models=["qwen3-4b-instruct"], clients={"qwen3-4b-instruct": FakeModel("qwen3:4b-instruct", fail=down)})
+    assert not (cg.run_dir() / "qwen3-4b-instruct").exists()
+
+
+def test_a_connection_failure_after_the_first_call_is_infra_data_and_never_stops_a_hosted_model(data):
+    down = llm.LLMError("transport: ConnectError", retryable=True)
+    run(n=2, models=["qwen3-4b-instruct"], clients={"qwen3-4b-instruct": FakeModel("qwen3:4b-instruct", fail=[None, down])})
+    assert rec_of("qwen3-4b-instruct", "p01")["attempts"][0]["kind"] == "infra"
+    with pytest.raises(cg.ConfigError) as e:  # a hosted model keeps the old rule: a transport error is an outage there
+        run(n=1, models=["claude-haiku-5-5"], clients={"claude-haiku-5-5": FakeModel("claude-haiku-5-5", fail=ValueError("x"))})
+    assert "ollama" not in str(e.value)
+    run(n=1, models=["claude-haiku-5-5"], clients={"claude-haiku-5-5": FakeModel("claude-haiku-5-5", fail=down)})
+    assert rec_of("claude-haiku-5-5", "p00")["attempts"][0]["kind"] == "infra"
+
+
 def test_every_model_gets_the_same_prompts_and_one_attempt_per_prompt(data):
     done, _ = run(n=4)
     assert done == {"generated": 12, "judged": 12, "cached": 0}
@@ -162,8 +279,8 @@ def test_failure_kinds():
                                  llm.LLMError("http 401", 401)])
 def test_a_config_failure_on_a_models_first_call_stops_the_run_and_caches_nothing(data, err):
     with pytest.raises(cg.ConfigError):
-        run(n=2, models=["gemini-flash"], clients={"gemini-flash": FakeModel("gemini-flash-latest", fail=err)})
-    assert not (cg.run_dir() / "gemini-flash").exists()
+        run(n=2, models=["bonsai-2-4b"], clients={"bonsai-2-4b": FakeModel("bonsai-2:4b", fail=err)})
+    assert not (cg.run_dir() / "bonsai-2-4b").exists()
 
 
 def test_a_config_failure_after_the_first_call_is_data_not_a_stop(data):
@@ -176,27 +293,27 @@ def test_a_config_failure_after_the_first_call_is_data_not_a_stop(data):
 
 def test_redo_failed_appends_attempts_and_only_for_infra_and_config_failures(data):
     E = llm.LLMError
-    bad = {"gemini-flash": FakeModel("gemini-flash-latest", fail=[None, E("http 503", 503), E("refused by the model")])}
-    run(n=3, models=["gemini-flash"], clients=bad)
-    assert [a["kind"] for a in rec_of("gemini-flash", "p01")["attempts"]] == ["infra"]
-    assert [a["kind"] for a in rec_of("gemini-flash", "p02")["attempts"]] == ["model"]
-    done, _ = run(n=3, models=["gemini-flash"], clients=bad)  # without the flag nothing is repeated
+    bad = {"bonsai-2-4b": FakeModel("bonsai-2:4b", fail=[None, E("http 503", 503), E("refused by the model")])}
+    run(n=3, models=["bonsai-2-4b"], clients=bad)
+    assert [a["kind"] for a in rec_of("bonsai-2-4b", "p01")["attempts"]] == ["infra"]
+    assert [a["kind"] for a in rec_of("bonsai-2-4b", "p02")["attempts"]] == ["model"]
+    done, _ = run(n=3, models=["bonsai-2-4b"], clients=bad)  # without the flag nothing is repeated
     assert done["generated"] == 0
-    done, _ = run(n=3, models=["gemini-flash"], clients={"gemini-flash": FakeModel("gemini-flash-latest")}, redo_failed=True)
+    done, _ = run(n=3, models=["bonsai-2-4b"], clients={"bonsai-2-4b": FakeModel("bonsai-2:4b")}, redo_failed=True)
     assert done["generated"] == 1  # the refusal is the model's answer and stands
-    infra = rec_of("gemini-flash", "p01")["attempts"]
+    infra = rec_of("bonsai-2-4b", "p01")["attempts"]
     assert [a["ok"] for a in infra] == [False, True] and infra[0]["reason"].endswith("http 503")  # appended, not replaced
-    assert len(rec_of("gemini-flash", "p02")["attempts"]) == 1
-    assert cg.final(rec_of("gemini-flash", "p01")) == infra[1]
+    assert len(rec_of("bonsai-2-4b", "p02")["attempts"]) == 1
+    assert cg.final(rec_of("bonsai-2-4b", "p01")) == infra[1]
 
 
 def test_a_filter_outage_is_retried_on_resume_not_scored_as_rejections(data):
-    run(n=1, models=["gemini-flash-lite"], filt=FakeFilter(error=llm.LLMError("http 503", 503)))
-    rec = rec_of("gemini-flash-lite", "p00")
+    run(n=1, models=["qwen3-4b-instruct"], filt=FakeFilter(error=llm.LLMError("http 503", 503)))
+    rec = rec_of("qwen3-4b-instruct", "p00")
     assert cg.final(rec)["safety_infra_error"] and cg.playable_thread(rec) is None
     safety.clear_cache()
-    done, _ = run(n=1, models=["gemini-flash-lite"], filt=FakeFilter())
-    att = cg.final(rec_of("gemini-flash-lite", "p00"))
+    done, _ = run(n=1, models=["qwen3-4b-instruct"], filt=FakeFilter())
+    att = cg.final(rec_of("qwen3-4b-instruct", "p00"))
     assert done["generated"] == 0 and done["judged"] == 1 and not att["safety_infra_error"] and att["safety_tries"] == 2
 
 
@@ -204,19 +321,19 @@ def test_latency_is_wall_time_around_the_call_and_excludes_pacing():
     ticks = iter([10.0, 14.5])
     sleeps = []
     pacer = cg.Pacer(sleep=sleeps.append, clock=lambda: 0.0)
-    spec = cg.MODELS["gemini-flash"]
+    spec = cg.MODELS["claude-haiku-5-5"]  # the local models need no spacing: gap 0
     pacer.mark(spec.bucket)
-    a = cg.generate_bit(spec, cg.prompts(1)[0], FakeModel("gemini-flash-latest"), pacer, now=lambda: next(ticks))
+    a = cg.generate_bit(spec, cg.prompts(1)[0], FakeModel("claude-haiku-5-5"), pacer, now=lambda: next(ticks))
     assert a["latency_s"] == 4.5 and sleeps == [spec.gap_s] and not a["timeout"]
 
 
 def test_a_timeout_or_a_failure_that_used_the_deadline_up_is_marked_as_a_timeout():
-    spec, pacer = cg.MODELS["gemini-flash"], NoWait()
-    slow = FakeModel("gemini-flash-latest", fail=llm.LLMError("transport: ReadTimeout", retryable=True))
+    spec, pacer = cg.MODELS["bonsai-2-4b"], NoWait()
+    slow = FakeModel("bonsai-2:4b", fail=llm.LLMError("transport: ReadTimeout", retryable=True))
     assert cg.generate_bit(spec, cg.prompts(1)[0], slow, pacer, now=iter([0.0, 3.0]).__next__)["timeout"]
-    spent = FakeModel("gemini-flash-latest", fail=llm.LLMError("http 429", 429))
+    spent = FakeModel("bonsai-2:4b", fail=llm.LLMError("http 429", 429))
     assert cg.generate_bit(spec, cg.prompts(1)[0], spent, pacer, now=iter([0.0, 11.9]).__next__)["timeout"]
-    quick = FakeModel("gemini-flash-latest", fail=llm.LLMError("http 429", 429))
+    quick = FakeModel("bonsai-2:4b", fail=llm.LLMError("http 429", 429))
     assert not cg.generate_bit(spec, cg.prompts(1)[0], quick, pacer, now=iter([0.0, 2.0]).__next__)["timeout"]
 
 
@@ -233,10 +350,10 @@ def test_pacer_spaces_one_bucket_and_leaves_others_alone():
 
 
 def test_a_filter_rejection_shows_in_pass_rates_and_the_playable_thread(data):
-    run(n=1, models=["gemini-flash-lite"], filt=FakeFilter(reject=("thread 0 line 3",)))
-    rec = rec_of("gemini-flash-lite", "p00")
+    run(n=1, models=["qwen3-4b-instruct"], filt=FakeFilter(reject=("thread 0 line 3",)))
+    rec = rec_of("qwen3-4b-instruct", "p00")
     assert cg.playable_thread(rec) == 1  # thread 0 lost a line, thread 1 is the first whole one
-    s = cg.call_stats(rec["attempts"], cg.MODELS["gemini-flash-lite"])
+    s = cg.call_stats(rec["attempts"], cg.MODELS["qwen3-4b-instruct"])
     assert s["line_pass_rate"] == pytest.approx(14 / 15) and s["thread_pass_rate"] == pytest.approx(2 / 3)
     assert s["playable_rate"] == 1.0
 
@@ -258,7 +375,7 @@ def test_call_stats_count_every_attempt_and_cost_covers_failed_ones():
 
 
 def test_latency_p95_is_over_all_calls_and_a_timeout_counts_as_over_the_deadline():
-    spec = cg.MODELS["gemini-flash"]
+    spec = cg.MODELS["bonsai-2-4b"]
     fine = [att(latency=3.0) for _ in range(19)]
     one = cg.call_stats(fine + [att(ok=False, latency=12.0, timeout=True, reason="LLMError: transport: ReadTimeout")], spec)
     assert one["latency_p95_s"] == 3.0 and not one["p95_over_deadline"] and one["n_timeouts"] == 1  # 1 in 20 is not the p95
@@ -274,7 +391,7 @@ def stats(**over):
                 "failure_ci95": cg.wilson(0, 30), "cost_per_bit_usd": c, "latency_p50_s": 2.0}
             for m, c in zip(MODELS, (0.0005, 0.002, 0.0006))}
     for m, patch in over.items():
-        base[m.replace("_", "-")].update(patch)
+        base[next(k for k in base if re.sub(r"\W", "_", k) == re.sub(r"\W", "_", m))].update(patch)  # kwargs cannot hold "-" or "."
     return base
 
 
@@ -283,7 +400,7 @@ def with_failures(k, n=60):
 
 
 def test_failure_bar_is_the_wilson_upper_bound_over_every_attempt():
-    f = lambda k, n: cg.eligibility(stats(gemini_flash=with_failures(k, n)))["gemini-flash"]["failure_ok"]  # noqa: E731
+    f = lambda k, n: cg.eligibility(stats(bonsai_2_4b=with_failures(k, n)))["bonsai-2-4b"]["failure_ok"]  # noqa: E731
     assert f(0, 30)  # upper 11.4%
     assert not f(1, 30)  # upper 16.7%: one failure in 30 attempts is too many to rule out 15%
     assert f(1, 60) and f(2, 60) and f(3, 60)  # more attempts, a tighter bound (8.9%, 11.4%, 13.8%)
@@ -292,8 +409,8 @@ def test_failure_bar_is_the_wilson_upper_bound_over_every_attempt():
 
 def test_bar_edges_are_inclusive_on_latency():
     _, b, c = MODELS
-    assert cg.eligibility(stats(gemini_flash={"latency_p95_s": cg.DEADLINE_S}))[b]["eligible"]
-    e = cg.eligibility(stats(gemini_flash={"latency_p95_s": 12.01}, claude_haiku_5_5={"latency_p95_s": None}))
+    assert cg.eligibility(stats(bonsai_2_4b={"latency_p95_s": cg.DEADLINE_S}), placement=PLACED)[b]["eligible"]
+    e = cg.eligibility(stats(bonsai_2_4b={"latency_p95_s": 12.01}, claude_haiku_5_5={"latency_p95_s": None}), placement=PLACED)
     assert not e[b]["eligible"] and not e[c]["eligible"]
 
 
@@ -309,7 +426,7 @@ def test_ballot_is_blind_shuffled_per_prompt_and_keyed_apart(data):
     key = json.loads(kp.read_text(encoding="utf-8"))
     assert out == {"in_key": 12, "to_vote": 12, "ranked_last": {}, "pending": []}
     assert kp.parent != d and not (d / "key.json").exists() and kp.parent.name == "key"
-    assert not any(name in ballot.lower() for name in ("gemini", "claude", "haiku", "flash"))
+    assert not any(name in ballot.lower() for name in ("gemini", "claude", "haiku", "qwen", "bonsai", "ollama"))
     assert len({tuple(k["letters"].values()) for k in key.values()}) > 1  # not one fixed order
     assert all(sorted(k["letters"].values()) == sorted(MODELS) and k["last"] == [] for k in key.values())
     for k in key.values():  # the text under each letter is that model's thread
@@ -318,11 +435,11 @@ def test_ballot_is_blind_shuffled_per_prompt_and_keyed_apart(data):
 
 
 def test_a_model_with_no_safe_thread_is_ranked_last_and_the_prompt_stays(data):
-    bad = {"gemini-flash": FakeModel("gemini-flash-latest", fail=[None, llm.LLMError("refused by the model")])}
+    bad = {"bonsai-2-4b": FakeModel("bonsai-2:4b", fail=[None, llm.LLMError("refused by the model")])}
     out, d = prep(n=3, clients=bad)
     key = json.loads(cg.key_path(d).read_text(encoding="utf-8"))
-    assert out["ranked_last"] == {"p01": ["gemini-flash"]} and len(key) == 3  # nothing dropped
-    assert sorted(key["p01"]["letters"].values()) == ["claude-haiku-5-5", "gemini-flash-lite"] and key["p01"]["last"] == ["gemini-flash"]
+    assert out["ranked_last"] == {"p01": ["bonsai-2-4b"]} and len(key) == 3  # nothing dropped
+    assert sorted(key["p01"]["letters"].values()) == ["claude-haiku-5-5", "qwen3-4b-instruct"] and key["p01"]["last"] == ["bonsai-2-4b"]
     ballot = (d / "ballot.md").read_text(encoding="utf-8")
     assert "**C**" not in ballot.split("## p01")[1].split("## p02")[0]  # two options shown, two letters
     votes = cg.read_votes(d / "votes.csv")
@@ -330,20 +447,20 @@ def test_a_model_with_no_safe_thread_is_ranked_last_and_the_prompt_stays(data):
     ranks = cg.ranks_from_votes(votes, key, MODELS)
     one = ranks["p01"]
     first, second = (key["p01"]["letters"][c] for c in "BA")
-    assert (one[first], one[second], one["gemini-flash"]) == (1.0, 2.0, 3.0)
+    assert (one[first], one[second], one["bonsai-2-4b"]) == (1.0, 2.0, 3.0)
     assert len(ranks) == 3
 
 
 def test_one_shown_model_needs_no_vote_and_none_shown_ties_everyone(data):
     E = llm.LLMError
-    clients = {"gemini-flash": FakeModel("gemini-flash-latest", fail=[E("refused by the model")] * 2),
+    clients = {"bonsai-2-4b": FakeModel("bonsai-2:4b", fail=[E("refused by the model")] * 2),
                "claude-haiku-5-5": FakeModel("claude-haiku-5-5", fail=[E("refused by the model"), None])}
     out, d = prep(n=2, clients=clients)
     key = json.loads(cg.key_path(d).read_text(encoding="utf-8"))
-    assert list(key["p00"]["letters"].values()) == ["gemini-flash-lite"] and "p00" not in cg.read_votes(d / "votes.csv")
+    assert list(key["p00"]["letters"].values()) == ["qwen3-4b-instruct"] and "p00" not in cg.read_votes(d / "votes.csv")
     ranks = cg.ranks_from_votes({"p01": "AB"}, key, MODELS)
-    assert ranks["p00"] == {"gemini-flash-lite": 1.0, "gemini-flash": 2.5, "claude-haiku-5-5": 2.5}
-    assert ranks["p01"]["gemini-flash"] == 3.0 and sorted(ranks["p01"].values()) == [1.0, 2.0, 3.0]
+    assert ranks["p00"] == {"qwen3-4b-instruct": 1.0, "bonsai-2-4b": 2.5, "claude-haiku-5-5": 2.5}
+    assert ranks["p01"]["bonsai-2-4b"] == 3.0 and sorted(ranks["p01"].values()) == [1.0, 2.0, 3.0]
 
 
 def test_no_model_with_a_safe_thread_ties_everyone_in_the_middle(data):
@@ -355,13 +472,13 @@ def test_no_model_with_a_safe_thread_ties_everyone_in_the_middle(data):
 
 
 def test_prompts_not_generated_for_every_model_wait_instead_of_being_ranked_last(data):
-    run(n=2, models=["gemini-flash-lite"])
+    run(n=2, models=["qwen3-4b-instruct"])
     out = cg.export_ballot(MODELS, 2)
     assert out["pending"] == ["p00", "p01"] and out["in_key"] == 0
 
 
 def test_two_models_export_and_score_without_a_key_error(data):
-    two = ["gemini-flash-lite", "claude-haiku-5-5"]
+    two = ["qwen3-4b-instruct", "claude-haiku-5-5"]
     out, d = prep(n=4, models=two)
     key = json.loads(cg.key_path(d).read_text(encoding="utf-8"))
     assert out["to_vote"] == 4 and all(sorted(k["letters"]) == ["A", "B"] for k in key.values())
@@ -377,13 +494,13 @@ def test_two_models_export_and_score_without_a_key_error(data):
 def test_scoring_a_subset_of_a_three_model_ballot_reranks_to_the_subset(data):
     _, d = prep(n=3)
     key = json.loads(cg.key_path(d).read_text(encoding="utf-8"))
-    pref = {"claude-haiku-5-5": 0, "gemini-flash": 1, "gemini-flash-lite": 2}
+    pref = {"claude-haiku-5-5": 0, "bonsai-2-4b": 1, "qwen3-4b-instruct": 2}
     votes = {pid: "".join(sorted(k["letters"], key=lambda c: pref[k["letters"][c]])) for pid, k in key.items()}
-    subset = ["gemini-flash-lite", "claude-haiku-5-5"]
+    subset = ["qwen3-4b-instruct", "claude-haiku-5-5"]
     ranks = cg.ranks_from_votes(votes, key, subset)
-    assert all(r == {"claude-haiku-5-5": 1.0, "gemini-flash-lite": 2.0} for r in ranks.values())
+    assert all(r == {"claude-haiku-5-5": 1.0, "qwen3-4b-instruct": 2.0} for r in ranks.values())
     s = cg.rank_stats(cg.ranks_from_votes(votes, key, MODELS), subset)
-    assert s["mean_rank"] == {"gemini-flash-lite": 2.0, "claude-haiku-5-5": 1.0}
+    assert s["mean_rank"] == {"qwen3-4b-instruct": 2.0, "claude-haiku-5-5": 1.0}
 
 
 def test_rerank_gives_equal_ranks_their_average_place():
@@ -405,8 +522,9 @@ def test_export_is_incremental_and_never_reshuffles_or_loses_votes(data):
 
 
 def test_parse_ranking():
-    assert cg.parse_ranking("bac") == "BAC" and cg.parse_ranking(" c, a b ") == "CAB"
-    assert cg.parse_ranking("aab") is None and cg.parse_ranking("ab") is None and cg.parse_ranking("") is None
+    assert cg.parse_ranking("bac", "ABC") == "BAC" and cg.parse_ranking(" c, a b ", "ABC") == "CAB"
+    assert cg.parse_ranking("aab", "ABC") is None and cg.parse_ranking("ab", "ABC") is None and cg.parse_ranking("") is None
+    assert cg.parse_ranking("dbca") == "DBCA" and cg.parse_ranking("bac") is None  # the default is the four-letter ballot
     assert cg.parse_ranking("ba", "AB") == "BA" and cg.parse_ranking("abc", "AB") is None
 
 
@@ -432,34 +550,41 @@ def test_rank_stats_mean_ci_and_paired_gap():
     assert s["diff"][f"{b}|{a}"]["mean"] == 1.0 and s["n"] == 20
 
 
+PLACED = {m: {"status": "ok", "gpu_share": 1.0} for m in MODELS}  # every local model fits: the bar's other terms are tested
+
+
+def decide(s, r, **kw):
+    return cg.decide(s, r, **{"placement": PLACED, **kw})
+
+
 def test_clear_winner_among_eligible_is_picked_even_if_costlier():
     a, b, c = MODELS
-    d = cg.decide(stats(), ranks_for([[b, c, a]] * 24))
+    d = decide(stats(), ranks_for([[b, c, a]] * 24))
     assert d["pick"] == b and d["best"] == b and d["second"] == c and d["funniness_clear"] is True
 
 
 def test_overlapping_ranks_pick_the_cheaper_and_say_inconclusive():
     rng = np.random.default_rng(1)
-    d = cg.decide(stats(), ranks_for([list(rng.permutation(MODELS)) for _ in range(30)]))
+    d = decide(stats(), ranks_for([list(rng.permutation(MODELS)) for _ in range(30)]))
     assert d["funniness_clear"] is False and "inconclusive" in d["reason"]
     assert d["pick"] == min((d["best"], d["second"]), key=lambda m: stats()[m]["cost_per_bit_usd"])
 
 
 def test_ineligible_models_cannot_win_and_ranks_are_redone_among_the_rest():
     a, b, c = MODELS
-    s = stats(gemini_flash={"latency_p95_s": 12.5})  # the funniest, but past the 12 s deadline
-    d = cg.decide(s, ranks_for([[b, a, c]] * 20 + [[b, c, a]] * 4))
+    s = stats(bonsai_2_4b={"latency_p95_s": 12.5})  # the funniest, but past the 12 s deadline
+    d = decide(s, ranks_for([[b, a, c]] * 20 + [[b, c, a]] * 4))
     assert d["eligible"] == sorted([a, c]) and d["pick"] == a and d["funniness_clear"] is True
-    assert d["eligibility"][b] == {"latency_ok": False, "failure_ok": True, "eligible": False}
+    assert d["eligibility"][b]["eligible"] is False and d["eligibility"][b]["reasons"] == ["latency over the deadline"]
 
 
 def test_one_eligible_model_wins_and_none_eligible_picks_nothing():
     a = MODELS[0]
-    only = cg.decide(stats(gemini_flash=with_failures(5), claude_haiku_5_5=with_failures(5)), {})
+    only = decide(stats(bonsai_2_4b=with_failures(5), claude_haiku_5_5=with_failures(5)), {})
     assert only["pick"] == a and only["reason"] == "the only eligible model"
-    none = cg.decide(stats(**{m.replace("-", "_"): with_failures(10) for m in MODELS}), {})
+    none = decide(stats(**{m.replace("-", "_"): with_failures(10) for m in MODELS}), {})
     assert none["pick"] is None and "stays" in none["reason"]
-    waiting = cg.decide(stats(), {})
+    waiting = decide(stats(), {})
     assert waiting["pick"] is None and "votes" in waiting["reason"]
 
 
@@ -480,14 +605,14 @@ def test_run_scores_saved_attempts_and_votes_and_stores_numbers_only(data, monke
     cg.export_ballot(MODELS, 30)
     d = cg.run_dir()
     key = json.loads(cg.key_path(d).read_text(encoding="utf-8"))
-    pref = {"claude-haiku-5-5": 0, "gemini-flash": 1, "gemini-flash-lite": 2}  # this voter: claude, flash, flash-lite
+    pref = {"claude-haiku-5-5": 0, "bonsai-2-4b": 1, "qwen3-4b-instruct": 2}  # this voter: claude, flash, flash-lite
     votes = {pid: "".join(sorted(k["letters"], key=lambda c: pref[k["letters"][c]])) for pid, k in key.items()}
     cg.write_votes(d / "votes.csv", votes)
     params = cg.current_params(60, tuple(MODELS), 30)
     res = cg.cache.run_or_load(cg.METRICS_NAME, cg.run, **params)
     assert (res["n_prompts"], res["n_ballot"], res["n_key"], res["n_scored"]) == (60, 30, 30, 30) and res["votes"]["mean_rank"]["claude-haiku-5-5"] == 1.0
     assert res["n_ranked_last"] == {m: 0 for m in MODELS}
-    assert res["models"]["gemini-flash"]["n_attempts"] == 60 and res["models"]["gemini-flash"]["failure_ci95"][1] < 0.07
+    assert res["models"]["bonsai-2-4b"]["n_attempts"] == 60 and res["models"]["bonsai-2-4b"]["failure_ci95"][1] < 0.07
     assert res["decision"]["pick"] == "claude-haiku-5-5" and res["decision"]["funniness_clear"] is True
     stored_text = (data / "metrics" / "model_comparison.json").read_text(encoding="utf-8")
     assert "thread " not in stored_text and "line 0" not in stored_text  # no generated text
@@ -511,14 +636,14 @@ def test_sixty_prompts_are_generated_and_only_the_first_thirty_reach_the_ballot(
 def test_failures_and_latency_are_counted_over_all_sixty_calls_not_just_the_voted_thirty(data):
     E = llm.LLMError
     # a model that fails only on prompts 31 to 60 (calls 31..60): the vote never sees it, the gate does
-    bad = {"gemini-flash": FakeModel("gemini-flash-latest", fail=[None] * 30 + [E("refused by the model")] * 4)}
-    run(n=60, models=["gemini-flash"], clients=bad)
+    bad = {"bonsai-2-4b": FakeModel("bonsai-2:4b", fail=[None] * 30 + [E("refused by the model")] * 4)}
+    run(n=60, models=["bonsai-2-4b"], clients=bad)
     d = cg.run_dir()
-    attempts = cg.load_attempts(d, ["gemini-flash"], 60)["gemini-flash"]
-    s = cg.call_stats(attempts, cg.MODELS["gemini-flash"])
+    attempts = cg.load_attempts(d, ["bonsai-2-4b"], 60)["bonsai-2-4b"]
+    s = cg.call_stats(attempts, cg.MODELS["bonsai-2-4b"])
     assert (s["n_attempts"], s["n_failed"]) == (60, 4) and s["failure_ci95"] == cg.wilson(4, 60)
     assert not cg.eligibility({"m": s})["m"]["failure_ok"]
-    assert cg.load_attempts(d, ["gemini-flash"], 30)["gemini-flash"].__len__() == 30  # the voted set alone would not show it
+    assert cg.load_attempts(d, ["bonsai-2-4b"], 30)["bonsai-2-4b"].__len__() == 30  # the voted set alone would not show it
 
 
 def test_what_the_sixty_attempt_failure_bar_rules_out():
@@ -534,9 +659,278 @@ def test_what_the_sixty_attempt_failure_bar_rules_out():
 
 
 def test_latency_p95_is_over_all_sixty_calls_nearest_rank():
-    spec = cg.MODELS["gemini-flash"]
+    spec = cg.MODELS["bonsai-2-4b"]
     slow = att(ok=False, latency=12.0, timeout=True, reason="LLMError: transport: ReadTimeout")
     three = [att(latency=3.0) for _ in range(57)] + [slow] * 3
     four = [att(latency=3.0) for _ in range(56)] + [slow] * 4
     assert cg.call_stats(three, spec)["latency_p95_s"] == 3.0  # the 57th of 60 is still a finite call
     assert cg.call_stats(four, spec)["p95_over_deadline"] and cg.call_stats(four, spec)["latency_p95_s"] is None
+
+
+# --- D-97: the GPU gate and the reference model ------------------------------------------------------------------
+
+BONSAI, QWEN, HAIKU = "bonsai-2-4b", "qwen3-4b-instruct", "claude-haiku-5-5"
+PS_URL = "http://127.0.0.1:11434/api/ps"
+
+
+def placed(m, **over):
+    return {"status": "ok", "gpu_share": 1.0, **over}
+
+
+def measured(m, http):
+    return cg.measure_placement(cg.MODELS[m], http)
+
+
+def test_a_model_fully_on_the_gpu_passes_the_gate_and_a_partial_one_fails_with_its_share():
+    tag = cg.MODELS[QWEN].tag()
+    full = measured(QWEN, FakeOllama(share={tag: 1.0}))
+    assert (full["status"], full["gpu_share"], full["context_length"], full["context_ok"]) == ("ok", 1.0, 8192, True)
+    part = measured(QWEN, FakeOllama(share={tag: 0.87}))  # the measured case: 5.60 of 6.39 GB
+    assert (part["status"], round(part["gpu_share"], 2)) == ("ok", 0.87)  # a clean reading that fails the gate
+    el = cg.eligibility(stats(), placement={QWEN: part, BONSAI: placed(BONSAI)})
+    assert el[QWEN]["eligible"] is False and el[QWEN]["reasons"] == ["partial GPU 87%"] and el[QWEN]["placement_ok"] is False
+    assert el[BONSAI]["eligible"] and el[HAIKU]["eligible"]  # a hosted model has no placement to fail
+    assert cg.placement_gate(cg.MODELS[QWEN], placed(QWEN, gpu_share=0.999)) == "partial GPU 100%"  # no tolerance
+
+
+@pytest.mark.parametrize("why,http", [
+    ("empty /api/ps right after a successful generate", FakeOllama(ps={"models": []})),
+    ("no models key", FakeOllama(ps={})),
+    ("1 GB reported for a 6 GB file", FakeOllama(ps={"models": [{"name": "qwen3:4b-instruct", "size": 1_010_000_000, "size_vram": 1_010_000_000}]})),
+    ("size_vram above size", FakeOllama(ps={"models": [{"name": "qwen3:4b-instruct", "size": 6_000_000_000, "size_vram": 7_000_000_000}]})),
+    ("no size at all", FakeOllama(ps={"models": [{"name": "qwen3:4b-instruct"}]})),
+    ("model absent from /api/tags: cannot check the report", FakeOllama(share={"qwen3:4b-instruct": 1.0}, tags=[])),
+    ("server unreachable", FakeOllama(raises=ConnectionError("down"))),
+    ("loaded at another context", FakeOllama(share={"qwen3:4b-instruct": 1.0}, context=32768)),
+    ("partial, with another model loaded: not attributable", FakeOllama(share={"qwen3:4b-instruct": 0.87, "bonsai-2:4b": 1.0})),
+])
+def test_the_gate_fails_closed_when_the_placement_cannot_be_trusted(why, http):
+    rec = measured(QWEN, http)
+    assert rec["status"] == "unknown" and rec["note"], why
+    assert cg.placement_gate(cg.MODELS[QWEN], rec) == "placement unknown"
+    el = cg.eligibility(stats(), placement={QWEN: rec, BONSAI: placed(BONSAI)})
+    assert el[QWEN]["eligible"] is False and el[QWEN]["reasons"] == ["placement unknown"]  # perfect latency and failures do not help
+
+
+def test_a_missing_placement_is_unknown_and_a_full_model_beside_another_is_still_ok():
+    assert cg.eligibility(stats())[BONSAI]["reasons"] == ["placement unknown"]  # never measured
+    both = FakeOllama(share={"qwen3:4b-instruct": 1.0, "bonsai-2:4b": 1.0})
+    assert measured(QWEN, both)["status"] == "ok"  # 100% with others loaded can only be better alone
+    assert cg.placement_gate(None, None) is None  # a name the registry does not know has no placement term
+
+
+def test_the_native_api_is_asked_not_the_openai_compatible_one(monkeypatch):
+    monkeypatch.setenv("OLLAMA_URL", "http://box:11434/v1")
+    http = FakeOllama(share={"bonsai-2:4b": 1.0})
+    measured(BONSAI, http)
+    assert http.urls == ["http://box:11434/api/ps", "http://box:11434/api/tags"]
+
+
+def test_a_reference_is_never_picked_even_when_it_is_funniest():
+    s = stats()
+    s[GEMMA] = {**s[BONSAI]}
+    placement = {**PLACED, GEMMA: placed(GEMMA)}  # a reference that is flawless on every other term
+    d = cg.decide(s, ranks_for([[GEMMA, QWEN, BONSAI, HAIKU]] * 30), placement=placement)
+    assert d["eligibility"][GEMMA]["eligible"] is False and d["eligibility"][GEMMA]["reasons"] == ["reference"]
+    assert GEMMA not in d["eligible"] and GEMMA not in (d["best"], d["second"])
+    assert d["pick"] == QWEN  # the best eligible by rank once the reference is out of the ranking
+    one = cg.decide({k: s[k] for k in (GEMMA, HAIKU)}, ranks_for([[GEMMA, HAIKU]] * 30), placement=placement)
+    assert one["pick"] == HAIKU and one["reason"] == "the only eligible model"
+    assert cg.decide({GEMMA: s[GEMMA]}, {}, placement=placement)["pick"] is None
+
+
+def test_the_ballot_has_four_models_and_scoring_keeps_the_reference_out_of_the_pick(data, monkeypatch):
+    monkeypatch.setattr(cg.cache, "METRICS", data / "metrics")
+    models = MODELS + [GEMMA]
+    run(n=60, models=models)
+    cg.export_ballot(models, 30)
+    d = cg.run_dir()
+    key = json.loads(cg.key_path(d).read_text(encoding="utf-8"))
+    assert all(sorted(k["letters"]) == list("ABCD") and sorted(k["letters"].values()) == sorted(models) for k in key.values())
+    pref = {GEMMA: 0, HAIKU: 1, BONSAI: 2, QWEN: 3}  # the voter's order; qwen was measured 87% on the GPU
+    cg.write_votes(d / "votes.csv", {p: "".join(sorted(k["letters"], key=lambda c: pref[k["letters"][c]])) for p, k in key.items()})
+    cg.write_record(cg.placement_path(d), {BONSAI: placed(BONSAI), QWEN: placed(QWEN, gpu_share=0.87, size=6.39e9, size_vram=5.6e9),
+                                           GEMMA: {"status": "unknown", "gpu_share": None}})
+    params = cg.current_params(60, tuple(models), 30)
+    res = cg.cache.run_or_load(cg.METRICS_NAME, cg.run, **params)
+    dec = res["decision"]
+    assert res["votes"]["mean_rank"][GEMMA] == 1.0  # the reference is in the table...
+    assert dec["eligible"] == sorted([BONSAI, HAIKU]) and dec["pick"] == HAIKU  # ...and never in the pick
+    assert dec["eligibility"][QWEN]["reasons"] == ["partial GPU 87%"] and dec["eligibility"][GEMMA]["reasons"] == ["reference"]
+    assert res["placement"][QWEN]["gpu_share"] == 0.87
+    stored_text = (data / "metrics" / "model_comparison.json").read_text(encoding="utf-8")
+    assert "partial GPU 87%" in stored_text and "thread " not in stored_text
+    assert "no: partial GPU 87%" in cg.table(res) and "no: reference" in cg.table(res)
+    cg.write_record(cg.placement_path(d), {BONSAI: placed(BONSAI), QWEN: placed(QWEN), GEMMA: placed(GEMMA)})
+    with pytest.raises(AssertionError):  # a new measurement invalidates the scored result
+        cg.run(**params)
+
+
+def test_placement_is_measured_after_a_models_first_success_kept_when_ok_and_retried_when_unknown(data):
+    three = [QWEN, BONSAI, HAIKU]
+    http = FakeOllama()
+    run(n=3, models=three, http=http)
+    saved = cg.load_placement(cg.run_dir())
+    assert set(saved) == {QWEN, BONSAI} and all(r["status"] == "ok" for r in saved.values())  # hosted models are not measured
+    assert http.urls.count(PS_URL) == 2  # once each: an ok reading is kept
+    x = cg.run_dir() / "x"
+    flaky = FakeOllama(ps={"models": []})
+    run(n=6, models=three, http=flaky, directory=x)
+    assert {r["status"] for r in cg.load_placement(x).values()} == {"unknown"}
+    assert flaky.urls.count(PS_URL) == 2 * cg.MAX_PLACEMENT_TRIES  # retried on each success, up to the cap
+    again = FakeOllama()
+    run(n=7, models=three, http=again, directory=x)
+    assert {r["status"] for r in cg.load_placement(x).values()} == {"ok"}
+    run(n=8, models=three, http=again, directory=x)
+    assert again.urls.count(PS_URL) == 2  # nothing remeasured once ok
+
+
+def test_a_failed_first_call_measures_nothing_and_the_next_success_does(data):
+    http = FakeOllama()
+    err = llm.LLMError("503 unavailable", status=503, retryable=True)
+    run(n=2, models=[QWEN], clients={QWEN: FakeModel(cg.MODELS[QWEN].model, fail=[err] + [None] * 9)}, http=http)
+    assert cg.load_placement(cg.run_dir())[QWEN]["status"] == "ok" and http.urls.count(PS_URL) == 1
+
+
+def test_power_with_two_eligible_beside_two_references_is_computed_through_decide():
+    three = cg.simulate_decision_power(30, 1.0, reps=100, n_boot=500)
+    two = cg.simulate_decision_power(30, 1.0, reps=100, n_boot=500, eligible=2, references=2)
+    assert 0.5 < three <= 1.0 and 0.0 <= two <= 1.0
+    assert cg.simulate_decision_power(30, 0.0, reps=100, n_boot=500, eligible=2, references=2) < 0.2  # no gap: a fluke
+
+
+# --- D-97 review: one local model in VRAM at a time, so order and warm-up matter ----------------------------------
+
+def blocks(events, kind="call"):
+    """The models in the order they were called, consecutive repeats collapsed."""
+    import itertools
+    return [m for m, _ in itertools.groupby(m for k, m in events if k == kind)]
+
+
+def test_each_local_model_is_called_in_one_block_so_it_is_loaded_once(data):
+    events = []
+    run(n=4, models=[QWEN, HAIKU, BONSAI], events=events)
+    names = [cg.MODELS[m].model for m in (QWEN, HAIKU, BONSAI)]
+    assert blocks(events) == names  # not qwen, haiku, bonsai, qwen, ...: alternating would evict the other local model each time
+    per = {m: sum(1 for k, x in events if k == "call" and x == cg.MODELS[m].model) for m in (QWEN, BONSAI)}
+    assert per == {QWEN: 4, BONSAI: 4}  # every prompt, one call a bit, all done in the block
+    events = []
+    run(n=2, models=[BONSAI, QWEN, GEMMA], events=events, directory=cg.run_dir() / "other")
+    assert blocks(events) == [cg.MODELS[m].model for m in (BONSAI, QWEN, GEMMA)]
+
+
+def test_hosted_models_stay_together_prompt_by_prompt_at_the_place_of_the_first():
+    assert cg.call_groups([QWEN, BONSAI, HAIKU, GEMMA]) == [[QWEN], [BONSAI], [HAIKU], [GEMMA]]
+    assert cg.call_groups([HAIKU, QWEN]) == [[HAIKU], [QWEN]]
+    assert [g for g in cg.call_groups(["claude-haiku-5-5"])] == [["claude-haiku-5-5"]]
+
+
+def test_a_local_model_is_warmed_up_untimed_and_placement_is_read_right_after_it_before_any_call(data):
+    events = []
+    run(n=2, models=[QWEN], events=events)
+    kinds = [k for k, _ in events]
+    assert kinds[:2] == ["warm", "ps"] and kinds.index("call") > 1  # resident and alone when it is measured
+    assert kinds.count("warm") == 1
+
+
+def test_the_warm_up_is_not_an_attempt_and_adds_nothing_to_latency_tokens_or_failures(data):
+    client = FakeModel(cg.MODELS[QWEN].model)
+    cg.run_comparison(3, [QWEN], lambda spec: client, FakeFilter(), pacer=NoWait(), log=lambda s: None, http=FakeOllama())
+    assert client.calls == 1 + 3  # no separate warm client: the warm-up goes through this one
+    atts = cg.load_attempts(cg.run_dir(), [QWEN], 3)[QWEN]
+    assert len(atts) == 3 and all(a["requests"] == 1 and a["input_tokens"] == 1000 for a in atts)  # the warm-up is excluded
+    s = cg.call_stats(atts, cg.MODELS[QWEN])
+    assert s["n_attempts"] == 3 and s["n_failed"] == 0
+    w = cg.read_record(cg.warmup_path(cg.run_dir()))[QWEN]
+    assert w["ok"] is True and w["warmup_s"] >= 0 and len(w["history"]) == 1
+    assert not any("warm" in json.dumps(a) for a in atts)
+
+
+def test_a_resume_that_makes_a_call_warms_up_again_and_a_fully_cached_one_does_not(data):
+    events = []
+    run(n=2, models=[QWEN], events=events)
+    run(n=2, models=[QWEN], events=events)  # everything cached: no call, so nothing to warm up for
+    assert [k for k, _ in events].count("warm") == 1
+    run(n=3, models=[QWEN], events=events)  # one new prompt: the model may have been unloaded since
+    assert [k for k, _ in events].count("warm") == 2
+    assert len(cg.read_record(cg.warmup_path(cg.run_dir()))[QWEN]["history"]) == 2
+
+
+def test_warm_up_failure_modes(data):
+    down = llm.LLMError("transport: ConnectError", retryable=True)
+    with pytest.raises(cg.ConfigError, match=r"warm-up.*ollama serve.*ollama pull qwen3:4b-instruct"):
+        run(n=2, models=[QWEN], warm_fail=down)
+    assert not (cg.run_dir() / QWEN / "p00.json").exists()  # nothing cached for the failing call
+    missing = llm.LLMError("404 model not found", status=404)
+    with pytest.raises(cg.ConfigError):
+        run(n=2, models=[QWEN], warm_fail=missing)
+    slow = llm.LLMError("transport: ReadTimeout", retryable=True)
+    with pytest.raises(cg.WarmupError, match="failed twice"):  # a cold load must not be absorbed by a timed call
+        run(n=2, models=[QWEN], warm_fail=slow)
+    assert not (cg.run_dir() / QWEN / "p00.json").exists()
+    assert len(cg.read_record(cg.warmup_path(cg.run_dir()))[QWEN]["history"]) == 4 and not cg.load_placement(cg.run_dir())  # one try per config stop, then both tries
+
+
+def test_the_warm_up_client_has_a_cold_load_timeout_and_no_retries(monkeypatch):
+    monkeypatch.setenv("OLLAMA_URL", "http://box:11434/v1")
+    c = cg.make_warmup_client(cg.MODELS[BONSAI])
+    assert (c.base_url, c.model, c.retries) == ("http://box:11434/v1", "bonsai-2:4b", 0)
+    assert c.timeout == c.deadline_s == cg.WARMUP_TIMEOUT_S >= 126  # the measured cold load of bonsai-2:4b was 126 s
+    assert c.extra_body == llm.OLLAMA_NO_THINK
+
+
+# --- D-97 review round 3: re-measure unknown placement, retry the warm-up -----------------------------------------
+
+def test_a_fully_cached_rerun_measures_an_unknown_placement_with_no_timed_call_and_leaves_an_ok_one(data):
+    events = []
+    run(n=2, models=[QWEN], http=FakeOllama(ps={"models": []}))  # the first run ends with placement unknown
+    assert cg.load_placement(cg.run_dir())[QWEN]["status"] == "unknown"
+    before = len(cg.load_attempts(cg.run_dir(), [QWEN], 2)[QWEN])
+    lines = []
+    run(n=2, models=[QWEN], events=events, log_lines=lines)  # all cached; Ollama now reports properly
+    assert [k for k, _ in events] == ["warm", "ps"]  # warmed up and measured, and not one timed call
+    assert cg.load_placement(cg.run_dir())[QWEN]["status"] == "ok"
+    assert len(cg.load_attempts(cg.run_dir(), [QWEN], 2)[QWEN]) == before  # nothing added to the attempts
+    events.clear()
+    run(n=2, models=[QWEN], events=events)
+    assert events == []  # ok is kept: no warm-up, no read
+
+
+def test_each_placement_is_logged_in_plain_words_with_the_hint_for_a_wrong_context(data):
+    tag = cg.MODELS[QWEN].tag()
+    lines = []
+    run(n=1, models=[QWEN], http=FakeOllama(share={tag: 1.0}), log_lines=lines)
+    assert f"placement {QWEN}: 100% -> passes the GPU gate" in lines
+    assert any(l.startswith(f"placement {QWEN}") for l in lines)
+    for share, ctx, want in ((0.88, 8192, f"placement {QWEN}: 88% on GPU at ctx 8192 -> not eligible (partial GPU)"),
+                             (1.0, 4096, f"placement {QWEN}: unknown: loaded at context 4096, not 8192 -> not eligible; "
+                                         "restart with OLLAMA_CONTEXT_LENGTH=8192 and rerun run"),
+                             (1.0, None, None)):
+        d = data / f"x{share}{ctx}"
+        lines = []
+        http = FakeOllama(share={tag: share}, context=ctx)
+        run(n=1, models=[QWEN], http=http, directory=d, log_lines=lines)
+        if want:
+            assert want in lines
+    d = data / "gone"
+    lines = []
+    run(n=1, models=[QWEN], http=FakeOllama(ps={"models": []}), directory=d, log_lines=lines)
+    assert f"placement {QWEN}: unknown: model missing from /api/ps -> not eligible; rerun run to measure again" in lines
+
+
+def test_a_warm_up_that_fails_once_is_retried_and_both_tries_are_in_the_history(data):
+    slow = llm.LLMError("transport: ReadTimeout", retryable=True)
+    events = []
+    run(n=2, models=[QWEN], warm_fail=[slow], events=events)
+    assert [k for k, _ in events].count("warm") == 2
+    w = cg.read_record(cg.warmup_path(cg.run_dir()))[QWEN]
+    assert w["ok"] is True and len(w["history"]) == 2
+    assert len(cg.load_attempts(cg.run_dir(), [QWEN], 2)[QWEN]) == 2  # the run went on
+
+
+def test_a_warm_up_that_fails_twice_stops_the_run_and_caches_nothing_for_that_block(data):
+    slow = llm.LLMError("transport: ReadTimeout", retryable=True)
+    with pytest.raises(cg.ConfigError, match="nothing cached"):
+        run(n=2, models=[BONSAI, QWEN], warm_fail=[None, slow, slow])  # bonsai warms fine, qwen fails twice
+    assert (cg.run_dir() / BONSAI / "p00.json").exists() and not (cg.run_dir() / QWEN).exists()
+    assert len(cg.read_record(cg.warmup_path(cg.run_dir()))[QWEN]["history"]) == 2
