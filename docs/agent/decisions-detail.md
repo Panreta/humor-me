@@ -902,3 +902,15 @@ At 20 pairs a judge that is truly 70% right fails more often than it passes; at 
 **Options rejected.** (a) Wait for Tingyu's judge: overdue since Nov 8, and 13 days remain. (b) Adopt the D-95 judge on its own bars: tests only cross-model pairs, the wrong distribution for DPO. (c) 20 test pairs at a 60% point estimate: can't tell a good judge from chance (table). (d) The user's votes alone as DPO labels: too few pairs for DPO in the time left.
 
 **Judgment calls, not measured.** The 60/60 split: more teaching pairs probably help the judge, but nothing here measures how much. The user's time: about 35 s a pair, so about 70 minutes for 120, in several sittings. Whether the frozen judge stays aligned as DPO moves the model away from its starting outputs (reward hacking): no check is planned during training.
+
+## <a id="d-103"></a>D-103 · 2026-11-25 — Exp 24: bonsai's first block is archived, not scored, after a local server fault; its block is rerun (user)
+Decided by the user, 2026-11-25, during the first Exp 24 run, before any vote or score.
+
+**What happened.** qwen3:4b-instruct finished its block clean (60 of 60, 4.8 to 8.5 s). bonsai-2:4b then had 3 failures of its own (p06, p07, p09: wrong number of jokes, "expected 3 threads of 5"), and from p19 on **17 ReadTimeouts in a row** (p19 to p35, each at the 12 s limit). The Ollama tray app had been left running beside `ollama serve`; from about 14:25 it restarted a server every 1.2 s (`app.log`: "ollama exited", `server.log`: "bind: Only one usage of each socket address"), and `/api/ps` showed nothing loaded and the GPU idle while the calls timed out. After the tray app shut down (14:27:31), the same model answered a direct call in 6 s, 100% on the GPU at context 8192.
+
+**Options.** (a) Count every attempt, as D-94 says: bonsai is out, partly for a fault in our machine. (b, chosen) **Archive bonsai's 36 attempts and rerun its block on a clean server**, the D-96 precedent: an outage on our side is not data about the model. (c) Drop only the timeouts: moves the bar after seeing data, which D-94 rules out.
+
+**Cost of (b).** bonsai's 3 shape failures are seen, and its rerun is not blind to them; the rerun counts only its own attempts. Everything else stands: qwen's block, the placement and warm-up records. The archive is `data/model_comparison/gen-71242a99/bonsai-2-4b.aborted-tray-respawn-2026-11-25/` (gitignored, kept). The harness reads only exact model folder names, so the archive is never scored.
+
+**Prevention.** Quit the tray app before a run. Not built: a check in `run` that stops when two Ollama servers are running or nothing is loaded after a warm-up.
+

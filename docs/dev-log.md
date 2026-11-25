@@ -5,6 +5,7 @@ caught, and the fix. Useful for the report's "challenges" section and for not re
 mistakes. **Append new entries at the top of each section; never delete old ones.**
 
 Format: **Symptom** → **Cause** → **Caught by** → **Fix** (commit / file).
+| Exp 24: bonsai-2:4b timed out 17 calls in a row (p19 to p35) after answering in about 5 s (2026-11-25) | The Ollama tray app was left running beside `ollama serve` and from about 14:25 restarted a server every 1.2 s (port already taken); nothing stayed loaded, so each call waited on a reload past the 12 s limit | The user's run log, then `app.log`, `server.log`, `/api/ps` and nvidia-smi | Run stopped, bonsai's attempts archived and its block rerun (D-103). Quit the tray app before any run |
 
 ---
 
