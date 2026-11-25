@@ -36,7 +36,7 @@ now and pays off later, and only if the hook landed in the first place.
 
 ## In this project
 
-- **Hand-labeled definitions** (decisions.md 2026-10-21): a bit is the smallest standalone
+- **Hand-labeled definitions** (decisions-detail.md 2026-10-21): a bit is the smallest standalone
   stretch; same-topic bits form a thread; a callback must reach back ≥ 2 bits.
 - **Pipeline result:** bits F1 0.80 on Bargatze vs 0.21 baseline; callbacks 0/3 found
   (paused; [dev-log](../dev-log.md)).

@@ -31,7 +31,7 @@ laughs. A crowd-work exchange (banter with the audience) counts as its own bit.
 | **Punch(line)** | The line that breaks the expectation and gets the laugh | |
 | **Tag** | Another punchline on the same setup, no new setup | 3 tags = 3 more laughs off one setup |
 | **Act-out** | Performing a character or moment instead of describing it | |
-| **Bit** | Smallest stretch of material that works on its own without earlier setup; one premise (decisions.md 2026-10-21) | Sim: 5 jokes; Bargatze: median 4 laughs |
+| **Bit** | Smallest stretch of material that works on its own without earlier setup; one premise (decisions-detail.md 2026-10-21) | Sim: 5 jokes; Bargatze: median 4 laughs |
 | **Callback** | A later bit (≥ 2 bits on) that returns to an earlier bit's image | Planted early, pays off late |
 | **Hook** | The memorable image or phrase in a bit that a callback can return to | Stored paraphrased, never quoted |
 | **Crowd work / banter** | Talking with the audience; its own bit type | Roasts aimed at the bot: concede and escalate (invariant 4) |
@@ -63,7 +63,7 @@ laughs. A crowd-work exchange (banter with the audience) counts as its own bit.
 | **Posterior** | The belief after updating the prior with observed rewards | LinUCB/LinTS `A`, `b` |
 | **Prior strength** | How many observations' worth of weight the prior carries. Weight 1 = about one bit's worth of evidence, so data overrides it within a few shows | `prior_strength=1.0` |
 | **Win rate (per persona)** | Share of pairwise judge matches a persona's jokes won; 50% = average for the pool. HumorGen Table 4, judged by Llama-3.3-70B, not humans | Neurotic 63.4%, wordsmith 34.9% |
-| **Thurstone model** | Reads a pairwise win rate as a gap in hidden quality: P(win) = Phi(gap / (sigma*sqrt 2)). The principled way to turn win rates into scores | Alternative to the linear `base` mapping (decisions.md 2026-10-31) |
+| **Thurstone model** | Reads a pairwise win rate as a gap in hidden quality: P(win) = Phi(gap / (sigma*sqrt 2)). The principled way to turn win rates into scores | Alternative to the linear `base` mapping (decisions-detail.md 2026-10-31) |
 | **HumorGen prior** | Starting guess = HumorGen's LLM-judge win rate per persona (Neurotic best). Knows nothing about venues | `prior_means(env, "humorgen")` |
 | **Uniform prior** | Every mode starts equal: "no opinion" | `prior_means(env, "uniform")` |
 | **Wrong prior** | HumorGen's values shuffled across modes: a confident but wrong starting guess, to measure what a bad prior costs | `prior_means(env, "wrong")` |
@@ -88,7 +88,7 @@ laughs. A crowd-work exchange (banter with the audience) counts as its own bit.
 | **Bellman equation** | Value = immediate reward + value of the state you land in. The optimal version takes the max over next actions. A bandit drops the "state you land in" term, which is why it can't value planting a hook | Step C |
 | **Q-learning** | Learns each action's value from its reward plus the best value available next, so a choice is valued for what it does later. `LinQ` is the linear version, over the bits of a show | `LinQ`, step C1 |
 | **SFT (supervised fine-tuning)** | Training a model on examples of good outputs, so it imitates them. The first training step for our joke model, and the safe checkpoint | Model track, roadmap.md |
-| **DPO (direct preference optimization)** | Training a model on pairs of outputs where one is preferred, so it moves toward the preferred kind without a separate reward model. It learns the taste of whoever chose the pairs. In depth: [study guide section 2.9](../study-guide.md#29-preferences-reward-models-dpo) | Model track, decisions.md 2026-11-01 |
+| **DPO (direct preference optimization)** | Training a model on pairs of outputs where one is preferred, so it moves toward the preferred kind without a separate reward model. It learns the taste of whoever chose the pairs. In depth: [study guide section 2.9](../study-guide.md#29-preferences-reward-models-dpo) | Model track, decisions-detail.md 2026-11-01 |
 | **Preference pair** | One DPO training example: a prompt, the output that was preferred (chosen) and the one that wasn't (rejected) | Judge picks between two jokes on one of our premises |
 | **Reference model** | A frozen copy of the model from before DPO. DPO measures every change against it, so the model can't drift without limit | The SFT checkpoint |
 | **Change-point detection** | Spotting the moment a stream of numbers starts behaving differently, as evidence builds up, instead of averaging across it. One candidate for noticing a room turn | Not built yet |

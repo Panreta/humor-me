@@ -306,7 +306,7 @@ the past matter (section 2.6).
 
 **In this repo.** Arms = 6 HumorGen modes. Context = venue × energy × age (27 combinations) +
 last bit's mode and reward. Reward = mean laugh level of the bit's 5 jokes ÷ 3 ∈ [0, 1].
-One decision per **bit** (8 per show), not per joke: [decisions.md 2026-10-27](decisions.md).
+One decision per **bit** (8 per show), not per joke: [decisions-detail.md D-25](decisions-detail.md#d-25).
 
 **Expert edge.** We report regret in **laughs lost vs oracle** (sum of levels), and use the
 *exact* expected reward from the sim (no sampling noise in regret). Reviewers like this: it reads
@@ -390,7 +390,7 @@ knows nothing about venues. Uniform chosen: it keeps the LLM judge's taste out o
 **Expert edge.** "The prior didn't matter" is a statement *about weight 1*. A strong wrong prior
 costs; a strong right one helps cold start. That's the untested prior-strength sweep
 ([explore-next #7](explore-next.md)). Also: the sim's `base` itself came from HumorGen win rates
-via a hand-picked linear map `0.3 + 2·(win_rate − 0.5)` (recorded in decisions.md, PR #17), so
+via a hand-picked linear map `0.3 + 2·(win_rate − 0.5)` (recorded in decisions-detail.md D-31, PR #17), so
 a HumorGen prior partly "knows" the sim. Replacing `base` with rJokes-derived values (PR 3) breaks
 that circularity.
 
@@ -462,7 +462,7 @@ greedy bandit vs sequential policy on late-set laugh rate.
   on preference pairs, no explicit reward model. LoL uses a frozen pairwise judge for online DPO
   (it does *not* classify personas: that's HumorGen).
 
-#### DPO in depth (moved into M1, decisions.md 2026-11-01)
+#### DPO in depth (moved into M1, decisions-detail.md 2026-11-01)
 
 **The problem it solves.** SFT (supervised fine-tuning) teaches a model to imitate good examples, but
 "funny" is easier to judge than to write down: people can usually pick the better of two jokes without
@@ -550,7 +550,7 @@ flowchart TD
 
 ## 4. Decision digest
 
-Full text: [decisions.md](decisions.md). D-numbers here are for this page only.
+D-numbers are the IDs in [decisions.md](decisions.md); full text in [decisions-detail.md](decisions-detail.md).
 
 ### Design decisions
 
@@ -559,18 +559,18 @@ Full text: [decisions.md](decisions.md). D-numbers here are for this page only.
 | D-01 | Audio-only realtime loop | continuous face tracking | lose visual cues; gain latency, privacy, no appearance jokes by construction |
 | D-02 | Per-joke laugh = reward; rating = outcome | rating as reward; raw laugh counts | noisier per-step signal; avoids sparse/peak-end and spam-gaming |
 | D-03 | Contextual bandit over modes, fixed identity | switch full personas; full online RL | less expressive; coherent voice, enough signal per show |
-| D-04 | Context = 3 operator-set features | one venue label; inferred age | manual setup; audio can't infer age |
-| D-05 | Teens → strict filter as a hard rule | let bandit learn it | none worth taking: safety isn't a reward |
-| D-06 | Pause transcript pipeline (10-26) | push on with Gemini S4 | lose callback stats; regain schedule, drop legal exposure |
-| D-07 | Hierarchical long-form generation | one-pass 1,500-word completion | more moving parts; no drift, director can reorder/cut |
-| D-08 | **Decide per bit** (10-27) | per joke; per joke + history | 8 decisions/show; coherence built in, 5-joke reward averaging |
-| D-09 | **LinUCB + uniform prior** (10-27) | ε-greedy, LinTS × 3 priors | determinism can be sticky; lowest loss, tightest CI |
-| D-10 | Keep features; need show state (10-28) | add reaction feature | — (feature within CIs) |
-| D-11 | Keep 8-bit sets (10-28) | 16/32/52 bits | — (length doesn't help) |
-| D-12 | Show state A not adopted (10-28) | adopt with small gain | gains < criteria; steady cost |
-| D-13 | Explorer for GPU batch only (10-26) | Gemini for labels; laptop 4060 | cluster friction (section 5); removes free-tier quota bottleneck |
-| D-14 | Linear win-rate → `base` map (PR #17) | logit, rank, z-score | hand-picked; PR 3 must preserve ordering + spread when rJokes replaces it |
-| D-15 | Precision rule for labeling sample | fixed % of 400k | sample size set by per-mode CI ±0.02, not by dataset share |
+| D-08 | Context = 3 operator-set features | one venue label; inferred age | manual setup; audio can't infer age |
+| D-09 | Teens → strict filter as a hard rule | let bandit learn it | none worth taking: safety isn't a reward |
+| D-22 | Pause transcript pipeline (10-26) | push on with Gemini S4 | lose callback stats; regain schedule, drop legal exposure |
+| D-23 | Hierarchical long-form generation | one-pass 1,500-word completion | more moving parts; no drift, director can reorder/cut |
+| D-25 | **Decide per bit** (10-27) | per joke; per joke + history | 8 decisions/show; coherence built in, 5-joke reward averaging |
+| D-26 | **LinUCB + uniform prior** (10-27) | ε-greedy, LinTS × 3 priors | determinism can be sticky; lowest loss, tightest CI |
+| D-27 | Keep features; need show state (10-28) | add reaction feature | — (feature within CIs) |
+| D-28 | Keep 8-bit sets (10-28) | 16/32/52 bits | — (length doesn't help) |
+| D-29 | Show state A not adopted (10-28) | adopt with small gain | gains < criteria; steady cost |
+| D-24 | Explorer for GPU batch only (10-26) | Gemini for labels; laptop 4060 | cluster friction (section 5); removes free-tier quota bottleneck |
+| D-31 | Linear win-rate → `base` map (PR #17) | logit, rank, z-score | hand-picked; PR 3 must preserve ordering + spread when rJokes replaces it |
+| (not logged) | Precision rule for labeling sample | fixed % of 400k | sample size set by per-mode CI ±0.02, not by dataset share |
 
 ### Debugging decisions (Explorer, 2026-10-30/31)
 
@@ -814,7 +814,7 @@ Answer out loud, then check the section in brackets.
 0d. Derive UCB1's bonus from Hoeffding in two lines. [F8]
 
 1. Why is this a contextual bandit and not an MDP, and what three things break that? [section 2.1, section 2.7]
-2. Why did random beat every fixed mode in v1, and why was "add history to context" the wrong fix? [section 3, D-08]
+2. Why did random beat every fixed mode in v1, and why was "add history to context" the wrong fix? [section 3, D-25]
 3. Derive the LinUCB score. What does `√(xᵀA⁻¹x)` measure, and why set α to the reward noise sd? [section 2.3]
 4. ε-greedy lost 3.4× more laughs. Is that about exploration? [section 2.2: no, pooling]
 5. "The prior didn't matter." Under what conditions would it? [section 2.5]

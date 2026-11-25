@@ -14,7 +14,10 @@ Read before working:
 - [docs/data-sources.md](docs/data-sources.md) — what data we use and for what role
 - [docs/pipeline.md](docs/pipeline.md) — transcript → beats/bits/sets pipeline, labels, schemas
 - [docs/roadmap.md](docs/roadmap.md) — stages, exit criteria, estimates
-- [docs/decisions.md](docs/decisions.md) — decision log; append, don't rewrite history
+- [docs/decisions-detail.md](docs/decisions-detail.md) — **the decision log agents read and append to**; append, don't
+  rewrite history. Each entry has an ID (D-xx, next number, never renumbered) and needs a one-line row with the same ID
+  in [docs/decisions.md](docs/decisions.md), the plain-language log for human readers (Tingyu's call how it reads),
+  in the same PR. `tests/test_docs.py` fails if the IDs differ. Don't move detail into decisions.md.
 - [notebooks/decisions.ipynb](notebooks/decisions.ipynb) — **index of the evidence for every decision**, linking each
   to a section notebook: `decisions-data.ipynb` (transcripts, rJokes), `decisions-director.ipynb` (sim, director),
   `decisions-live.ipynb` (live loop, Exp 19 onward); judge, SFT and DPO get `decisions-model.ipynb` with their first
@@ -31,7 +34,7 @@ Read before working:
 ## Measure before cut (every decision, every agent)
 
 Applies to adopting, rejecting, keeping or cutting anything. If a choice has no measurement, write
-"judgment call, not measured" in decisions.md.
+"judgment call, not measured" in decisions-detail.md.
 
 1. **Name the number that would change the decision** before running. If no result would change it, don't run it.
 2. **Size the prize first.** Compute the ceiling (oracle, planning optimum, ideal observer) in laughs before
@@ -46,7 +49,7 @@ Applies to adopting, rejecting, keeping or cutting anything. If a choice has no 
 
 Each session uses its own git worktree, and each PR targets `main` unless the user approves stacking.
 
-## Invariants (do not violate without a new entry in decisions.md)
+## Invariants (do not violate without a new entry in decisions-detail.md)
 
 1. **Never joke about bodies, appearance, or protected attributes** of people present.
    Punch at self, the situation, and what people *say* — never at who they *are*.

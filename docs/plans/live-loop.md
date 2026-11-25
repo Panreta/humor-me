@@ -1,7 +1,7 @@
 # Live loop plan
 
 Build the full show loop with button rewards, a simulated room and session logs, so the judge and the trained
-model can be added later without changing the data. Decisions behind this plan: [decisions.md](../decisions.md),
+model can be added later without changing the data. Decisions behind this plan: [decisions-detail.md](../decisions-detail.md),
 entries dated 2026-11-08.
 
 **Out of scope:** the judge (PR #37), SFT and DPO, Explorer runs, callbacks, banter, laugh detection. Detection is
@@ -35,8 +35,8 @@ to need something else, stop and say so.
   with ✅/❌ checks, an entry in the `COVERAGE` table of `notebooks/decision-plot.ipynb`, results in `docs/metrics.md`.
   Run `python scripts/run_notebook.py` (every decisions notebook and decision-plot). Exp 17 is reserved for issue #38, so numbering here starts at 18.
 - **The pass criterion in the task is fixed for builders.** If a result misses it, report the miss and don't move the bar. The bars are
-  a first estimate: the user may re-tune one when an experiment shows it was wrong, through a new decisions.md entry giving the old bar, the new bar and the result behind the change.
-- **Records:** decisions go in `docs/decisions.md` (append only). Any bug or quirk that cost time goes in `docs/dev-log.md`.
+  a first estimate: the user may re-tune one when an experiment shows it was wrong, through a new decisions-detail.md entry giving the old bar, the new bar and the result behind the change.
+- **Records:** decisions go in `docs/decisions-detail.md` (append only). Any bug or quirk that cost time goes in `docs/dev-log.md`.
   New terms go in `docs/wiki/glossary.md`, in beginner-friendly words.
 - **Never:** write code with backslashes through a shell heredoc (use Write or Edit); print or commit rJokes or
   transcript text; use the section-sign symbol; commit anything from `data/sessions/`; add attribution trailers.
@@ -45,7 +45,7 @@ to need something else, stop and say so.
 
 ## Frozen contract
 
-Changing anything here needs a new entry in decisions.md.
+Changing anything here needs a new entry in decisions-detail.md.
 
 ### Reaction labels
 
@@ -82,7 +82,7 @@ Uniform random among candidates that pass the safety filter. Log the pick probab
 
 ### Log schema v2
 
-JSONL, one file per show in `data/sessions/`. Every row has `schema: 2`, `session`, `at`, `event`. Version 2 adds the `bridge` event (decisions.md 2026-11-14); the reader still accepts `schema: 1` logs, which have no bridge rows.
+JSONL, one file per show in `data/sessions/`. Every row has `schema: 2`, `session`, `at`, `event`. Version 2 adds the `bridge` event (decisions-detail.md 2026-11-14); the reader still accepts `schema: 1` logs, which have no bridge rows.
 
 | Event | Fields |
 |---|---|
@@ -126,7 +126,7 @@ Runs in parallel once T0 is merged: T1, T2, T7, T8.
 ### T1: ε director and Exp 18
 
 - **Goal:** explore at ε = 0.2 with exact pick probabilities, and measure what it costs.
-- **Files:** `sim/policies.py`, new `sim/evaluate_epsilon.py`, `tests/test_policies.py`, notebooks, `docs/metrics.md`, `docs/decisions.md`.
+- **Files:** `sim/policies.py`, new `sim/evaluate_epsilon.py`, `tests/test_policies.py`, notebooks, `docs/metrics.md`, `docs/decisions-detail.md`.
 - **Build:** a wrapper with `act`, `update` and `probs(obs)` around any policy exposing a greedy action. `update` passes through unchanged.
 - **Tests:** probabilities sum to 1; empirical pick rates match `probs` over many draws; ε = 0 equals plain LinUCB exactly.
 - **Experiment:** ε ∈ {0, 0.1, 0.2}, paired on seeds, at 5 shows (1,000 seeds) and 30 shows (200 seeds), under judge and human taste,
@@ -200,7 +200,7 @@ Runs in parallel once T0 is merged: T1, T2, T7, T8.
 - **Fix in the rules:** words capitalized after an opening quote or inside a quoted sentence are not names; the spaced-letter join must not swallow a lone article; possessives match their base word; fictional names in the bank are allowed.
 - **Build:** after the rules, one LLM call per bit judges all surviving candidates, through the same OpenAI-compatible client as T9. A timeout, a malformed reply, a provider safety block or a missing verdict means rejected. A real slur list loads from a gitignored local file, and a live show refuses to start without it.
 - **Experiment:** Exp 19 re-run on the real bank and the existing red-team list, then scored once on the user's fresh lines, which no builder sees. Rule changes after that score need new lines.
-- **Pass:** at least 75% of a fresh set of indirect lines caught, with the user judging weak labels (re-tuned from 100%, decisions.md 2026-11-08); at most 10% of the real bank rejected; the check adds at most 3 s per bit at p95 (re-tuned from 2 s, decisions.md 2026-11-08); fits the free quota for 5 shows in a day. A miss goes to the user. Option (c) is no longer the plan for real rooms: generated lines reach the room through the two automatic layers and the bank fallback.
+- **Pass:** at least 75% of a fresh set of indirect lines caught, with the user judging weak labels (re-tuned from 100%, decisions-detail.md 2026-11-08); at most 10% of the real bank rejected; the check adds at most 3 s per bit at p95 (re-tuned from 2 s, decisions-detail.md 2026-11-08); fits the free quota for 5 shows in a day. A miss goes to the user. Option (c) is no longer the plan for real rooms: generated lines reach the room through the two automatic layers and the bank fallback.
 
 ### T9: Gemini generator, render-ahead, Exp 20
 
@@ -218,7 +218,7 @@ Runs in parallel once T0 is merged: T1, T2, T7, T8.
 - **Build:** mono 16 kHz PCM from an AudioWorklet with echo cancellation, noise suppression and auto gain off. Sent as binary over the websocket and written straight to a WAV beside the log. Recording cannot start without the consent box. Store the audio start time in the log so joke timestamps line up.
 - **Tests:** without consent no file exists; a dropped connection leaves a readable WAV; the path is gitignored.
 - **Experiment (user runs it, needs a mic):** play clicks at known times during a 15-minute show. Measure the offset between logged time and the click in the WAV.
-- **Pass:** p95 offset ≤ 100 ms, with no drift over the show. **Re-tuned by the user, 2026-11-15, after the first run (decisions.md, Exp 21):** drift at most 50 ms; p95 of the offset around its median at most 100 ms; at least 90% of in-recording beeps matched. The constant offset is reported, not barred.
+- **Pass:** p95 offset ≤ 100 ms, with no drift over the show. **Re-tuned by the user, 2026-11-15, after the first run (decisions-detail.md, Exp 21):** drift at most 50 ms; p95 of the offset around its median at most 100 ms; at least 90% of in-recording beeps matched. The constant offset is reported, not barred.
 
 ### T11: Rating and acceptance run
 
@@ -233,7 +233,7 @@ Runs in parallel once T0 is merged: T1, T2, T7, T8.
 - **Goal:** the evidence notebook stops growing without limit. No result changes.
 - **Files:** new `notebooks/decisions-data.ipynb` (Exp 1, 2, 9 to 12), `notebooks/decisions-director.ipynb` (Exp 3 to 8, 13 to 16, 18), `notebooks/decisions-live.ipynb` (from Exp 19), new `notebooks/decisions_common.py`, `scripts/run_notebook.py`, `notebooks/decision-plot.ipynb`, and every doc that points at the notebook.
   `notebooks/decisions.ipynb` shrinks to the index: the decision table, with links into each section notebook. Judge, SFT and DPO get `decisions-model.ipynb` when their first experiment lands.
-- **Build:** move cells unchanged, keeping experiment numbers. Shared setup (`ROOT`, `show`, `check`) moves to the common module. `run_notebook.py` with no path runs all of them. `COVERAGE` reads experiments from every `decisions-*.ipynb`. Update `CLAUDE.md`, the PR template, the plan's brief, `README.md`, `docs/status.md` and `docs/study-guide.md`. Leave historical decisions.md entries as written.
+- **Build:** move cells unchanged, keeping experiment numbers. Shared setup (`ROOT`, `show`, `check`) moves to the common module. `run_notebook.py` with no path runs all of them. `COVERAGE` reads experiments from every `decisions-*.ipynb`. Update `CLAUDE.md`, the PR template, the plan's brief, `README.md`, `docs/status.md` and `docs/study-guide.md`. Leave historical decisions-detail.md entries as written.
 - **Tests:** a test that each Exp number appears in exactly one notebook, and that every index entry resolves.
 - **Experiment:** none. **Pass:** the same set of checks before and after (name and count), and no file under `reports/metrics/` changes.
 - **Order:** starts after T1 merges, and before T8's rework, so the notebooks don't conflict.

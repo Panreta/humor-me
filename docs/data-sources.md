@@ -8,7 +8,7 @@ the primary dataset**; everything below is a cold-start aid.
 | Source | Role | Stage | Notes |
 |---|---|---|---|
 | **Own session logs** | Primary: bandit reward, RM training, DPO pairs | 1 → ∞ | Schema defined in Stage 1. The real asset. |
-| **rJokes** ([orionw/rJokesData](https://github.com/orionw/rJokesData)) | **Working joke dataset (M1).** Mode-labeled score distributions seed the sim; learned joke scorer; judge calibration | 2–3 | 432k jokes in train/dev/test (346k/43k/43k), integer score 0–11 (log-scaled upvotes), dated 2008–2019. One-liners, Reddit taste, lots of offensive material: safety filter before any use. Reddit terms: local use, never redistribute the dataset (a few rows may be quoted in docs, decisions.md 2026-10-31); honor removal requests. Cloned to `data/external/` (gitignored). |
+| **rJokes** ([orionw/rJokesData](https://github.com/orionw/rJokesData)) | **Working joke dataset (M1).** Mode-labeled score distributions seed the sim; learned joke scorer; judge calibration | 2–3 | 432k jokes in train/dev/test (346k/43k/43k), integer score 0–11 (log-scaled upvotes), dated 2008–2019. One-liners, Reddit taste, lots of offensive material: safety filter before any use. Reddit terms: local use, never redistribute the dataset (a few rows may be quoted in docs, decisions-detail.md 2026-10-31); honor removal requests. Cloned to `data/external/` (gitignored). |
 | **HumorGen** (paper, [references/md](../references/md/humorgen-cognitive-synergy-persona-distillation.md)) | Persona mode definitions; candidate-gen + Elo-judge recipe | 3 | Use the *method* now. Their dataset is on an anonymous review repo — wait for camera-ready/license before depending on it. |
 | **LoL** (paper, [references/md](../references/md/structured-thought-leaps-humor-iclr2025.md)) | Thought-leap prompting; pairwise judge design | 3 | Method only. |
 | **Christiano et al. 2017** (paper) | Preference → reward model recipe for training mode | 5–7 | Method only. |
@@ -17,7 +17,7 @@ the primary dataset**; everything below is a cold-start aid.
 
 | Source | Decision | Why |
 |---|---|---|
-| scrapsfromtheloft transcripts | **Permitted by the site admin (2026-10-23), on conditions.** Local research corpus for structure and laugh labels | Conditions: about 30 to 50 specials, local only, not redistributed, not published, not commercial, fetched slowly, site credited in the report (decisions.md 2026-11-08). The specials stay copyrighted by their owners, so only numbers leave the laptop, and no released model trains on them. |
+| scrapsfromtheloft transcripts | **Permitted by the site admin (2026-10-23), on conditions.** Local research corpus for structure and laugh labels | Conditions: about 30 to 50 specials, local only, not redistributed, not published, not commercial, fetched slowly, site credited in the report (decisions-detail.md 2026-11-08). The specials stay copyrighted by their owners, so only numbers leave the laptop, and no released model trains on them. |
 | HumorGen dataset | Deferred until public with license | Anonymous repo may disappear. `africa_headlines.tsv` is out-of-domain headline *prompts* (paper App. J), no jokes or ratings. |
 
 If transcripts are used at all, the low-risk use is **aggregate statistics only**, computed

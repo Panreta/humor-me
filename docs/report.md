@@ -64,7 +64,7 @@ any good, and how bad it gets in front of real people, is what the live sessions
 
 - The director picks a **mode once per bit** (not per joke): a comedian commits to an attitude
   for a whole bit and varies between bits. Per joke, the sim rewarded rotation over fit
-  (decisions.md 2026-10-27; metrics.md #1 v1 vs v2).
+  (decisions-detail.md 2026-10-27; metrics.md #1 v1 vs v2).
 - Arms = 6 modes; context = venue/energy/age + last bit's mode and reward; reward = mean laugh
   level of the bit's jokes ÷ 3.
 - Why a bandit first; why fatigue and callbacks push toward an MDP.
@@ -103,13 +103,13 @@ One row per decision that changed the result (to become D-xx entries: options, t
 
 | Decision | Status | Evidence | Background |
 |---|---|---|---|
-| Pause transcripts; rJokes + simulator first | Decided 2026-10-26 | decisions.md | [rJokes](wiki/rjokes-dataset.md) |
-| Long-form sets planned hierarchically (planner → bit writer → director) | Decided 2026-10-26 | decisions.md | [Stand-up structure](wiki/standup-structure.md) |
+| Pause transcripts; rJokes + simulator first | Decided 2026-10-26 | decisions-detail.md | [rJokes](wiki/rjokes-dataset.md) |
+| Long-form sets planned hierarchically (planner → bit writer → director) | Decided 2026-10-26 | decisions-detail.md | [Stand-up structure](wiki/standup-structure.md) |
 | Reward = laugh level 0–3, scaled to [0, 1] | Decided 2026-10-27 | sim/README.md | [Glossary: laugh level](wiki/glossary.md#comedy-units-of-material-smallest-to-largest) |
 | Director decides per bit, not per joke | Decided 2026-10-27 | metrics.md #1 v1 vs v2 | [Simulated audience](wiki/simulated-audience.md) |
 | Director policy: LinUCB + uniform prior | Decided 2026-10-27 | metrics.md #4 | [Contextual bandits](wiki/contextual-bandits.md) |
 | Learn across shows (one show is too short) | Decided 2026-10-27 | metrics.md #1: 14–177 shows to separate top modes | [Contextual bandits](wiki/contextual-bandits.md) |
-| Explorer for GPU jobs only | Decided 2026-10-26 | decisions.md | [Explorer HPC](wiki/explorer-hpc.md) |
+| Explorer for GPU jobs only | Decided 2026-10-26 | decisions-detail.md | [Explorer HPC](wiki/explorer-hpc.md) |
 | rJokes for mode statistics only, never joke material (judge safety flags unreliable) | Decided 2026-10-31 | notebook Exp 9; metrics.md "Hand check of R2 labels" | [rJokes](wiki/rjokes-dataset.md) |
 | Human mode preference: compare same-year, similar-length jokes; keep both tastes for the sim | Decided 2026-11-01 | notebook Exp 10; metrics.md "Human vs judge mode ranking" | [rJokes](wiki/rjokes-dataset.md) |
 
