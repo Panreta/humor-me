@@ -10,7 +10,7 @@ Fonts: Junge 36 pt for titles, Nunito Bold 18 pt for takeaways, Nunito 14 pt for
 Each slide also has **Q&A notes**: the numbers behind it and the questions it invites. They are for you,
 not the audience. [Q&A reference](#qa-reference) at the end has the
 overall summary and the hardest questions. Numbers come from [docs/metrics.md](../metrics.md) and
-[docs/decisions.md](../decisions.md), as of 2026-11-01. Terms are defined in the
+[docs/agent/decisions-detail.md](../agent/decisions-detail.md), as of 2026-11-01. Terms are defined in the
 [glossary](../wiki/glossary.md).
 
 **Still yours to decide.** These are left as written:
@@ -22,7 +22,7 @@ overall summary and the hardest questions. Numbers come from [docs/metrics.md](.
 | 28 | "This is the real run" | The screenshot is a 15-second summary job printing finished results. The labeling took about 5 h across earlier jobs |
 | 29, 31 | "The judge" means two different models | Slide 29's judge is our Qwen labeler. Slide 31's is HumorGen's Llama 3.3-70B. Say which |
 | 30 | Median absurdist joke is 26 words | `mode_ranking.json` and the glossary say 25 |
-| 32 | "Asked why the threshold was 0.05, I found..." | You asked; Claude found the flaw (decisions.md 2026-11-01) |
+| 32 | "Asked why the threshold was 0.05, I found..." | You asked; Claude found the flaw (decisions-detail.md 2026-11-01) |
 
 ---
 
@@ -348,7 +348,7 @@ one, and any fixed persona falls well behind.
 | Wordsmith | 34.9% | 0.00 |
 
 `base = 0.3 + 2 × (win rate − 0.5)`. Claude picked this mapping by hand when writing PR #1, and you approved it. No
-options were compared then, and the entry was recorded later (decisions.md 2026-10-31).
+options were compared then, and the entry was recorded later (decisions-detail.md 2026-10-31).
 
 - **Q: Who judged?** Llama 3.3-70B, not people. Slide 31 tests this against people.
 - **Q: Why that slope?** A spread of 0.57 is about the size of the venue offsets, so a venue can flip the best mode. A

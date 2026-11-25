@@ -85,7 +85,7 @@ cd backend
 cd ../frontend && npm run dev   # then open http://localhost:3000
 ```
 
-Set `GENERATOR=llm` in `backend/.env` (a one-command prefix differs between Bash and PowerShell, and `--env-file` reads it either way). Simulated shows can run on `GENERATOR=bank` (no quota) or `llm`; the live show uses `llm` (decisions.md 2026-11-15).
+Set `GENERATOR=llm` in `backend/.env` (a one-command prefix differs between Bash and PowerShell, and `--env-file` reads it either way). Simulated shows can run on `GENERATOR=bank` (no quota) or `llm`; the live show uses `llm` (decisions-detail.md 2026-11-15).
 
 **Run:** (1) three Simulated shows back to back, untouched; (2) one Live show, you press W / K / Space / D for every joke, consent ticked; (3) after each show answer the rating prompt (keys 1 to 5, or Skip; a show that failed before it began shows its error and no prompt). Then score them. The session ids are the file names in `data/sessions/` without `.jsonl`:
 

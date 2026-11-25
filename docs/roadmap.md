@@ -3,7 +3,7 @@
 ## M1 — Target Dec 8, 2026 (RL course final project)
 
 Everything is finished by **Dec 8**. Spillover is handled by **Dec 12**. **Dec 14:** final presentation
-(15 min at most, team) and final report due (decisions.md 2026-11-01).
+(15 min at most, team) and final report due (decisions-detail.md 2026-11-01).
 
 Budget: 8 weeks × 12–15 h ≈ **100–110 h**. Two audiences: course graders (need RL rigor) and
 class demo (needs a live run that is fast, safe, funny).
@@ -62,7 +62,7 @@ Stage 5 is calendar-bound (depends on getting audiences), not effort-bound.
 
 | # | Stage | Deliverable | Exit criteria | Est. |
 |---|---|---|---|---|
-| 0 | Foundations | Repo docs, stack choice, license checks | Stack + log schema draft agreed in decisions.md | 1 wk |
+| 0 | Foundations | Repo docs, stack choice, license checks | Stack + log schema draft agreed in decisions-detail.md | 1 wk |
 | 1 | Voice loop MVP | Prepared set → TTS → waveform UI; human "laughed" button; episode logging | 10-min set plays end-to-end; every joke logged with timestamps | 3 wks |
 | 2 | Hearing the room | VAD + laughter detector + laugh-aware turn-taking | Detector agrees with human button ≥ 80% on recorded sessions; bot never talks over a laugh | 3 wks |
 | 3 | Generation | Core identity + 6 modes, K-candidate gen, LLM pairwise judge, safety filter, venue snapshot, ASR banter + roast handling | Judge rerank beats random pick on rJokes-style held-out pairs; safety filter passes red-team list; next line ready ≤ 1s after laugh decay | 4 wks |

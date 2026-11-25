@@ -4,7 +4,7 @@ The update deck [humor-me-update-2026-11-15.pptx](humor-me-update-2026-11-15.ppt
 between the Nov 1 deck ([humor-me.pptx](humor-me.pptx), monologue in [slides.md](slides.md)) and Nov 15. It reuses
 the main deck's look. Each slide below has its title, a one-line takeaway, a picture of the slide, what to say, and
 **Q&A notes** that are for you, not the audience. Slide pictures are in [img/update-2026-11-15/](img/update-2026-11-15/).
-Numbers come from [docs/metrics.md](../metrics.md) and [docs/decisions.md](../decisions.md), as of 2026-11-15.
+Numbers come from [docs/metrics.md](../metrics.md) and [docs/agent/decisions-detail.md](../agent/decisions-detail.md), as of 2026-11-15.
 Terms are defined in the [glossary](../wiki/glossary.md). Claude (the AI assistant) built the deck from the main
 deck's slides and drafted this monologue.
 
@@ -63,7 +63,7 @@ run in simulated rooms only.
 | Nov 15 | Operator UI revamp | Built |
 
 - **Q: Isn't re-tuning a bar after a miss cheating?** It would be if it were silent. Every re-tune has a
-  decisions.md entry with the old bar, the new bar and the result behind it, and the notebooks still record each
+  decisions-detail.md entry with the old bar, the new bar and the result behind it, and the notebooks still record each
   miss against the old bar. The user set each new bar, not the builder.
 - **Q: What's left of the live loop?** T11: the rating screen and the acceptance run.
 
@@ -149,7 +149,7 @@ run in simulated rooms only.
 ### Q&A notes
 
 - Only the safety decision is measured (Exp 19: rules alone 16 of 30, 53%, on unseen indirect lines). The other four
-  are judgment calls, recorded as such in decisions.md.
+  are judgment calls, recorded as such in decisions-detail.md.
 - **Q: Why not one generator call per joke?** Five times the requests, and the safety check could no longer batch a
   bit's lines into one call.
 - **Q: Why not let the server open the mic?** It ties recording to the server's machine and skips the browser's

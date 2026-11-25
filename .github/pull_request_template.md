@@ -19,12 +19,12 @@ Findings from the pre-review and how each was fixed. Which number was re-derived
 - [ ] Root tests pass: `.venv/Scripts/python -m pytest tests -q`
 - [ ] Backend tests pass in `backend/.venv`
 - [ ] Tests check what the code guarantees
-- [ ] Frozen contract unchanged, or a new decisions.md entry
+- [ ] Frozen contract unchanged, or a new decisions-detail.md entry
 - [ ] Experiment is a `run(**params)` through `run_or_load`, or N/A
 - [ ] Section in the right `notebooks/decisions-*.ipynb` (data, director, live) with ✅/❌ checks, re-run, or N/A
 - [ ] `COVERAGE` entry in `notebooks/decision-plot.ipynb`, re-run, or N/A
 - [ ] Results in `docs/metrics.md`, or N/A
-- [ ] Decision in `docs/decisions.md`, or "judgment call, not measured"
+- [ ] Decision in `docs/agent/decisions-detail.md` with a D-xx ID and its row in `docs/decisions.md`, or "judgment call, not measured"
 - [ ] Bugs that cost time in `docs/dev-log.md`
 - [ ] New terms in `docs/wiki/glossary.md`
 - [ ] `docs/status.md` and folder READMEs current
