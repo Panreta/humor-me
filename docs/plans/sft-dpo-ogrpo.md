@@ -25,3 +25,14 @@ One candidate pool, ranked once, feeds all three training stages.
   `decisions.md` before running.
 - Open: with softmax weights every candidate gets a positive weight, so nothing is penalized, yet the paper
   explains O-GRPO's loss by weak jokes being penalized. Decide which form to replicate before building step 4.
+
+## Later: ideas to try after the baseline
+
+Only after SFT, DPO and O-GRPO have a baseline score. Each needs its own pass criterion in `decisions.md` first.
+
+| Idea | Source | What | Why later |
+|---|---|---|---|
+| Answer rewriting | LoL, Section 2.2 and Figure 2(c) (`references/md/2024.md`) | An LLM rewrites each top-ranked line into a flat version. Use it as extra DPO pairs (funny = chosen, flat = rejected) and as SFT examples for flat → funny | Cheap, and the quality gap is guaranteed without the judge. Unmeasured until the baseline exists |
+
+Considered and skipped: LoL's teacher–student loop (costly, multi-turn), automatic instruction expansion, and
+rationale-mixed DPO (HumorGen's explainer trap, Section 6.3). Judgment call, not measured.
