@@ -57,7 +57,7 @@ The mode the director picked is never sent. Presses outside their window are not
 row), only noted by the Python logger. Within a hold the last press wins and each change is a `reaction` row.
 By default the show uses the bank and a bank-only filter (`BankOnlySafety`), which needs no key. `GENERATOR=llm` switches to the
 real stack (`app/generate.py`): one model call per bit for 5 jokes x 3 candidates, the safety filter's rules plus one LLM verdict call
-per bit, the next line rendered while the current one plays, and in-character bridge lines while a bit loads. A failed call is retried
+per bit, the next line rendered while the current one plays, and filler while a bit loads: cached lines from the best bits of earlier live shows (`app/cache.py`, rules re-checked for this room's age, never rated) at the show open and between bits, then in-character bridge lines. A failed call is retried
 twice inside a deadline; a failed generation or a bit whose candidates are all rejected falls back to the hand-checked bank (rules only, no API call), logged in
 `candidates`. A `live` room refuses to start without `app/blocklist.local.txt`.
 
@@ -99,6 +99,16 @@ python -m sim.acceptance <sim id 1> <sim id 2> <sim id 3> <live id> --record
 Pass only the shows meant to count: an unreadable log among the ids fails check (a).
 
 It prints a table per show (valid rows, status, bank share, bridges, label counts, rating, audio coverage) and the four verdicts: (a) 3 simulated in a row, (b) a valid finished live show, (c) label spread (one key over 60% of presses is flagged, reported only), (d) per-bit reward noise against the sim's 0.15, with "RERUN Exp 18" when it is more than half away. With one live show the noise rests on 8 bits and the interval is wide; the output says when the call is a guess. `--record` saves numbers and the session ids only, in `reports/metrics/acceptance.json` (no text, no audio, no paths); then run `python scripts/run_notebook.py` to refresh the Exp 22 section, which lists the recorded ids. Logs and recordings in `data/sessions/` are gitignored: never commit them.
+
+## Cached bits run (Exp 23)
+
+After a live show, run three simulated shows on `GENERATOR=llm`, then score them from the repo root. Plain, it prints and saves nothing; `--record` keeps numbers and ids only (`reports/metrics/cached_bits.json`):
+
+```sh
+python -m sim.evaluate_cached <sim id 1> <sim id 2> <sim id 3> [--record]
+```
+
+Bar: show-open silence at most 2 s on each of the 3. A show whose bit 0 had no cached bit does not count. Between-bit silence is printed beside it, with no bar.
 
 ## Pick a provider first
 
