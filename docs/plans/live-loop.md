@@ -90,7 +90,8 @@ JSONL, one file per show in `data/sessions/`. Every row has `schema: 2`, `sessio
 | `bit_decision` | `bit`, raw `obs` (`t`, `n_bits`, `context`, `last_mode`), `scores` per mode, `greedy`, `action`, `probs` |
 | `candidates` | `bit`, `joke`, `prompt_id`, `prompt`, `generator_id`, `items` (text, verdict, reason) |
 | `joke_played` | `bit`, `joke`, `chosen`, `pick_prob`, `text`, `tts_seconds`, `audio_seconds`, `audio_start_at`, `audio_end_at` |
-| `bridge` | `bit` (the bit it precedes), `text`, `tts_seconds`, `audio_start_at`, `audio_end_at`; one per bridge line played, in play order (v2) |
+| `bridge` | `bit` (the bit it precedes; 0 for the show-open), `text`, `tts_seconds`, `audio_start_at`, `audio_end_at`; one per bridge line played, in play order (v2). Optional: `kind` (`filler` or `cached`) and, for `cached`, `source` (`session`, `bit`, `joke`; also `mode`): a cached bit's line is never rated (D-91) |
+| `cache` | `bits`: the cached bits the show could draw on, `{session, bit, mode, reward, source_age, lines: [{joke, text, verdict, reason}]}`, with the re-check's verdict on every line; written right after `show_start`, only when a cache was given (v2, optional; replay ignores it) |
 | `reaction` | `bit`, `joke`, `source` (`button`\|`detector`\|`sim`), `level` (0–3 or null), `key`, `latency_s` |
 | `gap` | `bit`, `joke`, `planned_hold_s`, `actual_gap_s` |
 | `bit_end` | `bit`, `n_labels`, `reward_version`, `reward` (cross-check only) |
