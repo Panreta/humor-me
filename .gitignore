@@ -248,3 +248,13 @@ backend/app/blocklist.local.txt
 sync.sh
 selfTest
 data/DPO_set/
+
+# Local working files (not for GitHub)
+.DS_Store
+refer/
+scrolls/
+understanding/
+dpo_manual.md
+judge-dpo.pptx
+Humor-moi - Google Slides.pdf
+*.code-workspace
