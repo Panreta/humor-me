@@ -18,7 +18,7 @@ EVENTS = {
     "joke_played": ("bit", "joke", "chosen", "pick_prob", "text", "tts_seconds", "audio_seconds",
                     "audio_start_at", "audio_end_at"),
     "bridge": ("bit", "text", "tts_seconds", "audio_start_at", "audio_end_at"),
-    "cache": ("bits",),  # the cached bits the show could draw on, written right after show_start (D-90)
+    "cache": ("bits",),  # the cached bits the show could draw on, written right after show_start (D-91)
     "reaction": ("bit", "joke", "source", "level", "key", "latency_s"),
     "gap": ("bit", "joke", "planned_hold_s", "actual_gap_s"),
     "bit_end": ("bit", "n_labels", "reward_version", "reward"),

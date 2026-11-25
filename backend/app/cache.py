@@ -1,5 +1,5 @@
 """Cached bits: the best-received bits of earlier live shows, kept as filler for the next show's silences
-(docs/agent/decisions-detail.md, D-90). A cached line is never evaluated: no reaction window, no reward, no director
+(docs/agent/decisions-detail.md, D-91). A cached line is never evaluated: no reaction window, no reward, no director
 update. It was judged for its own show's audience, so `screen` re-checks it for this one before it can be said."""
 from dataclasses import dataclass
 

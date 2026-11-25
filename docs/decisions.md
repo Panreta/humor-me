@@ -93,7 +93,8 @@ What we decided and why, one line each. Click an ID for the full record (options
 | [D-87](agent/decisions-detail.md#d-87) | Nov 24 | Docs people read stay short and plain; agent-only detail lives in `docs/agent/`. |
 | [D-88](agent/decisions-detail.md#d-88) | Nov 15 | The safety check gets more time (25 s) and one retry on a garbled reply, so one slow reply no longer sends a whole bit to the backup jokes. |
 | [D-89](agent/decisions-detail.md#d-89) | Nov 24 | Tag the 90k rJokes jokes with the room each suits (venue, energy, age) for Tingyu's judge; upvotes ignore the room, so a gain is not expected. |
-| [D-90](agent/decisions-detail.md#d-90) | Nov 24 | Shows open with the best bits from earlier live shows, so the room never hears 10 s of silence. Teen rooms use only bits from teen shows. Not yet measured. |
+| [D-90](agent/decisions-detail.md#d-90) | Nov 24 | A paused or cut-short show still trains the director and judge from its finished parts; pauses get log rows, and its rating isn't reported. |
+| [D-91](agent/decisions-detail.md#d-91) | Nov 24 | Shows open with the best bits from earlier live shows, so the room never hears 10 s of silence. Teen rooms use only bits from teen shows. Not yet measured. |
 
 New decision: add its full entry to the detailed log with the next ID, then a row here in the same PR.
 A test fails if the two files' IDs don't match.

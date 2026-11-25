@@ -1,4 +1,4 @@
-"""Exp 23: do cached bits fill the show-open silence? (docs/agent/decisions-detail.md, D-90)
+"""Exp 23: do cached bits fill the show-open silence? (docs/agent/decisions-detail.md, D-91)
 
 Usage:
     python -m sim.evaluate_cached <session id> [<session id> ...] [--dir data/sessions] [--record]
