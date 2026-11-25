@@ -105,7 +105,7 @@ What we decided and why, one line each. Click an ID for the full record (options
 | [D-99](agent/decisions-detail.md#d-99) | Nov 25 | Same check with Haiku's thinking turned off: still too slow (3.6 s against 3 s). Thinking was not the cause; the long reply is. The filter stays on Gemini (user) |
 | [D-100](agent/decisions-detail.md#d-100) | Nov 25 | The safety filter moves to Claude Haiku with thinking off, because Gemini's free tier can fail in an outage. The speed limit moved from 3 s to 7 s (5 s target) after seeing the results; Haiku takes 3.6 s (user) |
 | [D-101](agent/decisions-detail.md#d-101) | Nov 25 | Before the real run, five small local models were tried on five bits each. The test now asks the local models for the exact reply shape, as Claude is asked, so a weaker request is not held against them. mimo-v2.6 9b (which did not fit on the graphics card) is replaced by qwen3 4b-instruct, which had no failure in any of the screens. That pick is a judgment call on five bits; the 60-prompt run decides. |
-| [D-102](agent/decisions-detail.md#d-102) | Nov 25 | DPO uses the judge taught by your Exp 24 votes, but only after it agrees with you on 20 extra pairs of bits from the same model (at least 60%). That check is weak at 20 pairs; it catches only a judge that's clearly off. (user) |
+| [D-102](agent/decisions-detail.md#d-102) | Nov 25 | DPO uses the judge taught by your Exp 24 votes. You rank 120 pairs of bits from the same model: 60 teach it your taste, 60 test it. It must beat a coin flip with confidence on the test pairs (at least 38 of 60). (user) |
 
 New decision: add its full entry to the detailed log with the next ID, then a row here in the same PR.
 A test fails if the two files' IDs don't match.

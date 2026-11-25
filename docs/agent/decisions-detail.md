@@ -875,16 +875,30 @@ The first two numeric columns are the first run (by the coordinator, one afterno
 
 **Power on the shipped ballot (computed in review, `simulate_decision_power(eligible=3, references=1)`, the real `decide()`, 400 runs).** Three models can win (Haiku, bonsai, qwen), so the best has to beat two rivals, as in D-94; the D-97 figures for two eligible no longer apply. Chance the truly funnier model is called clearly funnier, by its lead in latent sd: at 30 voted prompts 20% at 0.5, 57% at 0.75, 84% at 1.0, 99% at 1.5; at 60 (with the judge, an upper bound) 49%, 88%, 99%, 100%. A false winner with no real gap: about 1%. So the vote finds only a clear gap; a small one ends inconclusive and the cost tie-break (local is $0) decides.
 
-## <a id="d-102"></a>D-102 · 2026-11-25 — DPO's judge is the D-95 judge, gated on 20 same-model pairs the user ranks (user)
+## <a id="d-102"></a>D-102 · 2026-11-25 — DPO's judge is the D-95 judge, taught on 60 same-model pairs and gated on 60 more (user)
 Decided by the user, 2026-11-25, with the Dec 8 demo still speaking the trained model. Tingyu's judge (#37, Exp 17) has been overdue since Nov 8, and DPO needs a pairwise judge.
 
-**Choice.** The judge calibrated on the user's Exp 24 votes (D-95) also labels DPO's preference pairs, provided it first passes D-95's own bars (top-pick agreement, pairwise agreement, no model bias) and then the gate below.
+**Choice.** The judge calibrated on the user's Exp 24 votes (D-95) also labels DPO's preference pairs. It must pass D-95's own bars (top-pick agreement, pairwise agreement, no model bias), and then the gate below.
 
-**The risk the gate checks.** The Exp 24 ballot compares bits from different models, which can differ a lot. DPO pairs are two bits from the same model, usually much closer in quality. A judge that matches the user on wide gaps can be near chance on narrow ones, and DPO would then learn the judge's quirks, not the user's taste.
+**The risk.** The Exp 24 ballot compares bits from different models, which can differ a lot. DPO pairs are two bits from the same model, usually much closer in quality. A judge that matches the user on wide gaps can be near chance on narrow ones, and DPO would then learn the judge's quirks, not the user's taste.
 
-**Gate, fixed before any data.** The user ranks 20 pairs of two bits from the training base model (the Exp 24 local winner), on prompts outside both the Exp 24 ballot and the DPO training prompts. The judge must agree with the user on at least 60% of them (D-95's bar), with each pair shown in both orders so position bias cancels. **The gate is weak:** at 20 pairs a judge at 60% has a 95% interval of about 39% to 78%, so it can't rule out chance. It's a sanity floor, not evidence the judge is good. If the judge fails, the options are more of the user's votes or Tingyu's judge; DPO does not run on a judge that failed.
+**Pairs, fixed before any data.** The user ranks 120 pairs of two bits from the training base model (the Exp 24 local winner), on prompts outside the Exp 24 ballot and outside DPO's training prompts. Each pair is shown in both orders, so position bias cancels.
+- **Teach set, 60 pairs:** given to the judge as examples of the user's taste, on top of the 30 Exp 24 votes.
+- **Test set, 60 pairs:** never shown to the judge; only these decide the gate.
 
-**Options rejected.** (a) Wait for Tingyu's judge: overdue since Nov 8, and 13 days remain. (b) Adopt the D-95 judge on its own bars: tests only cross-model pairs, the wrong distribution for DPO (judgment call, not measured). (c) Only the user's votes as DPO labels: too few pairs for DPO in the time left.
+**Gate.** The lower end of the judge's 95% Wilson interval on the test set must clear 50%, which needs at least 38 of 60 (63%). The user moved from 20 pairs at a 60% point estimate after seeing its power, before any data.
 
-**Not measured, said plainly.** Whether the judge stays aligned as DPO moves the model away from its starting outputs (reward hacking). The judge is frozen; no check is planned during training.
+**Power (computed, exact binomial).**
+| Test pairs | Must agree on | Passes if the judge is truly 65% / 70% / 75% right | Passes by luck at 50% |
+|---|---|---|---|
+| 20 | 15 | 25% / 42% / 62% | 2% |
+| 40 | 27 | 44% / 70% / 90% | 2% |
+| **60** | **38** | **66% / 90% / 98%** | **3%** |
+| 100 | 60 | 87% / 99% / 100% | 3% |
+At 20 pairs a judge that is truly 70% right fails more often than it passes; at 60 it passes 9 times in 10.
 
+**If the judge fails:** DPO does not run on it. The options are more of the user's votes, or Tingyu's judge.
+
+**Options rejected.** (a) Wait for Tingyu's judge: overdue since Nov 8, and 13 days remain. (b) Adopt the D-95 judge on its own bars: tests only cross-model pairs, the wrong distribution for DPO. (c) 20 test pairs at a 60% point estimate: can't tell a good judge from chance (table). (d) The user's votes alone as DPO labels: too few pairs for DPO in the time left.
+
+**Judgment calls, not measured.** The 60/60 split: more teaching pairs probably help the judge, but nothing here measures how much. The user's time: about 35 s a pair, so about 70 minutes for 120, in several sittings. Whether the frozen judge stays aligned as DPO moves the model away from its starting outputs (reward hacking): no check is planned during training.
