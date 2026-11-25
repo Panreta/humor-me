@@ -99,6 +99,7 @@ What we decided and why, one line each. Click an ID for the full record (options
 | [D-93](agent/decisions-detail.md#d-93) | Nov 24 | Model settings are named by the job they do (the joke writer and the safety check read their own), and the joke writer can run on Claude through the official SDK. Not run for real yet. |
 | [D-94](agent/decisions-detail.md#d-94) | Nov 24 | Compare Gemini Flash-Lite, Gemini Flash and Claude Haiku 5.5 for writing bits on 60 prompts, with your blind ranking of the first 30; the bar was fixed before the run: a model must be fast, rarely time out and rarely fail, and a model with no safe thread is ranked last. |
 | [D-95](agent/decisions-detail.md#d-95) | Nov 24 | A judge on Explorer (Ollama qwen3.8 27b first, Qwen 7B as fallback), taught by your votes, may rank prompts 31 to 60, but only if it agrees with your own rankings and favors no model; its added risk of a false winner is stated. |
+| [D-96](agent/decisions-detail.md#d-96) | Nov 25 | After Google had an outage in the first minutes of the model comparison, the Gemini models were dropped as joke writers: the test is now Claude Haiku 5.5 against two models running on your laptop (mimo-v2.6 9b and bonsai-2 4b). The bar is the same. The cost: today's model is no longer measured, and laptop speed was measured without the voice, so it is a best case. |
 
 New decision: add its full entry to the detailed log with the next ID, then a row here in the same PR.
 A test fails if the two files' IDs don't match.

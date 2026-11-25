@@ -3,6 +3,7 @@ bar. No network."""
 import json
 import math
 import pathlib
+import re
 import sys
 
 import numpy as np
@@ -13,8 +14,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "backend"))
 from app import llm, safety  # noqa: E402
 from sim import compare_generators as cg  # noqa: E402
 
-MODELS = ["gemini-flash-lite", "gemini-flash", "claude-haiku-5-5"]
-TAG = {"gemini-flash-lite": "alpha", "gemini-flash": "bravo", "claude-haiku-5-5": "charlie"}  # text must not name a model
+MODELS = ["mimo-v2.6-9b", "bonsai-2-4b", "claude-haiku-5-5"]
+TAG = {"mimo-v2.6-9b": "alpha", "bonsai-2-4b": "bravo", "claude-haiku-5-5": "charlie"}  # text must not name a model
 BY_ID = {cg.MODELS[k].model: t for k, t in TAG.items()}
 
 
@@ -122,6 +123,48 @@ def test_the_filter_client_uses_the_production_filter_timing_and_stays_gemini(mo
     assert (c.timeout, c.deadline_s, c.retries) == (*cg.generate.FILTER_TIMING, cg.generate.FILTER_RETRIES)
 
 
+def test_the_candidates_are_haiku_and_two_local_ollama_models_and_the_digest_follows_them(monkeypatch):
+    assert list(cg.MODELS) == MODELS
+    mimo, bonsai, haiku = (cg.MODELS[m] for m in MODELS)
+    assert (mimo.tag(), bonsai.tag(), haiku.provider) == ("mimo-v2.6:9b", "bonsai-2:4b", "anthropic")
+    assert mimo.local and bonsai.local and not haiku.local and (mimo.price_in, mimo.price_out) == (0.0, 0.0)
+    assert mimo.base_url() == cg.OLLAMA_URL and haiku.base_url() == ""
+    before = cg.gen_digest()
+    monkeypatch.setenv("MIMO_OLLAMA_TAG", "mimo-v2.6:9b-q8")  # the tag `ollama list` shows may differ
+    assert mimo.tag() == "mimo-v2.6:9b-q8" and cg.gen_digest() != before
+    monkeypatch.delenv("MIMO_OLLAMA_TAG")
+    monkeypatch.setenv("OLLAMA_URL", "http://other:11434/v1")
+    assert cg.gen_digest() != before
+    monkeypatch.undo()
+    assert cg.gen_digest() == before
+
+
+def test_a_local_client_has_no_key_the_production_timing_and_asks_for_no_thinking(monkeypatch):
+    monkeypatch.setenv("OLLAMA_URL", "http://box:11434/v1")
+    c = cg.make_client(cg.MODELS["bonsai-2-4b"])
+    assert isinstance(c, llm.Client) and (c.base_url, c.api_key, c.model) == ("http://box:11434/v1", "", "bonsai-2:4b")
+    assert (c.timeout, c.deadline_s, c.retries) == (*cg.generate.GENERATOR_TIMING, cg.generate.RETRIES)
+    assert c.extra_body == llm.OLLAMA_NO_THINK
+
+
+def test_nothing_listening_on_a_models_first_call_is_a_config_stop_with_the_ollama_hint(data):
+    down = llm.LLMError("transport: ConnectError", retryable=True)
+    with pytest.raises(cg.ConfigError, match=r"ollama serve.*ollama pull mimo-v2.6:9b"):
+        run(n=2, models=["mimo-v2.6-9b"], clients={"mimo-v2.6-9b": FakeModel("mimo-v2.6:9b", fail=down)})
+    assert not (cg.run_dir() / "mimo-v2.6-9b").exists()
+
+
+def test_a_connection_failure_after_the_first_call_is_infra_data_and_never_stops_a_hosted_model(data):
+    down = llm.LLMError("transport: ConnectError", retryable=True)
+    run(n=2, models=["mimo-v2.6-9b"], clients={"mimo-v2.6-9b": FakeModel("mimo-v2.6:9b", fail=[None, down])})
+    assert rec_of("mimo-v2.6-9b", "p01")["attempts"][0]["kind"] == "infra"
+    with pytest.raises(cg.ConfigError) as e:  # a hosted model keeps the old rule: a transport error is an outage there
+        run(n=1, models=["claude-haiku-5-5"], clients={"claude-haiku-5-5": FakeModel("claude-haiku-5-5", fail=ValueError("x"))})
+    assert "ollama" not in str(e.value)
+    run(n=1, models=["claude-haiku-5-5"], clients={"claude-haiku-5-5": FakeModel("claude-haiku-5-5", fail=down)})
+    assert rec_of("claude-haiku-5-5", "p00")["attempts"][0]["kind"] == "infra"
+
+
 def test_every_model_gets_the_same_prompts_and_one_attempt_per_prompt(data):
     done, _ = run(n=4)
     assert done == {"generated": 12, "judged": 12, "cached": 0}
@@ -162,8 +205,8 @@ def test_failure_kinds():
                                  llm.LLMError("http 401", 401)])
 def test_a_config_failure_on_a_models_first_call_stops_the_run_and_caches_nothing(data, err):
     with pytest.raises(cg.ConfigError):
-        run(n=2, models=["gemini-flash"], clients={"gemini-flash": FakeModel("gemini-flash-latest", fail=err)})
-    assert not (cg.run_dir() / "gemini-flash").exists()
+        run(n=2, models=["bonsai-2-4b"], clients={"bonsai-2-4b": FakeModel("bonsai-2:4b", fail=err)})
+    assert not (cg.run_dir() / "bonsai-2-4b").exists()
 
 
 def test_a_config_failure_after_the_first_call_is_data_not_a_stop(data):
@@ -176,27 +219,27 @@ def test_a_config_failure_after_the_first_call_is_data_not_a_stop(data):
 
 def test_redo_failed_appends_attempts_and_only_for_infra_and_config_failures(data):
     E = llm.LLMError
-    bad = {"gemini-flash": FakeModel("gemini-flash-latest", fail=[None, E("http 503", 503), E("refused by the model")])}
-    run(n=3, models=["gemini-flash"], clients=bad)
-    assert [a["kind"] for a in rec_of("gemini-flash", "p01")["attempts"]] == ["infra"]
-    assert [a["kind"] for a in rec_of("gemini-flash", "p02")["attempts"]] == ["model"]
-    done, _ = run(n=3, models=["gemini-flash"], clients=bad)  # without the flag nothing is repeated
+    bad = {"bonsai-2-4b": FakeModel("bonsai-2:4b", fail=[None, E("http 503", 503), E("refused by the model")])}
+    run(n=3, models=["bonsai-2-4b"], clients=bad)
+    assert [a["kind"] for a in rec_of("bonsai-2-4b", "p01")["attempts"]] == ["infra"]
+    assert [a["kind"] for a in rec_of("bonsai-2-4b", "p02")["attempts"]] == ["model"]
+    done, _ = run(n=3, models=["bonsai-2-4b"], clients=bad)  # without the flag nothing is repeated
     assert done["generated"] == 0
-    done, _ = run(n=3, models=["gemini-flash"], clients={"gemini-flash": FakeModel("gemini-flash-latest")}, redo_failed=True)
+    done, _ = run(n=3, models=["bonsai-2-4b"], clients={"bonsai-2-4b": FakeModel("bonsai-2:4b")}, redo_failed=True)
     assert done["generated"] == 1  # the refusal is the model's answer and stands
-    infra = rec_of("gemini-flash", "p01")["attempts"]
+    infra = rec_of("bonsai-2-4b", "p01")["attempts"]
     assert [a["ok"] for a in infra] == [False, True] and infra[0]["reason"].endswith("http 503")  # appended, not replaced
-    assert len(rec_of("gemini-flash", "p02")["attempts"]) == 1
-    assert cg.final(rec_of("gemini-flash", "p01")) == infra[1]
+    assert len(rec_of("bonsai-2-4b", "p02")["attempts"]) == 1
+    assert cg.final(rec_of("bonsai-2-4b", "p01")) == infra[1]
 
 
 def test_a_filter_outage_is_retried_on_resume_not_scored_as_rejections(data):
-    run(n=1, models=["gemini-flash-lite"], filt=FakeFilter(error=llm.LLMError("http 503", 503)))
-    rec = rec_of("gemini-flash-lite", "p00")
+    run(n=1, models=["mimo-v2.6-9b"], filt=FakeFilter(error=llm.LLMError("http 503", 503)))
+    rec = rec_of("mimo-v2.6-9b", "p00")
     assert cg.final(rec)["safety_infra_error"] and cg.playable_thread(rec) is None
     safety.clear_cache()
-    done, _ = run(n=1, models=["gemini-flash-lite"], filt=FakeFilter())
-    att = cg.final(rec_of("gemini-flash-lite", "p00"))
+    done, _ = run(n=1, models=["mimo-v2.6-9b"], filt=FakeFilter())
+    att = cg.final(rec_of("mimo-v2.6-9b", "p00"))
     assert done["generated"] == 0 and done["judged"] == 1 and not att["safety_infra_error"] and att["safety_tries"] == 2
 
 
@@ -204,19 +247,19 @@ def test_latency_is_wall_time_around_the_call_and_excludes_pacing():
     ticks = iter([10.0, 14.5])
     sleeps = []
     pacer = cg.Pacer(sleep=sleeps.append, clock=lambda: 0.0)
-    spec = cg.MODELS["gemini-flash"]
+    spec = cg.MODELS["claude-haiku-5-5"]  # the local models need no spacing: gap 0
     pacer.mark(spec.bucket)
-    a = cg.generate_bit(spec, cg.prompts(1)[0], FakeModel("gemini-flash-latest"), pacer, now=lambda: next(ticks))
+    a = cg.generate_bit(spec, cg.prompts(1)[0], FakeModel("claude-haiku-5-5"), pacer, now=lambda: next(ticks))
     assert a["latency_s"] == 4.5 and sleeps == [spec.gap_s] and not a["timeout"]
 
 
 def test_a_timeout_or_a_failure_that_used_the_deadline_up_is_marked_as_a_timeout():
-    spec, pacer = cg.MODELS["gemini-flash"], NoWait()
-    slow = FakeModel("gemini-flash-latest", fail=llm.LLMError("transport: ReadTimeout", retryable=True))
+    spec, pacer = cg.MODELS["bonsai-2-4b"], NoWait()
+    slow = FakeModel("bonsai-2:4b", fail=llm.LLMError("transport: ReadTimeout", retryable=True))
     assert cg.generate_bit(spec, cg.prompts(1)[0], slow, pacer, now=iter([0.0, 3.0]).__next__)["timeout"]
-    spent = FakeModel("gemini-flash-latest", fail=llm.LLMError("http 429", 429))
+    spent = FakeModel("bonsai-2:4b", fail=llm.LLMError("http 429", 429))
     assert cg.generate_bit(spec, cg.prompts(1)[0], spent, pacer, now=iter([0.0, 11.9]).__next__)["timeout"]
-    quick = FakeModel("gemini-flash-latest", fail=llm.LLMError("http 429", 429))
+    quick = FakeModel("bonsai-2:4b", fail=llm.LLMError("http 429", 429))
     assert not cg.generate_bit(spec, cg.prompts(1)[0], quick, pacer, now=iter([0.0, 2.0]).__next__)["timeout"]
 
 
@@ -233,10 +276,10 @@ def test_pacer_spaces_one_bucket_and_leaves_others_alone():
 
 
 def test_a_filter_rejection_shows_in_pass_rates_and_the_playable_thread(data):
-    run(n=1, models=["gemini-flash-lite"], filt=FakeFilter(reject=("thread 0 line 3",)))
-    rec = rec_of("gemini-flash-lite", "p00")
+    run(n=1, models=["mimo-v2.6-9b"], filt=FakeFilter(reject=("thread 0 line 3",)))
+    rec = rec_of("mimo-v2.6-9b", "p00")
     assert cg.playable_thread(rec) == 1  # thread 0 lost a line, thread 1 is the first whole one
-    s = cg.call_stats(rec["attempts"], cg.MODELS["gemini-flash-lite"])
+    s = cg.call_stats(rec["attempts"], cg.MODELS["mimo-v2.6-9b"])
     assert s["line_pass_rate"] == pytest.approx(14 / 15) and s["thread_pass_rate"] == pytest.approx(2 / 3)
     assert s["playable_rate"] == 1.0
 
@@ -258,7 +301,7 @@ def test_call_stats_count_every_attempt_and_cost_covers_failed_ones():
 
 
 def test_latency_p95_is_over_all_calls_and_a_timeout_counts_as_over_the_deadline():
-    spec = cg.MODELS["gemini-flash"]
+    spec = cg.MODELS["bonsai-2-4b"]
     fine = [att(latency=3.0) for _ in range(19)]
     one = cg.call_stats(fine + [att(ok=False, latency=12.0, timeout=True, reason="LLMError: transport: ReadTimeout")], spec)
     assert one["latency_p95_s"] == 3.0 and not one["p95_over_deadline"] and one["n_timeouts"] == 1  # 1 in 20 is not the p95
@@ -274,7 +317,7 @@ def stats(**over):
                 "failure_ci95": cg.wilson(0, 30), "cost_per_bit_usd": c, "latency_p50_s": 2.0}
             for m, c in zip(MODELS, (0.0005, 0.002, 0.0006))}
     for m, patch in over.items():
-        base[m.replace("_", "-")].update(patch)
+        base[next(k for k in base if re.sub(r"\W", "_", k) == re.sub(r"\W", "_", m))].update(patch)  # kwargs cannot hold "-" or "."
     return base
 
 
@@ -283,7 +326,7 @@ def with_failures(k, n=60):
 
 
 def test_failure_bar_is_the_wilson_upper_bound_over_every_attempt():
-    f = lambda k, n: cg.eligibility(stats(gemini_flash=with_failures(k, n)))["gemini-flash"]["failure_ok"]  # noqa: E731
+    f = lambda k, n: cg.eligibility(stats(bonsai_2_4b=with_failures(k, n)))["bonsai-2-4b"]["failure_ok"]  # noqa: E731
     assert f(0, 30)  # upper 11.4%
     assert not f(1, 30)  # upper 16.7%: one failure in 30 attempts is too many to rule out 15%
     assert f(1, 60) and f(2, 60) and f(3, 60)  # more attempts, a tighter bound (8.9%, 11.4%, 13.8%)
@@ -292,8 +335,8 @@ def test_failure_bar_is_the_wilson_upper_bound_over_every_attempt():
 
 def test_bar_edges_are_inclusive_on_latency():
     _, b, c = MODELS
-    assert cg.eligibility(stats(gemini_flash={"latency_p95_s": cg.DEADLINE_S}))[b]["eligible"]
-    e = cg.eligibility(stats(gemini_flash={"latency_p95_s": 12.01}, claude_haiku_5_5={"latency_p95_s": None}))
+    assert cg.eligibility(stats(bonsai_2_4b={"latency_p95_s": cg.DEADLINE_S}))[b]["eligible"]
+    e = cg.eligibility(stats(bonsai_2_4b={"latency_p95_s": 12.01}, claude_haiku_5_5={"latency_p95_s": None}))
     assert not e[b]["eligible"] and not e[c]["eligible"]
 
 
@@ -309,7 +352,7 @@ def test_ballot_is_blind_shuffled_per_prompt_and_keyed_apart(data):
     key = json.loads(kp.read_text(encoding="utf-8"))
     assert out == {"in_key": 12, "to_vote": 12, "ranked_last": {}, "pending": []}
     assert kp.parent != d and not (d / "key.json").exists() and kp.parent.name == "key"
-    assert not any(name in ballot.lower() for name in ("gemini", "claude", "haiku", "flash"))
+    assert not any(name in ballot.lower() for name in ("gemini", "claude", "haiku", "mimo", "bonsai", "ollama"))
     assert len({tuple(k["letters"].values()) for k in key.values()}) > 1  # not one fixed order
     assert all(sorted(k["letters"].values()) == sorted(MODELS) and k["last"] == [] for k in key.values())
     for k in key.values():  # the text under each letter is that model's thread
@@ -318,11 +361,11 @@ def test_ballot_is_blind_shuffled_per_prompt_and_keyed_apart(data):
 
 
 def test_a_model_with_no_safe_thread_is_ranked_last_and_the_prompt_stays(data):
-    bad = {"gemini-flash": FakeModel("gemini-flash-latest", fail=[None, llm.LLMError("refused by the model")])}
+    bad = {"bonsai-2-4b": FakeModel("bonsai-2:4b", fail=[None, llm.LLMError("refused by the model")])}
     out, d = prep(n=3, clients=bad)
     key = json.loads(cg.key_path(d).read_text(encoding="utf-8"))
-    assert out["ranked_last"] == {"p01": ["gemini-flash"]} and len(key) == 3  # nothing dropped
-    assert sorted(key["p01"]["letters"].values()) == ["claude-haiku-5-5", "gemini-flash-lite"] and key["p01"]["last"] == ["gemini-flash"]
+    assert out["ranked_last"] == {"p01": ["bonsai-2-4b"]} and len(key) == 3  # nothing dropped
+    assert sorted(key["p01"]["letters"].values()) == ["claude-haiku-5-5", "mimo-v2.6-9b"] and key["p01"]["last"] == ["bonsai-2-4b"]
     ballot = (d / "ballot.md").read_text(encoding="utf-8")
     assert "**C**" not in ballot.split("## p01")[1].split("## p02")[0]  # two options shown, two letters
     votes = cg.read_votes(d / "votes.csv")
@@ -330,20 +373,20 @@ def test_a_model_with_no_safe_thread_is_ranked_last_and_the_prompt_stays(data):
     ranks = cg.ranks_from_votes(votes, key, MODELS)
     one = ranks["p01"]
     first, second = (key["p01"]["letters"][c] for c in "BA")
-    assert (one[first], one[second], one["gemini-flash"]) == (1.0, 2.0, 3.0)
+    assert (one[first], one[second], one["bonsai-2-4b"]) == (1.0, 2.0, 3.0)
     assert len(ranks) == 3
 
 
 def test_one_shown_model_needs_no_vote_and_none_shown_ties_everyone(data):
     E = llm.LLMError
-    clients = {"gemini-flash": FakeModel("gemini-flash-latest", fail=[E("refused by the model")] * 2),
+    clients = {"bonsai-2-4b": FakeModel("bonsai-2:4b", fail=[E("refused by the model")] * 2),
                "claude-haiku-5-5": FakeModel("claude-haiku-5-5", fail=[E("refused by the model"), None])}
     out, d = prep(n=2, clients=clients)
     key = json.loads(cg.key_path(d).read_text(encoding="utf-8"))
-    assert list(key["p00"]["letters"].values()) == ["gemini-flash-lite"] and "p00" not in cg.read_votes(d / "votes.csv")
+    assert list(key["p00"]["letters"].values()) == ["mimo-v2.6-9b"] and "p00" not in cg.read_votes(d / "votes.csv")
     ranks = cg.ranks_from_votes({"p01": "AB"}, key, MODELS)
-    assert ranks["p00"] == {"gemini-flash-lite": 1.0, "gemini-flash": 2.5, "claude-haiku-5-5": 2.5}
-    assert ranks["p01"]["gemini-flash"] == 3.0 and sorted(ranks["p01"].values()) == [1.0, 2.0, 3.0]
+    assert ranks["p00"] == {"mimo-v2.6-9b": 1.0, "bonsai-2-4b": 2.5, "claude-haiku-5-5": 2.5}
+    assert ranks["p01"]["bonsai-2-4b"] == 3.0 and sorted(ranks["p01"].values()) == [1.0, 2.0, 3.0]
 
 
 def test_no_model_with_a_safe_thread_ties_everyone_in_the_middle(data):
@@ -355,13 +398,13 @@ def test_no_model_with_a_safe_thread_ties_everyone_in_the_middle(data):
 
 
 def test_prompts_not_generated_for_every_model_wait_instead_of_being_ranked_last(data):
-    run(n=2, models=["gemini-flash-lite"])
+    run(n=2, models=["mimo-v2.6-9b"])
     out = cg.export_ballot(MODELS, 2)
     assert out["pending"] == ["p00", "p01"] and out["in_key"] == 0
 
 
 def test_two_models_export_and_score_without_a_key_error(data):
-    two = ["gemini-flash-lite", "claude-haiku-5-5"]
+    two = ["mimo-v2.6-9b", "claude-haiku-5-5"]
     out, d = prep(n=4, models=two)
     key = json.loads(cg.key_path(d).read_text(encoding="utf-8"))
     assert out["to_vote"] == 4 and all(sorted(k["letters"]) == ["A", "B"] for k in key.values())
@@ -377,13 +420,13 @@ def test_two_models_export_and_score_without_a_key_error(data):
 def test_scoring_a_subset_of_a_three_model_ballot_reranks_to_the_subset(data):
     _, d = prep(n=3)
     key = json.loads(cg.key_path(d).read_text(encoding="utf-8"))
-    pref = {"claude-haiku-5-5": 0, "gemini-flash": 1, "gemini-flash-lite": 2}
+    pref = {"claude-haiku-5-5": 0, "bonsai-2-4b": 1, "mimo-v2.6-9b": 2}
     votes = {pid: "".join(sorted(k["letters"], key=lambda c: pref[k["letters"][c]])) for pid, k in key.items()}
-    subset = ["gemini-flash-lite", "claude-haiku-5-5"]
+    subset = ["mimo-v2.6-9b", "claude-haiku-5-5"]
     ranks = cg.ranks_from_votes(votes, key, subset)
-    assert all(r == {"claude-haiku-5-5": 1.0, "gemini-flash-lite": 2.0} for r in ranks.values())
+    assert all(r == {"claude-haiku-5-5": 1.0, "mimo-v2.6-9b": 2.0} for r in ranks.values())
     s = cg.rank_stats(cg.ranks_from_votes(votes, key, MODELS), subset)
-    assert s["mean_rank"] == {"gemini-flash-lite": 2.0, "claude-haiku-5-5": 1.0}
+    assert s["mean_rank"] == {"mimo-v2.6-9b": 2.0, "claude-haiku-5-5": 1.0}
 
 
 def test_rerank_gives_equal_ranks_their_average_place():
@@ -447,7 +490,7 @@ def test_overlapping_ranks_pick_the_cheaper_and_say_inconclusive():
 
 def test_ineligible_models_cannot_win_and_ranks_are_redone_among_the_rest():
     a, b, c = MODELS
-    s = stats(gemini_flash={"latency_p95_s": 12.5})  # the funniest, but past the 12 s deadline
+    s = stats(bonsai_2_4b={"latency_p95_s": 12.5})  # the funniest, but past the 12 s deadline
     d = cg.decide(s, ranks_for([[b, a, c]] * 20 + [[b, c, a]] * 4))
     assert d["eligible"] == sorted([a, c]) and d["pick"] == a and d["funniness_clear"] is True
     assert d["eligibility"][b] == {"latency_ok": False, "failure_ok": True, "eligible": False}
@@ -455,7 +498,7 @@ def test_ineligible_models_cannot_win_and_ranks_are_redone_among_the_rest():
 
 def test_one_eligible_model_wins_and_none_eligible_picks_nothing():
     a = MODELS[0]
-    only = cg.decide(stats(gemini_flash=with_failures(5), claude_haiku_5_5=with_failures(5)), {})
+    only = cg.decide(stats(bonsai_2_4b=with_failures(5), claude_haiku_5_5=with_failures(5)), {})
     assert only["pick"] == a and only["reason"] == "the only eligible model"
     none = cg.decide(stats(**{m.replace("-", "_"): with_failures(10) for m in MODELS}), {})
     assert none["pick"] is None and "stays" in none["reason"]
@@ -480,14 +523,14 @@ def test_run_scores_saved_attempts_and_votes_and_stores_numbers_only(data, monke
     cg.export_ballot(MODELS, 30)
     d = cg.run_dir()
     key = json.loads(cg.key_path(d).read_text(encoding="utf-8"))
-    pref = {"claude-haiku-5-5": 0, "gemini-flash": 1, "gemini-flash-lite": 2}  # this voter: claude, flash, flash-lite
+    pref = {"claude-haiku-5-5": 0, "bonsai-2-4b": 1, "mimo-v2.6-9b": 2}  # this voter: claude, flash, flash-lite
     votes = {pid: "".join(sorted(k["letters"], key=lambda c: pref[k["letters"][c]])) for pid, k in key.items()}
     cg.write_votes(d / "votes.csv", votes)
     params = cg.current_params(60, tuple(MODELS), 30)
     res = cg.cache.run_or_load(cg.METRICS_NAME, cg.run, **params)
     assert (res["n_prompts"], res["n_ballot"], res["n_key"], res["n_scored"]) == (60, 30, 30, 30) and res["votes"]["mean_rank"]["claude-haiku-5-5"] == 1.0
     assert res["n_ranked_last"] == {m: 0 for m in MODELS}
-    assert res["models"]["gemini-flash"]["n_attempts"] == 60 and res["models"]["gemini-flash"]["failure_ci95"][1] < 0.07
+    assert res["models"]["bonsai-2-4b"]["n_attempts"] == 60 and res["models"]["bonsai-2-4b"]["failure_ci95"][1] < 0.07
     assert res["decision"]["pick"] == "claude-haiku-5-5" and res["decision"]["funniness_clear"] is True
     stored_text = (data / "metrics" / "model_comparison.json").read_text(encoding="utf-8")
     assert "thread " not in stored_text and "line 0" not in stored_text  # no generated text
@@ -511,14 +554,14 @@ def test_sixty_prompts_are_generated_and_only_the_first_thirty_reach_the_ballot(
 def test_failures_and_latency_are_counted_over_all_sixty_calls_not_just_the_voted_thirty(data):
     E = llm.LLMError
     # a model that fails only on prompts 31 to 60 (calls 31..60): the vote never sees it, the gate does
-    bad = {"gemini-flash": FakeModel("gemini-flash-latest", fail=[None] * 30 + [E("refused by the model")] * 4)}
-    run(n=60, models=["gemini-flash"], clients=bad)
+    bad = {"bonsai-2-4b": FakeModel("bonsai-2:4b", fail=[None] * 30 + [E("refused by the model")] * 4)}
+    run(n=60, models=["bonsai-2-4b"], clients=bad)
     d = cg.run_dir()
-    attempts = cg.load_attempts(d, ["gemini-flash"], 60)["gemini-flash"]
-    s = cg.call_stats(attempts, cg.MODELS["gemini-flash"])
+    attempts = cg.load_attempts(d, ["bonsai-2-4b"], 60)["bonsai-2-4b"]
+    s = cg.call_stats(attempts, cg.MODELS["bonsai-2-4b"])
     assert (s["n_attempts"], s["n_failed"]) == (60, 4) and s["failure_ci95"] == cg.wilson(4, 60)
     assert not cg.eligibility({"m": s})["m"]["failure_ok"]
-    assert cg.load_attempts(d, ["gemini-flash"], 30)["gemini-flash"].__len__() == 30  # the voted set alone would not show it
+    assert cg.load_attempts(d, ["bonsai-2-4b"], 30)["bonsai-2-4b"].__len__() == 30  # the voted set alone would not show it
 
 
 def test_what_the_sixty_attempt_failure_bar_rules_out():
@@ -534,7 +577,7 @@ def test_what_the_sixty_attempt_failure_bar_rules_out():
 
 
 def test_latency_p95_is_over_all_sixty_calls_nearest_rank():
-    spec = cg.MODELS["gemini-flash"]
+    spec = cg.MODELS["bonsai-2-4b"]
     slow = att(ok=False, latency=12.0, timeout=True, reason="LLMError: transport: ReadTimeout")
     three = [att(latency=3.0) for _ in range(57)] + [slow] * 3
     four = [att(latency=3.0) for _ in range(56)] + [slow] * 4

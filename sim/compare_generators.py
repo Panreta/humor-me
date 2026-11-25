@@ -1,6 +1,6 @@
-"""Exp 24: which model should write the live show's bits? Flash-Lite (the baseline), Flash, or Claude Haiku 5.5.
+"""Exp 24: which model should write the live show's bits? Claude Haiku 5.5, or a local Ollama model (mimo-v2.6:9b, bonsai-2:4b).
 
-Usage (needs keys in backend/.env, see backend/README.md "Comparing generator models"):
+Usage (needs the Anthropic and Gemini keys in backend/.env and Ollama running, see backend/README.md "Comparing generator models"):
     python -m sim.compare_generators run --env-file backend/.env            # generate + safety, resumable, paced
     python -m sim.compare_generators export                                  # blind ballot for the user, local only
     python -m sim.compare_generators vote                                    # rank each prompt in the terminal
@@ -8,7 +8,8 @@ Usage (needs keys in backend/.env, see backend/README.md "Comparing generator mo
     python -m sim.compare_generators score [--rerun]                         # numbers -> reports/metrics/model_comparison.json
 
 Each prompt is one bit, generated exactly as a show does it (`generate.GeminiGenerator`, one call, 3 threads of 5
-jokes, the production timeout, retries and deadline), then judged by the same safety filter for every model (Flash-Lite
+jokes, the production timeout, retries and deadline; a local model through Ollama's OpenAI-compatible endpoint), then
+judged by the same safety filter for every model (Flash-Lite
 through the OpenAI-compatible endpoint, as in a show). Latency, failures, safety pass rate, tokens and estimated cost
 are measured; funniness is the user's blind ranking of one safe thread per model per prompt. Generated text, votes and
 the ballot key stay under `data/model_comparison/` (gitignored); only numbers reach `reports/metrics`.
@@ -56,28 +57,43 @@ METRICS_NAME = "model_comparison"
 SCHEMA_VERSION = "attempts-v2"
 
 
+OLLAMA_URL = "http://127.0.0.1:11434/v1"  # Ollama's OpenAI-compatible endpoint: no key
+OLLAMA_PROVIDER = "ollama"
+
+
 @dataclass(frozen=True)
 class Spec:
     key: str
-    provider: str  # app.llm.from_env provider
-    model: str
+    provider: str  # app.llm.from_env provider, or "ollama" (a local llm.Client, built by `make_client`)
+    model: str  # for ollama the default tag; `OLLAMA_MODEL_ENV` overrides it at call time
     price_in: float  # USD per million tokens
     price_out: float
     bucket: str  # requests that share a quota, so they are spaced together
     gap_s: float  # minimum seconds between the end of one request and the start of the next in the bucket
+    model_env: str = ""  # env var that overrides `model` (the tag `ollama list` shows may differ from the default)
+
+    @property
+    def local(self) -> bool:
+        return self.provider == OLLAMA_PROVIDER
+
+    def tag(self) -> str:
+        return (os.environ.get(self.model_env) if self.model_env else None) or self.model
+
+    def base_url(self) -> str:
+        return (os.environ.get("OLLAMA_URL") or OLLAMA_URL) if self.local else ""
 
 
-# Claude's price is from the user (D-93). The Gemini prices are ASSUMED list prices for the paid tier (the free tier
-# costs $0 and is what a show uses today); `-latest` aliases move, so check them against the key's billing page before
-# reading the cost column. Claude's output tokens include its thinking. All prices are part of the scored result's key.
+# Claude's price is from the user (D-93); its output tokens include its thinking. The two local models cost $0, so the
+# cost tie-break (decide) favors them: that is a property of the rule, not a finding. All prices are part of the scored
+# result's key. D-96 explains why the Gemini writers were dropped. Local calls are sequential and need no spacing
+# (one GPU), but keep the pacer's interface.
 MODELS = {
-    "gemini-flash-lite": Spec("gemini-flash-lite", "gemini", "gemini-flash-lite-latest", 0.10, 0.40, "gemini-lite", 7.0),
-    "gemini-flash": Spec("gemini-flash", "gemini", "gemini-flash-latest", 0.30, 2.50, "gemini-flash", 7.0),
+    "mimo-v2.6-9b": Spec("mimo-v2.6-9b", OLLAMA_PROVIDER, "mimo-v2.6:9b", 0.0, 0.0, "ollama", 0.0, "MIMO_OLLAMA_TAG"),
+    "bonsai-2-4b": Spec("bonsai-2-4b", OLLAMA_PROVIDER, "bonsai-2:4b", 0.0, 0.0, "ollama", 0.0, "BONSAI_OLLAMA_TAG"),
     "claude-haiku-5-5": Spec("claude-haiku-5-5", "anthropic", "claude-haiku-5-5", 0.10, 0.50, "anthropic", 1.0),
 }
-BASELINE = "gemini-flash-lite"
-SAFETY_BUCKET = MODELS[BASELINE].bucket
-SAFETY_GAP_S = MODELS[BASELINE].gap_s
+SAFETY_BUCKET = "gemini-safety"  # the filter's own quota: Flash-Lite's free tier, spaced as in Exp 19
+SAFETY_GAP_S = 7.0
 MODE_ORDER = tuple(generate.MODES)
 
 
@@ -104,6 +120,7 @@ def gen_digest(seed: int = SEED) -> str:
     parts = [generate.PROMPT_ID, generate.SYSTEM, generate.TEENS_RULE, json.dumps(generate.MODES, sort_keys=True),
              str((generate.K, generate.JOKES, generate.TEMPERATURE, generate.GENERATOR_TIMING, generate.RETRIES)),
              safety.PROMPT_ID, safety.SYSTEM, str((generate.FILTER_TIMING, generate.FILTER_RETRIES, SAFETY_MODEL)),
+             json.dumps([[k, m.provider, m.tag(), m.base_url()] for k, m in MODELS.items()]),  # the candidates
              SCHEMA_VERSION, str(seed)]
     return hashlib.sha256("\x00".join(parts).encode()).hexdigest()[:8]
 
@@ -187,8 +204,11 @@ def generate_bit(spec: Spec, prompt: dict, client, pacer: Pacer, now=time.perf_c
     latency = now() - start
     pacer.mark(spec.bucket)
     kind = None if failure is None else failure_kind(failure)
+    if first and spec.local and kind == "infra" and "ConnectError" in str(failure):
+        kind = "config"  # nothing is listening: a setting, not an outage
     if first and kind == "config":
-        raise ConfigError(f"{spec.key}: {type(failure).__name__}: {failure}")
+        hint = (f" (is Ollama running? `ollama serve`, and `ollama pull {spec.tag()}`)" if spec.local else "")
+        raise ConfigError(f"{spec.key}: {type(failure).__name__}: {failure}{hint}")
     reason = None if failure is None else f"{type(failure).__name__}: {failure}"[:200]
     return {"ok": failure is None, "kind": kind, "reason": reason, "latency_s": latency,
             "timeout": is_timeout(reason) or (failure is not None and latency >= DEADLINE_S - llm.MIN_ATTEMPT_S),
@@ -255,6 +275,9 @@ def run_comparison(n: int, models: list[str], make_client: Callable[[Spec], obje
 def make_client(spec: Spec):
     """The production generator's timing and retries, so latency and failures are what a show would see."""
     timeout, deadline = generate.GENERATOR_TIMING
+    if spec.local:
+        return llm.Client(spec.base_url(), "", spec.tag(), timeout, retries=generate.RETRIES, deadline_s=deadline,
+                          extra_body=llm.OLLAMA_NO_THINK)
     return llm.from_env(timeout, role="joke_writer", provider=spec.provider, model=spec.model,
                         retries=generate.RETRIES, deadline_s=deadline)
 
@@ -403,7 +426,7 @@ def call_stats(attempts: list[dict], spec: Spec) -> dict:
             reasons[a["reason"][:60]] = reasons.get(a["reason"][:60], 0) + 1
     lat = [call_latency(a) for a in attempts]
     p50, p95 = percentile(lat, 50), percentile(lat, 95)
-    return {"model": spec.model, "n_attempts": n, "n_failed": k, "failure_rate": k / n if n else None,
+    return {"model": spec.tag(), "n_attempts": n, "n_failed": k, "failure_rate": k / n if n else None,
             "failure_ci95": wilson(k, n), "failure_reasons": reasons,
             "n_timeouts": sum(a["timeout"] for a in attempts),
             "latency_p50_s": None if p50 in (None, math.inf) else p50,
