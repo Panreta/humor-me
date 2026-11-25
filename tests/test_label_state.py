@@ -54,3 +54,17 @@ def test_export_joins_only_rows_with_both_labels(tmp_path):
     assert (written, skipped) == (1, 2)
     assert rows == [{"id": "a", "text": "joke a", "score": 5, "pct": 0.5, "mode": "cynic", "mode2": None,
                      "safety": {"slur": False}, "venue": "bar", "energy": "high", "age": "mixed"}]
+
+
+def test_spread_counts_every_value_and_flags_constant_fields(tmp_path):
+    from explorer.label_state import run, table
+    rows = [{"venue": "showcase", "energy": "high", "age": "young_adults"}] * 9 + \
+           [{"venue": "bar", "energy": "low", "age": "teens"}]
+    _write(tmp_path / "x.jsonl", rows)
+    _write(tmp_path / "s.jsonl", rows + [{"id": "z", "raw": "bad"}])
+    _write(tmp_path / "m.jsonl", [{"id": i} for i in range(12)])
+    r = run(tmp_path / "x.jsonl", tmp_path / "s.jsonl", tmp_path / "m.jsonl")
+    assert (r["n"], r["left_out"], r["parse_failures"]) == (10, 2, 1)
+    assert dict(r["fields"]["venue"]) == {"showcase": 9, "bar": 1, "company_event": 0}  # an unused value still shows
+    assert r["top_share"] == {"venue": 0.9, "energy": 0.9, "age": 0.9}
+    assert "| venue | showcase | 9 | 90.0% |" in table(r)
