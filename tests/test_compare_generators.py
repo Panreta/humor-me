@@ -15,7 +15,8 @@ from app import llm, safety  # noqa: E402
 from sim import compare_generators as cg  # noqa: E402
 
 MODELS = ["mimo-v2.6-9b", "bonsai-2-4b", "claude-haiku-5-5"]
-TAG = {"mimo-v2.6-9b": "alpha", "bonsai-2-4b": "bravo", "claude-haiku-5-5": "charlie"}  # text must not name a model
+GEMMA = "gemma4-12b"  # a reference: on the ballot, never picked (D-97)
+TAG = {"mimo-v2.6-9b": "alpha", "bonsai-2-4b": "bravo", "claude-haiku-5-5": "charlie", GEMMA: "delta"}  # text must not name a model
 BY_ID = {cg.MODELS[k].model: t for k, t in TAG.items()}
 
 
@@ -74,10 +75,35 @@ def data(tmp_path, monkeypatch):
     return tmp_path
 
 
+class FakeOllama:
+    """Ollama's /api/ps and /api/tags: every tag in `share` is loaded with that share of a 6 GB file on the GPU.
+    `ps` replaces the /api/ps body (empty, implausible); `raises` makes the server unreachable."""
+
+    FILE = 6_000_000_000
+
+    def __init__(self, share=None, ps=None, raises=None, context=cg.GATE_CONTEXT, tags=None):
+        self.share = {cg.MODELS[m].tag(): 1.0 for m in MODELS[:2]} if share is None else share
+        self.ps, self.raises, self.context, self.urls = ps, raises, context, []
+        self.tags = list(self.share) if tags is None else tags
+
+    def __call__(self, url):
+        self.urls.append(url)
+        if self.raises:
+            raise self.raises
+        if url.endswith("/api/tags"):
+            return {"models": [{"name": t, "size": self.FILE} for t in self.tags]}
+        assert url.endswith("/api/ps") and "/v1" not in url  # the native API, not the OpenAI-compatible one
+        if self.ps is not None:
+            return self.ps
+        return {"models": [{"name": t, "size": self.FILE, "size_vram": int(self.FILE * sh), "context_length": self.context}
+                           for t, sh in self.share.items()]}
+
+
 def run(n=6, models=MODELS, clients=None, filt=None, **kw):
     clients = {} if clients is None else clients
     done = cg.run_comparison(n, models, lambda spec: clients.setdefault(spec.key, FakeModel(spec.model)),
-                             filt or FakeFilter(), pacer=NoWait(), log=lambda s: None, **kw)
+                             filt or FakeFilter(), pacer=NoWait(), log=lambda s: None,
+                             **{"http": FakeOllama(), **kw})
     return done, clients
 
 
@@ -124,8 +150,11 @@ def test_the_filter_client_uses_the_production_filter_timing_and_stays_gemini(mo
 
 
 def test_the_candidates_are_haiku_and_two_local_ollama_models_and_the_digest_follows_them(monkeypatch):
-    assert list(cg.MODELS) == MODELS
+    assert list(cg.MODELS) == MODELS + [GEMMA]
     mimo, bonsai, haiku = (cg.MODELS[m] for m in MODELS)
+    gemma = cg.MODELS[GEMMA]
+    assert (gemma.tag(), gemma.local, gemma.reference, gemma.price_in) == ("gemma4:12b", True, True, 0.0)
+    assert not (mimo.reference or bonsai.reference or haiku.reference)  # the gate decides about mimo, not a flag
     assert (mimo.tag(), bonsai.tag(), haiku.provider) == ("mimo-v2.6:9b", "bonsai-2:4b", "anthropic")
     assert mimo.local and bonsai.local and not haiku.local and (mimo.price_in, mimo.price_out) == (0.0, 0.0)
     assert mimo.base_url() == cg.OLLAMA_URL and haiku.base_url() == ""
@@ -133,6 +162,9 @@ def test_the_candidates_are_haiku_and_two_local_ollama_models_and_the_digest_fol
     monkeypatch.setenv("MIMO_OLLAMA_TAG", "mimo-v2.6:9b-q8")  # the tag `ollama list` shows may differ
     assert mimo.tag() == "mimo-v2.6:9b-q8" and cg.gen_digest() != before
     monkeypatch.delenv("MIMO_OLLAMA_TAG")
+    monkeypatch.setenv("GEMMA_OLLAMA_TAG", "gemma4:12b-q8")
+    assert gemma.tag() == "gemma4:12b-q8" and cg.gen_digest() != before
+    monkeypatch.delenv("GEMMA_OLLAMA_TAG")
     monkeypatch.setenv("OLLAMA_URL", "http://other:11434/v1")
     assert cg.gen_digest() != before
     monkeypatch.undo()
@@ -335,8 +367,8 @@ def test_failure_bar_is_the_wilson_upper_bound_over_every_attempt():
 
 def test_bar_edges_are_inclusive_on_latency():
     _, b, c = MODELS
-    assert cg.eligibility(stats(bonsai_2_4b={"latency_p95_s": cg.DEADLINE_S}))[b]["eligible"]
-    e = cg.eligibility(stats(bonsai_2_4b={"latency_p95_s": 12.01}, claude_haiku_5_5={"latency_p95_s": None}))
+    assert cg.eligibility(stats(bonsai_2_4b={"latency_p95_s": cg.DEADLINE_S}), placement=PLACED)[b]["eligible"]
+    e = cg.eligibility(stats(bonsai_2_4b={"latency_p95_s": 12.01}, claude_haiku_5_5={"latency_p95_s": None}), placement=PLACED)
     assert not e[b]["eligible"] and not e[c]["eligible"]
 
 
@@ -448,8 +480,9 @@ def test_export_is_incremental_and_never_reshuffles_or_loses_votes(data):
 
 
 def test_parse_ranking():
-    assert cg.parse_ranking("bac") == "BAC" and cg.parse_ranking(" c, a b ") == "CAB"
-    assert cg.parse_ranking("aab") is None and cg.parse_ranking("ab") is None and cg.parse_ranking("") is None
+    assert cg.parse_ranking("bac", "ABC") == "BAC" and cg.parse_ranking(" c, a b ", "ABC") == "CAB"
+    assert cg.parse_ranking("aab", "ABC") is None and cg.parse_ranking("ab", "ABC") is None and cg.parse_ranking("") is None
+    assert cg.parse_ranking("dbca") == "DBCA" and cg.parse_ranking("bac") is None  # the default is the four-letter ballot
     assert cg.parse_ranking("ba", "AB") == "BA" and cg.parse_ranking("abc", "AB") is None
 
 
@@ -475,15 +508,22 @@ def test_rank_stats_mean_ci_and_paired_gap():
     assert s["diff"][f"{b}|{a}"]["mean"] == 1.0 and s["n"] == 20
 
 
+PLACED = {m: {"status": "ok", "gpu_share": 1.0} for m in MODELS}  # every local model fits: the bar's other terms are tested
+
+
+def decide(s, r, **kw):
+    return cg.decide(s, r, **{"placement": PLACED, **kw})
+
+
 def test_clear_winner_among_eligible_is_picked_even_if_costlier():
     a, b, c = MODELS
-    d = cg.decide(stats(), ranks_for([[b, c, a]] * 24))
+    d = decide(stats(), ranks_for([[b, c, a]] * 24))
     assert d["pick"] == b and d["best"] == b and d["second"] == c and d["funniness_clear"] is True
 
 
 def test_overlapping_ranks_pick_the_cheaper_and_say_inconclusive():
     rng = np.random.default_rng(1)
-    d = cg.decide(stats(), ranks_for([list(rng.permutation(MODELS)) for _ in range(30)]))
+    d = decide(stats(), ranks_for([list(rng.permutation(MODELS)) for _ in range(30)]))
     assert d["funniness_clear"] is False and "inconclusive" in d["reason"]
     assert d["pick"] == min((d["best"], d["second"]), key=lambda m: stats()[m]["cost_per_bit_usd"])
 
@@ -491,18 +531,18 @@ def test_overlapping_ranks_pick_the_cheaper_and_say_inconclusive():
 def test_ineligible_models_cannot_win_and_ranks_are_redone_among_the_rest():
     a, b, c = MODELS
     s = stats(bonsai_2_4b={"latency_p95_s": 12.5})  # the funniest, but past the 12 s deadline
-    d = cg.decide(s, ranks_for([[b, a, c]] * 20 + [[b, c, a]] * 4))
+    d = decide(s, ranks_for([[b, a, c]] * 20 + [[b, c, a]] * 4))
     assert d["eligible"] == sorted([a, c]) and d["pick"] == a and d["funniness_clear"] is True
-    assert d["eligibility"][b] == {"latency_ok": False, "failure_ok": True, "eligible": False}
+    assert d["eligibility"][b]["eligible"] is False and d["eligibility"][b]["reasons"] == ["latency over the deadline"]
 
 
 def test_one_eligible_model_wins_and_none_eligible_picks_nothing():
     a = MODELS[0]
-    only = cg.decide(stats(bonsai_2_4b=with_failures(5), claude_haiku_5_5=with_failures(5)), {})
+    only = decide(stats(bonsai_2_4b=with_failures(5), claude_haiku_5_5=with_failures(5)), {})
     assert only["pick"] == a and only["reason"] == "the only eligible model"
-    none = cg.decide(stats(**{m.replace("-", "_"): with_failures(10) for m in MODELS}), {})
+    none = decide(stats(**{m.replace("-", "_"): with_failures(10) for m in MODELS}), {})
     assert none["pick"] is None and "stays" in none["reason"]
-    waiting = cg.decide(stats(), {})
+    waiting = decide(stats(), {})
     assert waiting["pick"] is None and "votes" in waiting["reason"]
 
 
@@ -583,3 +623,135 @@ def test_latency_p95_is_over_all_sixty_calls_nearest_rank():
     four = [att(latency=3.0) for _ in range(56)] + [slow] * 4
     assert cg.call_stats(three, spec)["latency_p95_s"] == 3.0  # the 57th of 60 is still a finite call
     assert cg.call_stats(four, spec)["p95_over_deadline"] and cg.call_stats(four, spec)["latency_p95_s"] is None
+
+
+# --- D-97: the GPU gate and the reference model ------------------------------------------------------------------
+
+BONSAI, MIMO, HAIKU = "bonsai-2-4b", "mimo-v2.6-9b", "claude-haiku-5-5"
+PS_URL = "http://127.0.0.1:11434/api/ps"
+
+
+def placed(m, **over):
+    return {"status": "ok", "gpu_share": 1.0, **over}
+
+
+def measured(m, http):
+    return cg.measure_placement(cg.MODELS[m], http)
+
+
+def test_a_model_fully_on_the_gpu_passes_the_gate_and_a_partial_one_fails_with_its_share():
+    tag = cg.MODELS[MIMO].tag()
+    full = measured(MIMO, FakeOllama(share={tag: 1.0}))
+    assert (full["status"], full["gpu_share"], full["context_length"], full["context_ok"]) == ("ok", 1.0, 8192, True)
+    part = measured(MIMO, FakeOllama(share={tag: 0.87}))  # the measured case: 5.60 of 6.39 GB
+    assert (part["status"], round(part["gpu_share"], 2)) == ("ok", 0.87)  # a clean reading that fails the gate
+    el = cg.eligibility(stats(), placement={MIMO: part, BONSAI: placed(BONSAI)})
+    assert el[MIMO]["eligible"] is False and el[MIMO]["reasons"] == ["partial GPU 87%"] and el[MIMO]["placement_ok"] is False
+    assert el[BONSAI]["eligible"] and el[HAIKU]["eligible"]  # a hosted model has no placement to fail
+    assert cg.placement_gate(cg.MODELS[MIMO], placed(MIMO, gpu_share=0.999)) == "partial GPU 100%"  # no tolerance
+
+
+@pytest.mark.parametrize("why,http", [
+    ("empty /api/ps right after a successful generate", FakeOllama(ps={"models": []})),
+    ("no models key", FakeOllama(ps={})),
+    ("1 GB reported for a 6 GB file", FakeOllama(ps={"models": [{"name": "mimo-v2.6:9b", "size": 1_010_000_000, "size_vram": 1_010_000_000}]})),
+    ("size_vram above size", FakeOllama(ps={"models": [{"name": "mimo-v2.6:9b", "size": 6_000_000_000, "size_vram": 7_000_000_000}]})),
+    ("no size at all", FakeOllama(ps={"models": [{"name": "mimo-v2.6:9b"}]})),
+    ("model absent from /api/tags: cannot check the report", FakeOllama(share={"mimo-v2.6:9b": 1.0}, tags=[])),
+    ("server unreachable", FakeOllama(raises=ConnectionError("down"))),
+    ("loaded at another context", FakeOllama(share={"mimo-v2.6:9b": 1.0}, context=32768)),
+    ("partial, with another model loaded: not attributable", FakeOllama(share={"mimo-v2.6:9b": 0.87, "bonsai-2:4b": 1.0})),
+])
+def test_the_gate_fails_closed_when_the_placement_cannot_be_trusted(why, http):
+    rec = measured(MIMO, http)
+    assert rec["status"] == "unknown" and rec["note"], why
+    assert cg.placement_gate(cg.MODELS[MIMO], rec) == "placement unknown"
+    el = cg.eligibility(stats(), placement={MIMO: rec, BONSAI: placed(BONSAI)})
+    assert el[MIMO]["eligible"] is False and el[MIMO]["reasons"] == ["placement unknown"]  # perfect latency and failures do not help
+
+
+def test_a_missing_placement_is_unknown_and_a_full_model_beside_another_is_still_ok():
+    assert cg.eligibility(stats())[BONSAI]["reasons"] == ["placement unknown"]  # never measured
+    both = FakeOllama(share={"mimo-v2.6:9b": 1.0, "bonsai-2:4b": 1.0})
+    assert measured(MIMO, both)["status"] == "ok"  # 100% with others loaded can only be better alone
+    assert cg.placement_gate(None, None) is None  # a name the registry does not know has no placement term
+
+
+def test_the_native_api_is_asked_not_the_openai_compatible_one(monkeypatch):
+    monkeypatch.setenv("OLLAMA_URL", "http://box:11434/v1")
+    http = FakeOllama(share={"bonsai-2:4b": 1.0})
+    measured(BONSAI, http)
+    assert http.urls == ["http://box:11434/api/ps", "http://box:11434/api/tags"]
+
+
+def test_a_reference_is_never_picked_even_when_it_is_funniest():
+    s = stats()
+    s[GEMMA] = {**s[BONSAI]}
+    placement = {**PLACED, GEMMA: placed(GEMMA)}  # a reference that is flawless on every other term
+    d = cg.decide(s, ranks_for([[GEMMA, MIMO, BONSAI, HAIKU]] * 30), placement=placement)
+    assert d["eligibility"][GEMMA]["eligible"] is False and d["eligibility"][GEMMA]["reasons"] == ["reference"]
+    assert GEMMA not in d["eligible"] and GEMMA not in (d["best"], d["second"])
+    assert d["pick"] == MIMO  # the best eligible by rank once the reference is out of the ranking
+    one = cg.decide({k: s[k] for k in (GEMMA, HAIKU)}, ranks_for([[GEMMA, HAIKU]] * 30), placement=placement)
+    assert one["pick"] == HAIKU and one["reason"] == "the only eligible model"
+    assert cg.decide({GEMMA: s[GEMMA]}, {}, placement=placement)["pick"] is None
+
+
+def test_the_ballot_has_four_models_and_scoring_keeps_the_reference_out_of_the_pick(data, monkeypatch):
+    monkeypatch.setattr(cg.cache, "METRICS", data / "metrics")
+    models = MODELS + [GEMMA]
+    run(n=60, models=models)
+    cg.export_ballot(models, 30)
+    d = cg.run_dir()
+    key = json.loads(cg.key_path(d).read_text(encoding="utf-8"))
+    assert all(sorted(k["letters"]) == list("ABCD") and sorted(k["letters"].values()) == sorted(models) for k in key.values())
+    pref = {GEMMA: 0, HAIKU: 1, BONSAI: 2, MIMO: 3}  # the voter's order; mimo was measured 87% on the GPU
+    cg.write_votes(d / "votes.csv", {p: "".join(sorted(k["letters"], key=lambda c: pref[k["letters"][c]])) for p, k in key.items()})
+    cg.write_record(cg.placement_path(d), {BONSAI: placed(BONSAI), MIMO: placed(MIMO, gpu_share=0.87, size=6.39e9, size_vram=5.6e9),
+                                           GEMMA: {"status": "unknown", "gpu_share": None}})
+    params = cg.current_params(60, tuple(models), 30)
+    res = cg.cache.run_or_load(cg.METRICS_NAME, cg.run, **params)
+    dec = res["decision"]
+    assert res["votes"]["mean_rank"][GEMMA] == 1.0  # the reference is in the table...
+    assert dec["eligible"] == sorted([BONSAI, HAIKU]) and dec["pick"] == HAIKU  # ...and never in the pick
+    assert dec["eligibility"][MIMO]["reasons"] == ["partial GPU 87%"] and dec["eligibility"][GEMMA]["reasons"] == ["reference"]
+    assert res["placement"][MIMO]["gpu_share"] == 0.87
+    stored_text = (data / "metrics" / "model_comparison.json").read_text(encoding="utf-8")
+    assert "partial GPU 87%" in stored_text and "thread " not in stored_text
+    assert "no: partial GPU 87%" in cg.table(res) and "no: reference" in cg.table(res)
+    cg.write_record(cg.placement_path(d), {BONSAI: placed(BONSAI), MIMO: placed(MIMO), GEMMA: placed(GEMMA)})
+    with pytest.raises(AssertionError):  # a new measurement invalidates the scored result
+        cg.run(**params)
+
+
+def test_placement_is_measured_after_a_models_first_success_kept_when_ok_and_retried_when_unknown(data):
+    three = [MIMO, BONSAI, HAIKU]
+    http = FakeOllama()
+    run(n=3, models=three, http=http)
+    saved = cg.load_placement(cg.run_dir())
+    assert set(saved) == {MIMO, BONSAI} and all(r["status"] == "ok" for r in saved.values())  # hosted models are not measured
+    assert http.urls.count(PS_URL) == 2  # once each: an ok reading is kept
+    x = cg.run_dir() / "x"
+    flaky = FakeOllama(ps={"models": []})
+    run(n=6, models=three, http=flaky, directory=x)
+    assert {r["status"] for r in cg.load_placement(x).values()} == {"unknown"}
+    assert flaky.urls.count(PS_URL) == 2 * cg.MAX_PLACEMENT_TRIES  # retried on each success, up to the cap
+    again = FakeOllama()
+    run(n=7, models=three, http=again, directory=x)
+    assert {r["status"] for r in cg.load_placement(x).values()} == {"ok"}
+    run(n=8, models=three, http=again, directory=x)
+    assert again.urls.count(PS_URL) == 2  # nothing remeasured once ok
+
+
+def test_a_failed_first_call_measures_nothing_and_the_next_success_does(data):
+    http = FakeOllama()
+    err = llm.LLMError("503 unavailable", status=503, retryable=True)
+    run(n=2, models=[MIMO], clients={MIMO: FakeModel(cg.MODELS[MIMO].model, fail=[err] + [None] * 9)}, http=http)
+    assert cg.load_placement(cg.run_dir())[MIMO]["status"] == "ok" and http.urls.count(PS_URL) == 1
+
+
+def test_power_with_two_eligible_beside_two_references_is_computed_through_decide():
+    three = cg.simulate_decision_power(30, 1.0, reps=100, n_boot=500)
+    two = cg.simulate_decision_power(30, 1.0, reps=100, n_boot=500, eligible=2, references=2)
+    assert 0.5 < three <= 1.0 and 0.0 <= two <= 1.0
+    assert cg.simulate_decision_power(30, 0.0, reps=100, n_boot=500, eligible=2, references=2) < 0.2  # no gap: a fluke

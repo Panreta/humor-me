@@ -1,4 +1,6 @@
 """Exp 24: which model should write the live show's bits? Claude Haiku 5.5, or a local Ollama model (mimo-v2.6:9b, bonsai-2:4b).
+A local model is eligible only if Ollama puts it 100% on the GPU at context 8192 (it must fit beside Kokoro, which runs on
+the CPU); gemma4:12b is a reference: measured and on the ballot, never picked (D-97).
 
 Usage (needs the Anthropic and Gemini keys in backend/.env and Ollama running, see backend/README.md "Comparing generator models"):
     python -m sim.compare_generators run --env-file backend/.env            # generate + safety, resumable, paced
@@ -17,6 +19,7 @@ the ballot key stay under `data/model_comparison/` (gitignored); only numbers re
 The bar is fixed in docs/plans/live-loop.md (T13) before any run (changed after review, before any data):
   eligible = p95 latency over ALL calls <= the generator's deadline (a timeout counts as above it) AND the 95% Wilson
   upper bound of the failure rate over EVERY attempt <= 15%, measured on 60 distinct prompts (30 are voted on);
+  AND (local models, D-97) /api/ps reports 100% on the GPU, failing closed when it is missing or implausible;
   among the eligible, the best mean rank wins if the paired 95% CI of (next - best) excludes 0;
   otherwise funniness is called inconclusive and the cheaper (then faster) of the two is picked.
 A model with no safe thread for a prompt is ranked last for it: a show would play the bank there.
@@ -71,6 +74,7 @@ class Spec:
     bucket: str  # requests that share a quota, so they are spaced together
     gap_s: float  # minimum seconds between the end of one request and the start of the next in the bucket
     model_env: str = ""  # env var that overrides `model` (the tag `ollama list` shows may differ from the default)
+    reference: bool = False  # measured and on the ballot, never eligible to be picked (D-97)
 
     @property
     def local(self) -> bool:
@@ -91,6 +95,8 @@ MODELS = {
     "mimo-v2.6-9b": Spec("mimo-v2.6-9b", OLLAMA_PROVIDER, "mimo-v2.6:9b", 0.0, 0.0, "ollama", 0.0, "MIMO_OLLAMA_TAG"),
     "bonsai-2-4b": Spec("bonsai-2-4b", OLLAMA_PROVIDER, "bonsai-2:4b", 0.0, 0.0, "ollama", 0.0, "BONSAI_OLLAMA_TAG"),
     "claude-haiku-5-5": Spec("claude-haiku-5-5", "anthropic", "claude-haiku-5-5", 0.10, 0.50, "anthropic", 1.0),
+    # D-97: too big to serve the live loop beside Kokoro, so it only shows how far the others are from a stronger model
+    "gemma4-12b": Spec("gemma4-12b", OLLAMA_PROVIDER, "gemma4:12b", 0.0, 0.0, "ollama", 0.0, "GEMMA_OLLAMA_TAG", reference=True),
 }
 SAFETY_BUCKET = "gemini-safety"  # the filter's own quota: Flash-Lite's free tier, spaced as in Exp 19
 SAFETY_GAP_S = 7.0
@@ -243,13 +249,15 @@ def needs_safety(att: dict | None) -> bool:
 
 def run_comparison(n: int, models: list[str], make_client: Callable[[Spec], object], safety_client, *,
                    redo_failed: bool = False, directory: pathlib.Path | None = None, pacer: Pacer | None = None,
-                   log: Callable[[str], None] = print) -> dict:
+                   log: Callable[[str], None] = print, http: Callable[[str], dict] | None = None) -> dict:
     """Prompt-major, so an interrupted run leaves every model with the same prompts. A file per model and prompt holds
     every attempt made, appended, never overwritten: `redo_failed` adds an attempt where the last one failed for a
-    config or infrastructure reason, and the failure rate counts all of them. Returns counts of what was done."""
+    config or infrastructure reason, and the failure rate counts all of them. A local model's GPU placement is measured
+    right after its first successful call (D-97). Returns counts of what was done."""
     directory, pacer = directory or run_dir(), pacer or Pacer()
     clients = {m: make_client(MODELS[m]) for m in models}
     first = set(models)  # models whose first call this run has not happened yet
+    tries = {m: 0 for m in models if MODELS[m].local}  # placement measurements this run, per local model
     done = {"generated": 0, "judged": 0, "cached": 0}
     for prompt in prompts(n):
         for m in models:
@@ -261,6 +269,9 @@ def run_comparison(n: int, models: list[str], make_client: Callable[[Spec], obje
                 first.discard(m)
                 done["generated"] += 1
                 write_record(path, rec)
+                if m in tries and rec["attempts"][-1]["ok"] and tries[m] < MAX_PLACEMENT_TRIES:
+                    tries[m] += 1
+                    record_placement(directory, MODELS[m], http or http_json)
             else:
                 done["cached"] += 1
             att = final(rec)
@@ -289,9 +300,99 @@ def make_safety_client():
                         retries=generate.FILTER_RETRIES, deadline_s=deadline)
 
 
+# --- GPU placement (D-97) ----------------------------------------------------------------------------------------
+
+GATE_CONTEXT = 8192  # the context the fit-beside-Kokoro gate is defined at
+MAX_PLACEMENT_TRIES = 5  # measurements per local model per run: an unknown reading is retried, an ok one is kept
+MIN_SIZE_SHARE_OF_FILE = 0.5  # a loaded model reported smaller than half its file is a bad report, not a small model
+
+
+def http_json(url: str, timeout: float = 5.0) -> dict:
+    import urllib.request
+    with urllib.request.urlopen(url, timeout=timeout) as r:  # noqa: S310 - the user's own Ollama server
+        return json.loads(r.read().decode("utf-8"))
+
+
+def ollama_root(spec: Spec) -> str:
+    base = spec.base_url().rstrip("/")
+    return base[:-3] if base.endswith("/v1") else base
+
+
+def _tag_of(name: str) -> str:
+    return name if ":" in name else f"{name}:latest"
+
+
+def _find(entries: list[dict], tag: str) -> dict | None:
+    return next((e for e in entries if tag in {_tag_of(str(e.get("name", ""))), _tag_of(str(e.get("model", "")))}), None)
+
+
+def measure_placement(spec: Spec, http: Callable[[str], dict] = http_json) -> dict:
+    """Where Ollama put the model, from its own `/api/ps`. Fails closed: `status` is "ok" only when the model is listed,
+    the report is plausible against the file size in `/api/tags` (Ollama 0.40.18 once reported 1 GB for an 8 GB model
+    and once listed nothing right after a successful call), it was loaded at the gate's context, and a partial offload
+    can be blamed on the model itself rather than on another loaded one. Anything else is "unknown"."""
+    tag, root = spec.tag(), ollama_root(spec)
+    rec = {"tag": tag, "status": "unknown", "size": None, "size_vram": None, "gpu_share": None, "file_size": None,
+           "context_length": None, "context_ok": None, "others_loaded": 0, "note": ""}
+    try:
+        ps, tags = http(f"{root}/api/ps").get("models") or [], http(f"{root}/api/tags").get("models") or []
+    except Exception as e:  # any failure to ask is "unknown", never a guess
+        rec["note"] = f"could not ask Ollama: {type(e).__name__}"
+        return rec
+    mine, file = _find(ps, tag), _find(tags, tag)
+    rec["others_loaded"] = sum(e is not mine for e in ps)
+    if mine is None:
+        rec["note"] = "model missing from /api/ps"
+        return rec
+    size, vram = mine.get("size"), mine.get("size_vram")
+    rec["context_length"] = mine.get("context_length")
+    if not isinstance(size, (int, float)) or not isinstance(vram, (int, float)) or size <= 0 or not 0 <= vram <= size:
+        rec["note"] = "implausible /api/ps report"
+        return rec
+    rec.update(size=size, size_vram=vram, gpu_share=vram / size, file_size=(file or {}).get("size"))
+    if not rec["file_size"]:
+        rec["note"] = "model missing from /api/tags: the report cannot be checked"
+    elif size < MIN_SIZE_SHARE_OF_FILE * rec["file_size"]:
+        rec["note"] = "/api/ps size is below half the file size"
+    elif rec["context_length"] is not None and rec["context_length"] != GATE_CONTEXT:
+        rec["context_ok"] = False
+        rec["note"] = f"loaded at context {rec['context_length']}, not {GATE_CONTEXT}"
+    elif rec["gpu_share"] < 1.0 and rec["others_loaded"]:
+        rec["note"] = "other models were loaded, so the partial offload cannot be blamed on this one"
+    else:
+        rec.update(status="ok", context_ok=None if rec["context_length"] is None else True)
+    return rec
+
+
+def placement_path(directory: pathlib.Path) -> pathlib.Path:
+    return directory / "placement.json"
+
+
+def load_placement(directory: pathlib.Path) -> dict[str, dict]:
+    return read_record(placement_path(directory)) or {}
+
+
+def record_placement(directory: pathlib.Path, spec: Spec, http: Callable[[str], dict] = http_json) -> None:
+    """Measured once and kept when ok; an unknown reading is replaced by the next measurement."""
+    recs = load_placement(directory)
+    if recs.get(spec.key, {}).get("status") == "ok":
+        return
+    recs[spec.key] = measure_placement(spec, http)
+    write_record(placement_path(directory), recs)
+
+
+def placement_gate(spec: Spec | None, placement: dict | None) -> str | None:
+    """Why a local model fails the gate, or None when it passes (hosted models have no placement to check)."""
+    if spec is None or not spec.local:
+        return None
+    if not placement or placement.get("status") != "ok":
+        return "placement unknown"
+    return None if placement["gpu_share"] >= 1.0 else f"partial GPU {placement['gpu_share']:.0%}"
+
+
 # --- blind ballot ------------------------------------------------------------------------------------------------
 
-LETTERS = "ABC"
+LETTERS = "ABCD"  # the models of a prompt, references included: the reference makes it four
 
 
 def playable_thread(rec: dict | None) -> int | None:
@@ -518,28 +619,36 @@ def diff_ci(ranks: dict[str, dict[str, float]], worse: str, better: str, n_boot:
     return float(d.mean()), boot_ci(d, boot_idx(len(pids), n_boot, seed))
 
 
-def eligibility(stats: dict, deadline_s: float = DEADLINE_S, bar_upper: float = BAR_FAILURE_UPPER) -> dict[str, dict]:
-    """Per model: the two bar terms and whether both hold. Latency: p95 over all calls at most the deadline, a timeout
-    counting as above it. Failures: the 95% Wilson upper bound over every attempt at most `bar_upper`. A model with no
-    attempt is not eligible."""
+def eligibility(stats: dict, deadline_s: float = DEADLINE_S, bar_upper: float = BAR_FAILURE_UPPER,
+                placement: dict[str, dict] | None = None) -> dict[str, dict]:
+    """Per model: the bar terms, whether all hold, and why not. Latency: p95 over all calls at most the deadline, a
+    timeout counting as above it. Failures: the 95% Wilson upper bound over every attempt at most `bar_upper`. A model
+    with no attempt is not eligible. D-97: a reference model is never eligible, and a local one is only if Ollama put
+    it 100% on the GPU (a missing `placement` is unknown, which fails)."""
     out = {}
     for m, s in stats.items():
-        p95, ci = s["latency_p95_s"], s.get("failure_ci95")
+        spec, p95, ci = MODELS.get(m), s["latency_p95_s"], s.get("failure_ci95")
+        gate = None if spec and spec.reference else placement_gate(spec, (placement or {}).get(m))  # a reference needs no fit
         out[m] = {"latency_ok": not s.get("p95_over_deadline", False) and p95 is not None and p95 <= deadline_s,
-                  "failure_ok": ci is not None and ci[1] <= bar_upper}
-        out[m]["eligible"] = out[m]["latency_ok"] and out[m]["failure_ok"]
+                  "failure_ok": ci is not None and ci[1] <= bar_upper, "reference": bool(spec and spec.reference),
+                  "placement_ok": gate is None}
+        out[m]["reasons"] = [r for r, bad in (("reference", out[m]["reference"]), (gate, gate is not None),
+                                              ("latency over the deadline", not out[m]["latency_ok"]),
+                                              ("failure rate over the bar", not out[m]["failure_ok"])) if bad]
+        out[m]["eligible"] = not out[m]["reasons"]
     return out
 
 
 def decide(stats: dict, ranks: dict[str, dict[str, float]], n_boot: int = N_BOOT, seed: int = SEED,
-           deadline_s: float = DEADLINE_S, bar_upper: float = BAR_FAILURE_UPPER) -> dict:
+           deadline_s: float = DEADLINE_S, bar_upper: float = BAR_FAILURE_UPPER,
+           placement: dict[str, dict] | None = None) -> dict:
     """The pre-fixed bar. Ranks are redone among the eligible models before comparing them."""
-    elig = eligibility(stats, deadline_s, bar_upper)
+    elig = eligibility(stats, deadline_s, bar_upper, placement)
     ok = sorted(m for m, e in elig.items() if e["eligible"])
     out = {"eligibility": elig, "eligible": ok, "pick": None, "best": None, "second": None, "funniness_clear": None,
            "diff": None, "reason": ""}
     if not ok:
-        out["reason"] = "no model meets the latency and failure bar; the generator stays as it is"
+        out["reason"] = "no model is eligible (latency, failures, GPU placement); the generator stays as it is"
         return out
     if len(ok) == 1:
         out.update(pick=ok[0], reason="the only eligible model")
@@ -579,20 +688,24 @@ def gap_halfwidth(n: int) -> float:
 
 
 def simulate_ranks(n: int, gap: float, rng: np.random.Generator, models: list[str]) -> dict[str, dict[str, float]]:
-    """Votes from a voter for whom `models[0]` is `gap` latent sd funnier than the other two (Thurstone: score = mean
-    + N(0, 1) per model per prompt)."""
-    mu = np.array([gap, 0.0, 0.0])
-    ranks = np.argsort(np.argsort(-(mu + rng.standard_normal((n, 3))), axis=1), axis=1) + 1
+    """Votes from a voter for whom `models[0]` is `gap` latent sd funnier than every other model on the ballot
+    (Thurstone: score = mean + N(0, 1) per model per prompt)."""
+    k = len(models)
+    mu = np.array([gap] + [0.0] * (k - 1))
+    ranks = np.argsort(np.argsort(-(mu + rng.standard_normal((n, k))), axis=1), axis=1) + 1
     return {f"p{i:02d}": {m: float(ranks[i, j]) for j, m in enumerate(models)} for i in range(n)}
 
 
-def simulate_decision_power(n: int, gap: float, reps: int = 300, n_boot: int = 1000, seed: int = SEED) -> float:
-    """How often the real `decide()` calls the truly funnier model clearly funnier: all three models eligible, the best
-    and second picked by their observed mean ranks, the gap interval a paired bootstrap over prompts."""
+def simulate_decision_power(n: int, gap: float, reps: int = 300, n_boot: int = 1000, seed: int = SEED,
+                            eligible: int = 3, references: int = 0) -> float:
+    """How often the real `decide()` calls the truly funnier model clearly funnier: `eligible` models, all passing the
+    bar, plus `references` ballot-only ones that are never eligible (the votes are re-ranked without them); best and
+    second picked by observed mean rank, the gap interval a paired bootstrap over prompts. The defaults are D-94's
+    three-model ballot; D-97 usually leaves two eligible beside two references."""
     rng = np.random.default_rng(seed)
-    models = list(MODELS)
+    models = [f"m{i}" for i in range(eligible + references)]
     stats = {m: {"latency_p95_s": 5.0, "failure_ci95": [0.0, 0.05], "failure_rate": 0.0, "n_attempts": n,
-                 "cost_per_bit_usd": 0.001, "latency_p50_s": 2.0} for m in models}
+                 "cost_per_bit_usd": 0.001, "latency_p50_s": 2.0} for m in models[:eligible]}  # references are not scored
     hits = 0
     for r in range(reps):
         d = decide(stats, simulate_ranks(n, gap, rng, models), n_boot=n_boot, seed=seed + r)
@@ -619,6 +732,11 @@ def _digest(paths) -> str:
 def ballot_digest(directory: pathlib.Path) -> str:
     """The user's votes and the key, never the text: what the judge was calibrated on."""
     return _digest((key_path(directory), directory / "votes.csv"))
+
+
+def placement_digest(directory: pathlib.Path) -> str:
+    """A new or changed GPU measurement recomputes the experiment: it can change who is eligible."""
+    return _digest((placement_path(directory),))
 
 
 def judge_path(directory: pathlib.Path) -> pathlib.Path:
@@ -655,7 +773,8 @@ def judge_ranks(directory: pathlib.Path, models: list[str], n_ballot: int, n_pro
 
 
 def current_params(n: int = N_PROMPTS, models: tuple[str, ...] = tuple(MODELS), n_ballot: int = N_BALLOT) -> dict:
-    return {"gen": gen_digest(), "votes": votes_digest(run_dir()), "n_prompts": n, "n_ballot": n_ballot,
+    return {"gen": gen_digest(), "votes": votes_digest(run_dir()),
+            "placement": placement_digest(run_dir()), "n_prompts": n, "n_ballot": n_ballot,
             "models": list(models), "seed": SEED,
             "n_boot": N_BOOT, "deadline_s": DEADLINE_S, "bar_failure_upper": BAR_FAILURE_UPPER,
             "prices": {m: [MODELS[m].price_in, MODELS[m].price_out] for m in models}}
@@ -664,12 +783,14 @@ def current_params(n: int = N_PROMPTS, models: tuple[str, ...] = tuple(MODELS), 
 def run(gen: str = "", votes: str = "", n_prompts: int = N_PROMPTS, n_ballot: int = N_BALLOT,
         models: list[str] | None = None, seed: int = SEED,
         n_boot: int = N_BOOT, deadline_s: float = DEADLINE_S, bar_failure_upper: float = BAR_FAILURE_UPPER,
-        prices: dict | None = None) -> dict:
+        prices: dict | None = None, placement: str = "") -> dict:
     """Scores the saved generations and votes. Numbers only: no joke text and no letters leave the data directory."""
     models = models or list(MODELS)
     assert gen == gen_digest(seed), "the generator or filter prompt, model or timing changed since these calls were made"
     directory = run_dir(gen)
     assert votes == votes_digest(directory), "votes or key changed since this call was built"
+    assert placement == placement_digest(directory), "GPU placement changed since this call was built"
+    placed = load_placement(directory)
     attempts = load_attempts(directory, models, n_prompts)
     stats = {m: call_stats(attempts[m], MODELS[m]) for m in models}
     kp = key_path(directory)
@@ -681,11 +802,12 @@ def run(gen: str = "", votes: str = "", n_prompts: int = N_PROMPTS, n_ballot: in
     by_id = {p["id"]: p for p in prompts(n_prompts, seed)}
     return {"models": stats, "n_prompts": n_prompts, "n_ballot": n_ballot, "n_key": len(key), "n_scored": len(ranks),
             "n_user": len(user_ranks), "n_judge": len(extra), "judge": judge,
+            "placement": {m: placed[m] for m in models if m in placed},
             "n_ranked_last": {m: sum(m in k["last"] for k in key.values()) for m in models},
             "votes": rank_stats(ranks, models, n_boot, seed), "votes_user_only": rank_stats(user_ranks, models, n_boot, seed),
             "per_prompt": [{"prompt": p, "mode": by_id[p]["mode"], "rater": "user" if p in user_ranks else "judge",
                             "ranks": ranks[p]} for p in sorted(ranks)],
-            "decision": decide(stats, ranks, n_boot, seed, deadline_s, bar_failure_upper)}
+            "decision": decide(stats, ranks, n_boot, seed, deadline_s, bar_failure_upper, placed)}
 
 
 def stored() -> dict | None:
@@ -698,16 +820,18 @@ def fmt(x, spec="{:.2f}", none="-"):
 
 
 def table(res: dict) -> str:
-    rows = ["| Model | Attempts | Failed (95% upper) | p50 | p95 | Line pass | Playable | Mean rank (95% CI) | Cost, 5 shows | Eligible |",
-            "|---|---|---|---|---|---|---|---|---|---|"]
+    rows = ["| Model | Attempts | Failed (95% upper) | p50 | p95 | Line pass | Playable | Mean rank (95% CI) | Cost, 5 shows | GPU | Eligible |",
+            "|---|---|---|---|---|---|---|---|---|---|---|"]
     mean, ci = res["votes"].get("mean_rank", {}), res["votes"].get("ci95", {})
     for m, s in res["models"].items():
+        e, pl = res["decision"]["eligibility"][m], res.get("placement", {}).get(m)
+        gpu = "-" if not MODELS[m].local else (f"{pl['gpu_share']:.0%}" if pl and pl["status"] == "ok" else "unknown")
         rank = f"{mean[m]:.2f} ({ci[m][0]:.2f} to {ci[m][1]:.2f})" if m in mean else "-"
         p95 = "over deadline" if s["p95_over_deadline"] else fmt(s["latency_p95_s"], "{:.1f} s")
         rows.append(f"| {m} | {s['n_attempts']} | {s['n_failed']} ({s['failure_ci95'][1]:.0%}) | "
                     f"{fmt(s['latency_p50_s'], '{:.1f} s')} | {p95} | {fmt(s['line_pass_rate'], '{:.0%}')} | "
                     f"{fmt(s['playable_rate'], '{:.0%}')} | {rank} | {fmt(s['cost_5_shows_usd'], '${:.3f}')} | "
-                    f"{'yes' if res['decision']['eligibility'][m]['eligible'] else 'no'} |")
+                    f"{gpu} | {'yes' if e['eligible'] else 'no: ' + ', '.join(e['reasons'])} |")
     return "\n".join(rows)
 
 
