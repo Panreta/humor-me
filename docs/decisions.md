@@ -98,6 +98,7 @@ What we decided and why, one line each. Click an ID for the full record (options
 | [D-92](agent/decisions-detail.md#d-92) | Nov 24 | If a pause hits while a joke is playing, that joke's label is left out of the reward (the rest of the bit still counts); its audio isn't used to train the laugh detector. Extends D-90. |
 | [D-93](agent/decisions-detail.md#d-93) | Nov 24 | Model settings are named by the job they do (the joke writer and the safety check read their own), and the joke writer can run on Claude through the official SDK. Not run for real yet. |
 | [D-94](agent/decisions-detail.md#d-94) | Nov 24 | Compare Gemini Flash-Lite, Gemini Flash and Claude Haiku 5.5 for writing bits on 60 prompts, with your blind ranking of the first 30; the bar was fixed before the run: a model must be fast, rarely time out and rarely fail, and a model with no safe thread is ranked last. |
+| [D-95](agent/decisions-detail.md#d-95) | Nov 24 | A judge on Explorer (Ollama qwen3.8 27b first, Qwen 7B as fallback), taught by your votes, may rank prompts 31 to 60, but only if it agrees with your own rankings and favors no model; its added risk of a false winner is stated. |
 
 New decision: add its full entry to the detailed log with the next ID, then a row here in the same PR.
 A test fails if the two files' IDs don't match.
