@@ -277,6 +277,15 @@ Later, during the 90k extension run:
 | The recording had no beeps and the robot's voice was faint (2026-11-15) | The microphone's Windows "Audio enhancements" ran the driver's echo cancellation, which removes what the laptop itself plays; it sits below the browser, so `echoCancellation: false` did not reach it. Caught by the user's first Exp 21 run (no beeps in the WAV) and the reviewer's matched-filter search | Enhancements off for the mic (and vendor noise-cancellation apps quit), written into design.md's setup list; the second run recorded all beeps at 23x to 31x the noise |
 | `check` reported "0 clicks matched" on a recording that held 30 beeps (2026-11-15) | `detect_clicks` had an absolute threshold floor of 0.01, above the beeps' recorded amplitude (about 0.003), and `MATCH_S` was 0.25 s while every beep landed 224 to 262 ms late (a constant output latency), so even detected beeps did not match. Caught by the reviewer's own matched-filter measurement, which found 30/30 | A matched filter for the 100 ms 2 kHz tone with a threshold relative to the recording's noise only, `MATCH_S` 0.5 s, the strongest detection in the window wins, and beeps outside the recording are counted apart (tests: beeps at 0.003 amplitude under louder broadband noise are all found; a constant 240 ms offset with 20 ms jitter passes the spread bar) |
 
+## Model pipeline (2026-11-24)
+
+| Problem | Cause | Fix |
+|---|---|---|
+| `explorer/train_dpo.py` and `eval_judge.py` failed the import test as soon as `trl` was installed | Both parsed arguments and read `os.environ["COURSE_DIR"]` at import time; without `trl` the import test skipped them, which hid it (caught by the first full test run in a venv with `trl`) | Each script's body is in `main()`; the import test passes |
+| The judge eval's CI was about √2 too narrow | `build_judge_pairs` writes every pair in both orders, and `eval_judge` counted the 10,636 test records as independent (caught by reading the pair builder before the gate run) | Scored per pair (1 / 0.5 / 0), CI over the 5,318 pairs |
+| An always-"A" judge showed 98% order consistency | `--n` cut records, not pairs, so most pairs had one order and counted as consistent (caught by the 0.5B smoke run: `share_answered_A` 1.0 next to consistency 0.98) | `--n_pairs` keeps both orders; consistency counts complete pairs only; a test pins an always-A judge at accuracy 0.5, consistency 0 |
+| A weighted-loss Trainer would have trained at 4x the learning rate | transformers 4.57 skips dividing by gradient accumulation when the model's `forward` takes `**kwargs` (Qwen's does) and expects a custom `compute_loss` to normalize by `num_items_in_batch`; ours doesn't (caught by reading `Trainer.training_step` before the first run) | `model_accepts_loss_kwargs = False` in `WeightedTrainer`, as the Trainer's docstring asks; a test checks it |
+
 ---
 
 ## Process lessons

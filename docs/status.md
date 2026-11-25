@@ -1,6 +1,6 @@
 # Status (read this first in a new session)
 
-Last updated: 2026-11-15 (Exp 22 recorded). Update this file whenever the state below changes.
+Last updated: 2026-11-25 (model pipeline built, not run). Update this file whenever the state below changes.
 
 Learning the material from scratch (RL foundations → our experiments → Explorer runbook):
 [study-guide.md](study-guide.md).
@@ -54,8 +54,12 @@ Learning the material from scratch (RL foundations → our experiments → Explo
 ## Next steps
 
 1. **Model track (Explorer), simplified 2026-11-24:** SFT → DPO → O-GRPO (offline) from one judge-ranked
-   candidate pool, following HumorGen. The DPO-trained rJokes judge is the ranker, not a training stage. Plan and
-   state: [plans/sft-dpo-ogrpo.md](plans/sft-dpo-ogrpo.md). The trained model speaks in the Dec 8 demo.
+   candidate pool, following HumorGen. The DPO-trained rJokes judge is the ranker, not a training stage.
+   **2026-11-25: all code built on branch `model-pipeline`, smoke-tested on Qwen2.5-0.5B, 501 tests pass; nothing run
+   on the cluster yet.** Next: the user confirms the proposed criteria (decisions.md 2026-11-25) and the premise
+   source, then runs the runbook from step 0 (the judge gate, Exp 17). Plan, state and runbook:
+   [plans/sft-dpo-ogrpo.md](plans/sft-dpo-ogrpo.md); build record: [plans/model-pipeline-log.md](plans/model-pipeline-log.md).
+   The trained model speaks in the Dec 8 demo.
 2. **Demo track:** tasks T1–T11 in [plans/live-loop.md](plans/live-loop.md), each PR built by a Sonnet agent and reviewed before
    it reaches the user. T1–T10 merged, Exp 21 met, operator UI revamped; T11 merged and the acceptance run passed (Exp 22). Next: lengthen the safety check's timeout (measured on bank share), then real live shows to collect DPO and detector data. Laugh detection follows T11.
 3. Week 6: final sim figures for the report.

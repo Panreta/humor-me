@@ -8,7 +8,7 @@ Usage (cluster, repo root):
 One call per (premise, mode) asks for --per-mode different lines as a JSON list (joke_prompts.TEACHER_SYSTEM).
 A call that returns fewer usable lines is asked again, up to --retries times; whatever is still missing is
 reported, not invented. Resumable: premises are written in chunks, all 6 modes at once, and a rerun skips
-premises already in --out. Both train and eval premises get candidates; build_sets.py trains on train only.
+premises already in --out. Only train premises by default: eval premises need a prompt, not a pool (step 5).
 Output rows: premise_id, premise, split, mode, k, text, teacher, prompt_id.
 """
 import argparse
@@ -45,6 +45,7 @@ def main() -> None:
     ap.add_argument("--model", default="Qwen/Qwen2.5-32B-Instruct", help="the teacher")
     ap.add_argument("--per-mode", type=int, default=4)
     ap.add_argument("--retries", type=int, default=2)
+    ap.add_argument("--splits", nargs="+", default=["train"], help="which premise splits get candidates")
     ap.add_argument("--max-premises", type=int, default=-1, help="first n premises only (-1 = all)")
     ap.add_argument("--chunk", type=int, default=40, help="premises per checkpoint")
     ap.add_argument("--dtype", default="auto")
@@ -53,7 +54,7 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
-    premises = read_jsonl(args.premises)
+    premises = [p for p in read_jsonl(args.premises) if p["split"] in args.splits]
     if args.max_premises > 0:
         premises = premises[:args.max_premises]
     existing = read_jsonl(args.out)

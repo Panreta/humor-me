@@ -1,12 +1,14 @@
 """Step 1, option A: LLM-written premises for the joke pool (docs/plans/sft-dpo-ogrpo.md).
 
 Usage (cluster, repo root):
-    python -m explorer.gen_premises --out data/premises/premises-v1.jsonl --n 1000
+    python -m explorer.gen_premises --out data/premises/premises-v1.jsonl --n 1150
 
 Asks the teacher for short everyday premises spread over joke_prompts.AREAS, drops near-duplicates (case,
 punctuation and a leading article ignored) and premises the live safety rules reject, and keeps the first --n.
-Each premise gets a stable id (a hash of its normalized text) and a split: "eval" for about 10% (id-based, so
-adding premises never moves an old one), "train" for the rest. Eval premises are never trained on (step 5).
+Each premise gets a stable id (a hash of its normalized text) and a split: "eval" for about 1 in 5 (id-based, so
+adding premises never moves an old one), "train" for the rest. Eval premises are never trained on and need no
+candidates, only a prompt (step 5). 1 in 5 of --n 1150 gives ~230 eval premises, enough for a +-0.06 CI on a
+paired win rate (sd ~0.45 per premise), and ~920 train premises (HumorGen used 1,200).
 Written by our model, not taken from Reddit or transcripts, so the file can be committed after a hand check.
 """
 import argparse
@@ -17,7 +19,7 @@ import re
 from explorer.joke_prompts import AREAS, parse_lines, premise_messages
 from explorer.pool_io import write_jsonl
 
-EVAL_EVERY = 10  # about 1 premise in 10 is held out
+EVAL_EVERY = 5  # about 1 premise in 5 is held out for step 5
 
 
 def normalize(text: str) -> str:
@@ -61,7 +63,7 @@ def collect(replies: list[tuple[str, str]], n: int, is_safe=lambda t: True) -> l
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--out", default="data/premises/premises-v1.jsonl")
-    ap.add_argument("--n", type=int, default=1000)
+    ap.add_argument("--n", type=int, default=1150)
     ap.add_argument("--model", default="Qwen/Qwen2.5-32B-Instruct")
     ap.add_argument("--per-call", type=int, default=25, help="premises asked for per call")
     ap.add_argument("--overshoot", type=float, default=2.0, help="ask for this many times --n (dups get dropped)")

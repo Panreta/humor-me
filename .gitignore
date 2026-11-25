@@ -259,3 +259,8 @@ judge-dpo.pptx
 Humor-moi - Google Slides.pdf
 *.code-workspace
 NewlyData/
+
+# Model pipeline outputs: adapters, candidate pools, sets, eval reports (docs/plans/sft-dpo-ogrpo.md)
+runs/
+# Slurm job logs (explorer/*.sbatch write logs/%x-%j.out)
+logs/

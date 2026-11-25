@@ -13,6 +13,34 @@ was checked, and what is left. Branch: `model-pipeline` (off `judge-api`, stacki
 GPU jobs (no SSH to Explorer from the laptop), no premise generation (source not decided), no joke text in
 git, no PR.
 
+### Morning summary (read this first)
+
+**Done:** all code for steps 0–5 is on branch `model-pipeline`, smoke-tested end to end with Qwen2.5-0.5B on the
+laptop, 501 tests passing. **Nothing ran on the cluster.** The commands, in order, are the runbook in
+[sft-dpo-ogrpo.md](sft-dpo-ogrpo.md#runbook-cluster-repo-root-branch-model-pipeline).
+
+**Your decisions before the first job:**
+1. **Confirm or edit the pass criteria** in `decisions.md` 2026-11-25 (Exp 17 judge gate, Exp 23 comparison). They
+   are marked proposed.
+2. **Premise source:** the default is option A (the 32B teacher writes them, `gen_premises.py`). Say if you want
+   SemEval headlines or another source instead.
+3. **Mode in the prompt (default) or HumorGen's exact form** (`build_sets --no-mode`). Section 1.3 explains.
+4. **Cluster partition:** the new sbatch files ask for an H200 on `gpu`, like your `train_dpo.sbatch`. The
+   candidate and ranking jobs request 8 h; if `gpu` allows less, `sbatch` refuses at once, and lowering `--time`
+   is safe because every job resumes.
+
+**Found on the way, worth knowing:**
+- The "missing" judge pair builder was on the laptop next to its outputs; the committed version reproduces all
+  three files byte for byte.
+- The old judge eval counted both orders of each pair as independent (CI √2 too narrow); now scored per pair.
+- The 0.5B model answers "A" 99.75% of the time. A position-biased judge produces a silent, meaningless ranking
+  (every θ equal); `build_sets` now drops such premises and reports the judge's consistency. Check the 7B's
+  `share_answered_A` and `consistent_share` first.
+- Caught before any run: a 4× learning rate in the weighted trainer (transformers' accumulation rule), and the 32B
+  teacher overflowing the job's RAM. Both fixed and tested.
+- With ~100 eval premises, DPO vs SFT could only be called if one won over 59% of the time; the hold-out is now
+  1 in 5 (~230 premises, ±0.06).
+
 ### 1.0 Setup
 
 - **Worktree:** `../humor-me-model-pipeline` on new branch `model-pipeline`, created from `judge-api` at
@@ -145,3 +173,35 @@ the new files.
 
 **My own slip, fixed:** restoring a file after the mutation check, `git checkout judge/rank.py` reverted it to
 the last commit and wiped the uncommitted `rank_from_probs`. Re-applied the same code and re-ran the full suite.
+
+### 1.4 Step 5 code, sample sizes, and the docs
+
+**`explorer/eval_generators.py`** (Exp 23): `generate` writes one greedy line per held-out prompt per model
+(`base`, or `name=adapter`), resumable per model; `judge` asks Qwen2.5-32B, prompted **with the premise**
+(`LogitJudge.WITH_PREMISE`), every model pair on every premise in both orders, then reports paired win rates with
+95% CIs and a verdict (better / worse / inconclusive), a Bradley–Terry leaderboard with bootstrap CIs over
+premises, and each model's unsafe share. Smoke run on 6 premises × 4 smoke models: the always-"A" 0.5B judge
+gives exactly 0.5 and "inconclusive" everywhere, never a false winner.
+
+**Sample size, sized before any run (CLAUDE.md rule 4).** A premise scores a model pair 0, 0.5 or 1, sd ≈ 0.45.
+With the first plan's ~100 eval premises the CI half-width is ±0.09: DPO would need to win over 59% of premises to
+count. HumorGen saw DPO ≈ SFT, so that would almost surely be inconclusive. Eval premises need no candidates, only a
+prompt, so they are cheap: now **1 in 5 premises is held out** (`EVAL_EVERY = 5`), `gen_premises --n 1150` gives
+~230 eval (±0.06) and ~920 train (HumorGen: 1,200), and `gen_candidates` skips eval premises (`--splits train`),
+saving that compute. `build_sets` reads eval prompts from the premises file. A test checks dev and eval ids never
+overlap.
+
+**Gitignore:** `runs/` (every step's outputs; adapters, pools, reports) and `logs/` (Slurm logs) were not ignored,
+and the jobs write both inside the repo on the cluster. Added.
+
+**Docs updated:** `sft-dpo-ogrpo.md` (state per step, the runbook, what to check between steps), `status.md`,
+`decisions.md` (2026-11-25, **proposed** criteria for Exp 17 and Exp 23 and the judgment calls, for you to confirm),
+`dev-log.md` (4 rows: import-time scripts, the √2 CI, the `--n` cut, the 4× learning rate), glossary (O-GRPO,
+teacher / student, judge gate), a wiki page `docs/wiki/joke-model-training.md`, a pointer in `explorer/README.md`.
+
+**Notebooks:** `python scripts/run_notebook.py` ran all five with **0 failing claim checks**. It also re-rendered
+every PNG in `reports/figures/decision-plot/` (this Mac's matplotlib and fonts draw different bytes), and those PNGs
+are in the slides, so the re-render was discarded (`git checkout -- notebooks reports`); no notebook content
+changed. No experiment ran tonight, so `decisions-model.ipynb` is not created yet: it comes with Exp 17's result.
+
+**Final state:** 501 tests pass, 3 skipped. Every script smoke-ran end to end on Qwen2.5-0.5B on the laptop.

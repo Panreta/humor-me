@@ -153,7 +153,7 @@ def test_premises_dedupe_and_split_stably():
     assert all(r["split"] == gen_premises.split_of(r["id"]) for r in rows)
     assert gen_premises.premise_id("The office printer") == gen_premises.premise_id("office printer!!")
     ids = [gen_premises.premise_id(f"premise number {i}") for i in range(2000)]
-    assert 0.07 < sum(gen_premises.split_of(i) == "eval" for i in ids) / 2000 < 0.13
+    assert 0.16 < sum(gen_premises.split_of(i) == "eval" for i in ids) / 2000 < 0.24
 
 
 def test_fill_retries_short_cells_and_never_invents():
@@ -226,10 +226,10 @@ def ranked(premise_id, split="train", n=24, flat=False):
 
 
 def pids(n, start=1):
-    """Hex ids that are train premises (not eval: id % 10 != 0)."""
+    """Hex ids that are train premises (not eval: id % 5 != 0)."""
     out, i = [], start
     while len(out) < n:
-        if i % 10:
+        if i % 5:
             out.append(f"{i:010x}")
         i += 1
     return out
@@ -254,6 +254,19 @@ def test_sets_follow_humorgen_rules():
     for r in sets["ogrpo_train"]:
         sums[r["premise_id"]] = sums.get(r["premise_id"], 0) + r["weight"]
     assert all(abs(s - 24) < 1e-9 for s in sums.values())                              # w * G sums to G
+
+
+def test_eval_prompts_come_from_the_premise_file_too():
+    premises = [{"id": "00000000a0", "premise": "eval one", "split": "eval"},
+                {"id": "00000000a1", "premise": "train one", "split": "train"}]
+    sets, stats = build_sets.build([ranked(p) for p in pids(3)], premises=premises)
+    assert [e["premise"] for e in sets["eval_prompts"]] == ["eval one"] and stats["eval_premises"] == 1
+    assert sets["eval_prompts"][0]["mode"] in joke_prompts.MODES
+
+
+def test_dev_and_eval_ids_never_overlap():
+    ids = [f"{i:010x}" for i in range(5000)]
+    assert not any(build_sets.is_dev(i) and gen_premises.split_of(i) == "eval" for i in ids)
 
 
 def test_sets_without_mode_use_global_pairs():
@@ -299,3 +312,46 @@ def test_train_sft_stage_presets():
     assert (o.lr, o.epochs, o.weighted, o.warmup_steps) == (1e-6, 5, True, 10)
     with pytest.raises(SystemExit):
         train_sft.parse_args(["--stage", "ogrpo", "--out_dir", "x"])
+
+
+# --- step 5: evaluation ---------------------------------------------------------------------------------
+
+from explorer import eval_generators as eg  # noqa: E402
+
+
+def eval_lines(n_premises=40, models=("base", "sft", "dpo")):
+    return [{"model": m, "premise_id": f"e{i}", "premise": "p", "mode": "cynic", "text": f"{m} {i}"}
+            for i in range(n_premises) for m in models]
+
+
+def fake_results(lines, strength):
+    """A consistent judge: the stronger model wins in both orders."""
+    return {(pid, a, b): 1.0 if strength[a] > strength[b] else 0.0 for pid, a, b in eg.jobs(lines)}
+
+
+def test_eval_jobs_cover_every_ordered_model_pair():
+    lines = eval_lines(3)
+    assert len(eg.jobs(lines)) == 3 * 3 * 2
+
+
+def test_eval_win_rates_and_verdicts():
+    lines = eval_lines()
+    pts = eg.pair_points(fake_results(lines, {"base": 0, "sft": 1, "dpo": 2}))
+    assert eg.win_rate(pts, "sft", "base")["win_rate"] == 1 and eg.win_rate(pts, "sft", "base")["verdict"] == "better"
+    assert eg.win_rate(pts, "base", "dpo")["verdict"] == "worse"
+    biased = {k: 1.0 for k in eg.jobs(lines)}                         # always the first shown
+    assert eg.win_rate(eg.pair_points(biased), "dpo", "sft") == {"n": 40, "win_rate": 0.5, "ci95": [0.5, 0.5],
+                                                                 "verdict": "inconclusive"}
+
+
+def test_eval_leaderboard_orders_models():
+    lines = eval_lines(20)
+    pts = eg.pair_points(fake_results(lines, {"base": 0, "sft": 1, "dpo": 2}))
+    board = eg.leaderboard(pts, ["base", "dpo", "sft"], boot=50)
+    assert list(board) == ["dpo", "sft", "base"]
+    assert all(v["ci95"][0] <= v["theta"] <= v["ci95"][1] for v in board.values())
+
+
+def test_eval_parses_model_specs_and_cleans_replies():
+    assert eg.parse_models(["base", "sft=/runs/sft/final"]) == {"base": None, "sft": "/runs/sft/final"}
+    assert eg.clean('\n  "My joke."  \nexplanation') == "My joke."

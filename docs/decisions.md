@@ -684,3 +684,27 @@ Review of T11, fixes before the user sees it. **`show_end` carries `ratable`** (
 ## 2026-11-15 — Exp 22: the acceptance run passes; Stage 0 is done
 Bars from the plan (T11), unchanged: (a) 3 simulated shows in a row with no intervention, (b) 1 full live show with all rows valid, (c) report if one key takes over 60% of presses, (d) rerun Exp 18 if real per-bit reward noise differs from the sim's 0.15 by more than half. **Result:** (a) pass, (b) pass, (c) none flagged (Space 50% of the live show's presses), (d) 0.121 (95% CI 0.092 to 0.151) from 8 bits, inside 0.075 to 0.225, so no rerun. The live loop is accepted (Stage 0 exit). Evidence: notebooks/decisions-live.ipynb Exp 22; metrics.md "Acceptance run".
 **Recorded with a caveat:** one simulated show took 75% of its jokes from the bank because the LLM safety check timed out on 5 of its 8 bits (and one reply was malformed), failing closed as designed. The bar has no bank-share term, so it passes; the cause is the filter's 8 s budget, which a follow-up lengthens, measured on the bank share (user, 2026-11-15). Real shows for DPO wait for that fix, so their candidates come from Gemini rather than the bank. Judgment call on sequencing, not measured.
+
+## 2026-11-25 — Model pipeline: pass criteria and build choices (PROPOSED by Claude overnight; the user confirms before any run)
+Not yet decided: written down so the criteria exist before a result does (CLAUDE.md "measure before cut"). Plan:
+plans/sft-dpo-ogrpo.md; build record: plans/model-pipeline-log.md.
+**Exp 17, the judge gate (step 0).** The number that changes the decision: the trained judge's per-pair accuracy on
+the 5,318 rJokes test pairs, both orders (1 / 0.5 / 0 per pair), against 0.5 and against the untrained Qwen-7B on the
+same pairs. **Pass:** accuracy CI lower bound > 0.5 **and** paired-difference CI lower bound > 0
+(`explorer/eval_judge.py --baseline`, `gate_pass`). Size: per-pair sd is at most 0.5, so the accuracy half-width is
+at most ±0.013 and the paired one about the same, enough to see a gain of 0.02. **If it fails:** the pool is not ranked
+with it; a prompted judge (Qwen2.5-32B, premise-free template) is scored on the same pairs with the same rule.
+Reported, not barred: share answered "A" (position bias), order consistency.
+**Exp 23, SFT vs DPO vs O-GRPO (step 5).** Judge: Qwen2.5-32B prompted with the premise, **not** the judge that built
+the sets. ~230 held-out premises, one line per model each (greedy). **A model is better only when its paired win
+rate's CI lies above 0.5**; half-width about ±0.06 (sd ~0.45 per premise). Expected from HumorGen: SFT better than
+base; DPO vs SFT inconclusive; O-GRPO not better than SFT. An inconclusive DPO vs SFT replicates HumorGen, it is
+not a failure. Horizon: this is an offline proxy; the demo plays about 5 shows, and real laugh logs outrank it.
+**Build choices (judgment calls, not measured):** the mode is in the student prompt, so DPO pairs are within a mode
+(best vs worst of its 4 lines) rather than HumorGen's global top-5 vs bottom-5 (`build_sets --no-mode` restores
+HumorGen's form); training lines pass the live safety rules under **teens** rules; SFT and O-GRPO average the loss
+per line, then weight; teacher Qwen2.5-32B on the H200; 1 premise in 5 held out for evaluation; premises written by
+the teacher (option A) unless the user picks another source.
+**Known limits:** the 32B is both teacher and evaluation judge, so it may prefer its own style: read the comparisons
+between trained models, which share that bias, not a model vs the teacher. The training judge sees no premise (the
+rJokes prompt has none), so it ranks funniness, not fit to the premise.

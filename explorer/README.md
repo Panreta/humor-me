@@ -95,6 +95,14 @@ The batch run was faster: **5.2 jokes/s, 30k in ~1.6 h, 11 parse failures** (job
 mean percentile is wider than ±0.02, extend by 30k and recheck. Precision depends on jokes per
 mode (±0.29/√n), not on the share of the 400k labeled.
 
+### Joke model: SFT → DPO → O-GRPO
+
+The judge, the candidate pool and the three trainers run as `python -m explorer.<script>` (they import
+`judge/` and `backend/app/safety.py`, so the repo root must be on the path), one sbatch per step on the
+`gpu` partition's H200. The commands in order, and what to check between them, are the runbook in
+[docs/plans/sft-dpo-ogrpo.md](../docs/plans/sft-dpo-ogrpo.md#runbook-cluster-repo-root-branch-model-pipeline).
+Outputs go to `runs/` (gitignored) and adapters to `$COURSE_DIR/runs/`; copy both back after each job.
+
 ## Storage: what survives where
 
 Each job lands on **whatever node is free**: never assume the same machine twice. Everything that

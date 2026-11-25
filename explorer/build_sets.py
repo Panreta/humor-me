@@ -14,7 +14,8 @@ From each train premise's lines, sorted by the judge's Bradley-Terry theta:
   shuffled examples equals HumorGen's E_x[sum_i w_i * loss_i].
 Premises whose lines all have the same theta (a judge with no preference, e.g. one that always answers "A")
 carry no ranking and are dropped. About 5% of train premises (by id) are held out as dev, for early stopping.
-Eval premises go to eval_prompts.jsonl only (step 5), one mode each, cycling over the six.
+Eval premises (from --premises, and any in the ranked file) go to eval_prompts.jsonl only (step 5), one mode
+each, cycling over the six. Their lines are never trained on.
 Writes {sft,dpo,ogrpo}_{train,dev}.jsonl, eval_prompts.jsonl and stats.json to --out.
 """
 import argparse
@@ -32,7 +33,13 @@ EPS = 1e-6
 
 
 def is_dev(premise_id: str) -> bool:
-    return int(premise_id, 16) % DEV_EVERY == 1  # eval premises are the ids with remainder 0 mod 10
+    return int(premise_id, 16) % DEV_EVERY == 1  # never an eval id: those are 0 mod 5 (gen_premises)
+
+
+def eval_prompt(premise_id: str, premise: str, use_mode: bool) -> dict:
+    modes = list(MODES)
+    mode = modes[int(premise_id, 16) % len(modes)] if use_mode else None
+    return {"premise_id": premise_id, "premise": premise, "mode": mode, "prompt": student_messages(premise, mode)}
 
 
 def answer(text: str) -> list[dict]:
@@ -90,18 +97,16 @@ def ogrpo_rows(row: dict, use_mode: bool, temperature: float) -> list[dict]:
             for l, ai, wi in zip(lines, a, w)]
 
 
-def build(ranked: list[dict], *, sft_top: int = 10, use_mode: bool = True, dpo_pairs: int = 5,
-          temperature: float = 1.0, seed: int = 0) -> tuple[dict[str, list[dict]], dict]:
+def build(ranked: list[dict], *, premises: list[dict] = (), sft_top: int = 10, use_mode: bool = True,
+          dpo_pairs: int = 5, temperature: float = 1.0, seed: int = 0) -> tuple[dict[str, list[dict]], dict]:
     rng = random.Random(seed)
     sets = {f"{s}_{p}": [] for s in ("sft", "dpo", "ogrpo") for p in ("train", "dev")}
-    sets["eval_prompts"] = []
-    flat, modes = 0, list(MODES)
+    evals = {p["id"]: p["premise"] for p in premises if p["split"] == "eval"}
+    evals.update({r["premise_id"]: r["premise"] for r in ranked if r["split"] == "eval"})
+    sets["eval_prompts"] = [eval_prompt(pid, text, use_mode) for pid, text in evals.items()]
+    flat = 0
     for row in ranked:
         if row["split"] == "eval":
-            mode = modes[int(row["premise_id"], 16) % len(modes)]
-            sets["eval_prompts"].append({"premise_id": row["premise_id"], "premise": row["premise"],
-                                         "mode": mode if use_mode else None,
-                                         "prompt": student_messages(row["premise"], mode if use_mode else None)})
             continue
         if not informative(row):
             flat += 1
@@ -132,6 +137,7 @@ def build(ranked: list[dict], *, sft_top: int = 10, use_mode: bool = True, dpo_p
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--ranked", default="runs/pool/ranked.jsonl")
+    ap.add_argument("--premises", default="data/premises/premises-v1.jsonl", help="for the eval prompts")
     ap.add_argument("--out", default="runs/sets")
     ap.add_argument("--sft-top", type=int, default=10)
     ap.add_argument("--no-mode", action="store_true", help="premise-only prompts and HumorGen's global DPO pairs")
@@ -140,7 +146,8 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
-    sets, stats = build(read_jsonl(args.ranked), sft_top=args.sft_top, use_mode=not args.no_mode,
+    premises = read_jsonl(args.premises) if pathlib.Path(args.premises).exists() else []
+    sets, stats = build(read_jsonl(args.ranked), premises=premises, sft_top=args.sft_top, use_mode=not args.no_mode,
                         dpo_pairs=args.dpo_pairs, temperature=args.temperature, seed=args.seed)
     out = pathlib.Path(args.out)
     for name, rows in sets.items():
