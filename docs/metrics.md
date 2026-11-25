@@ -731,3 +731,16 @@ The Stage 0 exit (T11). Three simulated shows back to back, then one live show w
 - **Finding: the third simulated show took 75% of its jokes from the bank.** The generator answered, but the LLM safety check timed out (73 rejected candidates with `llm:error:LLMError:transport: ReadTimeout`, over 5 bits) and one verdict reply was malformed JSON (15 candidates). The filter fails closed, so those bits were rejected whole and the hand-checked bank filled them. The show itself held: no dead air, 21 bridge lines covered the waits. Cost: a show that is three quarters bank yields few Gemini preference pairs. The filter's budget (6 s per attempt, 8 s total) is far below the time a bit has to prepare while the previous one plays (about 40 s); a follow-up PR lengthens it and retries malformed replies, measured on the bank share.
 - Minor: the rules' name check flagged "Morse", "Yelp" and "LEDs" as people (false positives; each costs one candidate).
 - Ratings: simulated shows 4, 2, 2 (the user's taste of a simulated room); live show 3.
+
+## Room labels for the judge's pairs (Exp 25, 2026-11-24)
+
+`python -m explorer.label_state --spread` on Explorer after job 12123581 (Qwen2.5-7B-Instruct, greedy, V100, 8.8 jokes/s, 2.8 h); raw counts in `reports/metrics/rjokes_state.json`, the labeled files stay on the cluster. 89,924 of 90,000 jokes have both a mode and a room label (76 left out: 31 room-label parse failures, 45 earlier mode failures). Check fixed before the run (D-89): a field whose top value covers more than 80% says little.
+
+| Field | Top value | Share | Others |
+|---|---|---|---|
+| venue | showcase | 94.6% | bar 4.8%, company_event 0.6% |
+| energy | high | 84.6% | normal 14.9%, low 0.4% |
+| age | young_adults | 95.9% | mixed 4.1%, teens 1 joke |
+
+**All three fail the check.** The labels are the model's guess, and part of the skew is the prompt (showcase was described as an audience for clever or odd material, which fits most Reddit jokes). Teens = 1 is expected for Reddit's adult material. Chart: `reports/figures/decision-plot/exp25-room-labels.png`.
+
