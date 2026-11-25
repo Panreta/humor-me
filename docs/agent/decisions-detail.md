@@ -914,3 +914,14 @@ Decided by the user, 2026-11-25, during the first Exp 24 run, before any vote or
 
 **Prevention.** Quit the tray app before a run. Not built: a check in `run` that stops when two Ollama servers are running or nothing is loaded after a warm-up.
 
+## <a id="d-104"></a>D-104 · 2026-11-25 — Exp 24: drop the gemma4:12b reference, which cannot finish a bit in 12 s (user)
+Decided by the user, 2026-11-25, during the Exp 24 rerun, before any vote.
+
+**What happened.** The three candidates finished: qwen3:4b-instruct 60 of 60 valid, bonsai-2:4b 59 of 60 (one wrong joke count), Claude Haiku 5.5 58 of 60 (one timeout, one wrong joke count); all three are within the failure bar. gemma4:12b then timed out on its first 7 bits, every one at the 12 s limit, and its placement read unknown (the 1 GB report seen before, D-97). A direct call: about 145 output tokens in 13 to 15 s, no thinking (0 reasoning tokens), so about 10 tokens/s, with part of the model on the CPU. A bit is about 500 tokens, so about 50 s.
+
+**Options.** (a, chosen) **Drop the reference.** The ballot is back to 3 options (about 38 minutes to vote). The reference's job, showing how far the small models are from a stronger one, is already done by Haiku, which is also the model the trained one must catch. (b) Keep it with a longer time limit for it alone (it can never be picked): about 50 minutes more generation, 12 more minutes of voting, and the record would say it ran on other timing.
+
+**Mechanics (#73).** `gemma4-12b` is removed from `MODELS`; the reference rule stays in the code and is tested on a stand-in. The candidate list is hashed into the run folder's name, so the folder moves from `gen-71242a99` to `gen-2a512264`. It is renamed, not regenerated: the three remaining models' bits were made with identical settings, and only the list changed. Gemma's 7 failed attempts are archived beside the archived bonsai block (D-103).
+
+**Power.** Unchanged in substance: three models can win, as before. With no reference: 20% at a 0.5 sd lead, 83% at 1.0, 98% at 1.5, on 30 voted prompts (D-101's figures).
+
