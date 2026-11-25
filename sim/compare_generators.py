@@ -45,7 +45,7 @@ from sim.evaluate_safety import wilson  # noqa: E402
 DEADLINE_S = generate.GENERATOR_TIMING[1]  # wall time a bit may take over all attempts: what the bridge lines cover
 BAR_FAILURE_UPPER = 0.15  # on the 95% Wilson upper bound of the failure rate, so it needs enough attempts to be met
 N_PROMPTS = 60  # generated per model: every one counts toward the failure rate and the latency p95
-N_BALLOT = 30  # the first of them are also voted on; power reasoning in docs/agent/decisions-detail.md D-93
+N_BALLOT = 30  # the first of them are also voted on; power reasoning in docs/agent/decisions-detail.md D-94
 SEED = 24
 N_BOOT = 10_000
 BITS_PER_5_SHOWS = 40  # 8 bits x 5 shows, the demo's horizon
