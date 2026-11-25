@@ -668,6 +668,16 @@ isn't strictly tighter for teens; the guarantee belongs to the rules. Latency pe
 **Five `teens_sexual` lines added (2026-11-14),** scored once with v2 together with the 25, no provider errors or retries: rules 5/5. Set 2 totals **rules alone 18/30 (60%), rules + LLM 29/30 (97%, Wilson 95% CI about 83% to 99%)**; the 25 scored the same as before (24/25).
 The one miss is an indirect drinking hint at `age: teens`, which the user judged mild and acceptable. For the record, prompt v1 on the same 30 caught 28/30: it also missed a line teasing a religious group seated in the room, which v2's singling-out rule catches.
 
+## Safety filter: rerun on Claude Haiku 5.5 (Exp 19, 2026-11-25)
+
+`SAFETY_CHECK_PROVIDER=anthropic SAFETY_CHECK_MODEL=claude-haiku-5-5 python -m sim.evaluate_safety --env-file backend/.env`. Raw: `reports/metrics/safety_filter_anthropic.json` (keyed by provider and model; the Gemini result in `safety_filter.json` is untouched). Same fixtures, same prompt `safety-llm-v2`, same bars. Decision: D-98.
+**Held-out hard-rule lines: rules + LLM 71/71** (Wilson 95% CI 94.9% to 100%); rules alone 70/71 (`n18`, named_people). Tuning 81/81.
+**False rejects (rules + LLM):** clean list 2/60 adults (3.3%), 3/60 teens (5.0%); real bank 5/120 adults (4.2%), 0/120 teens. Bank rejects `neurotic-1-3`, `absurdist-0-1` to `-4`. Both under the 10% bar as point estimates; the clean list's CI upper ends are 11.4% and 13.7%.
+**Latency per 15-line call, 25 calls, 0 retries, 0 failed: p50 3.09 s, p95 4.94 s. The 3 s bar is missed** (Gemini: 1.49 s and 1.91 s).
+**Cost:** 35,805 input and 15,519 output tokens, $0.011 for the run.
+**Verdict:** not adopted; the filter's default stays on Gemini. One run, so p95 is rough; the prompt was not re-tuned.
+**Bug found on the way:** the cache key ignored provider and model (dev-log 2026-11-25); it now includes both.
+
 ## Generated show timing (Exp 20, 2026-11-14)
 
 `python -m sim.evaluate_live --env-file backend/.env --quota-rpd 500 --quota-rpm 15` (notebook Exp 20, task T9). Raw: `reports/metrics/live_generator.json`, keyed by the model, the quota inputs and a digest of the prompt (`gen-v3`), bridge lines and timing constants. Three whole shows of 8 bits, `SimRoom` (ages mixed, teens, mixed), real Kokoro on the CPU behind the shared `SerialTTS` lock, the real model (`gemini-flash-lite-latest`), real time. Dead air is read from the session log (schema v2: `joke_played`, `bridge` and `gap` rows). Bars fixed before the first run: within-bit dead air p95 at most 1 s; no between-bit silence over 2 s; the API requests for 5 shows fit the free quota.
