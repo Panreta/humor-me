@@ -254,26 +254,38 @@ def warmup_path(directory: pathlib.Path) -> pathlib.Path:
     return directory / "warmup.json"
 
 
+class WarmupError(ConfigError):
+    """A warm-up failed twice for a reason that is not a setting: the run stops, because the next timed call would pay
+    the cold load and count it as the model's failure."""
+
+
 def warm_up(spec: Spec, client, directory: pathlib.Path, now=time.perf_counter) -> bool:
     """One untimed request so the model is loaded, and alone, before its first timed call. Not an attempt: it is not in
     the model's records, latency or failures. Its wall time goes to `warmup.json` as `warmup_s` (the cold-load cost a show
-    would pay if the writer were not preloaded). Nothing listening or a missing model stops the run like a first call
-    does; any other failure is recorded and the run goes on."""
-    start = now()
-    try:
-        client.chat("Reply with JSON only.", '{"ready": true}', json_reply=True)
-        failure = None
-    except Exception as e:
-        failure = e
-    took = now() - start
-    if failure is not None and (failure_kind(failure) == "config" or "ConnectError" in str(failure)):
-        raise ConfigError(f"{spec.key} warm-up: {type(failure).__name__}: {failure} "
-                          f"(is Ollama running? `ollama serve`, and `ollama pull {spec.tag()}`)")
+    would pay if the writer were not preloaded), every try in `history`. Nothing listening or a missing model stops the
+    run like a first call does; any other failure is retried once, and a second one stops the run (`WarmupError`)."""
+    times, failure = [], None
+    for _ in range(2):
+        start = now()
+        try:
+            client.chat("Reply with JSON only.", '{"ready": true}', json_reply=True)
+            failure = None
+        except Exception as e:
+            failure = e
+        times.append(now() - start)
+        if failure is None or failure_kind(failure) == "config" or "ConnectError" in str(failure):
+            break
     rec = read_record(warmup_path(directory)) or {}
     history = rec.get(spec.key, {}).get("history", [])
-    rec[spec.key] = {"warmup_s": took, "ok": failure is None, "history": history + [took]}
+    rec[spec.key] = {"warmup_s": times[-1], "ok": failure is None, "history": history + times}
     write_record(warmup_path(directory), rec)
-    return failure is None
+    if failure is not None:
+        hint = f"is Ollama running? `ollama serve`, and `ollama pull {spec.tag()}`"
+        if failure_kind(failure) == "config" or "ConnectError" in str(failure):
+            raise ConfigError(f"{spec.key} warm-up: {type(failure).__name__}: {failure} ({hint})")
+        raise WarmupError(f"{spec.key} warm-up failed twice ({type(failure).__name__}: {failure}); nothing cached for this "
+                          "model's block. Rerun `run` to try again")
+    return True
 
 
 def call_groups(models: list[str]) -> list[list[str]]:
@@ -299,14 +311,25 @@ def run_comparison(n: int, models: list[str], make_client: Callable[[Spec], obje
     once. A file per model and prompt holds every attempt made, appended, never overwritten: `redo_failed` adds an
     attempt where the last one failed for a config or infrastructure reason, and the failure rate counts all of them.
     A local model gets one untimed warm-up in each run before its first call, and its GPU placement is measured right
-    after it, when it is the only one loaded (D-97). Returns counts of what was done."""
+    after it, when it is the only one loaded (D-97); a local model whose placement is not ok is warmed up and measured
+    again at the start of its block even when every prompt is cached. Returns counts of what was done."""
     directory, pacer = directory or run_dir(), pacer or Pacer()
     clients = {m: make_client(MODELS[m]) for m in models}
     first = set(models)  # models whose first call this run has not happened yet
     warm = {m: False for m in models if MODELS[m].local}  # warmed up in this run
     tries = {m: 0 for m in warm}  # placement measurements this run, per local model
     done = {"generated": 0, "judged": 0, "cached": 0}
+    def warm_and_measure(m: str) -> None:
+        warm[m] = True
+        client = make_warm_client(MODELS[m]) if make_warm_client else clients[m]
+        if warm_up(MODELS[m], client, directory):
+            tries[m] += 1
+            record_placement(directory, MODELS[m], http or http_json, log)
+
     for group in call_groups(models):
+        for m in group:  # a placement that is not ok is read again even when every prompt is cached: no timed call
+            if m in warm and load_placement(directory).get(m, {}).get("status") != "ok":
+                warm_and_measure(m)
         for prompt in prompts(n):
             for m in group:
                 path = directory / m / f"{prompt['id']}.json"
@@ -314,18 +337,14 @@ def run_comparison(n: int, models: list[str], make_client: Callable[[Spec], obje
                 last = rec["attempts"][-1] if rec["attempts"] else None
                 if last is None or (redo_failed and not last["ok"] and last["kind"] in ("config", "infra")):
                     if m in warm and not warm[m]:
-                        warm[m] = True
-                        client = make_warm_client(MODELS[m]) if make_warm_client else clients[m]
-                        if warm_up(MODELS[m], client, directory):
-                            tries[m] += 1
-                            record_placement(directory, MODELS[m], http or http_json)
+                        warm_and_measure(m)
                     rec["attempts"].append(generate_bit(MODELS[m], prompt, clients[m], pacer, first=m in first))
                     first.discard(m)
                     done["generated"] += 1
                     write_record(path, rec)
                     if m in tries and rec["attempts"][-1]["ok"] and tries[m] < MAX_PLACEMENT_TRIES:
                         tries[m] += 1
-                        record_placement(directory, MODELS[m], http or http_json)
+                        record_placement(directory, MODELS[m], http or http_json, log)
                 else:
                     done["cached"] += 1
                 att = final(rec)
@@ -432,13 +451,27 @@ def load_placement(directory: pathlib.Path) -> dict[str, dict]:
     return read_record(placement_path(directory)) or {}
 
 
-def record_placement(directory: pathlib.Path, spec: Spec, http: Callable[[str], dict] = http_json) -> None:
-    """Measured once and kept when ok; an unknown reading is replaced by the next measurement."""
+def describe_placement(key: str, rec: dict) -> str:
+    """One plain line for the log: what was read and what it means for the gate."""
+    ctx = rec.get("context_length")
+    if rec["status"] != "ok":
+        hint = ("; restart with OLLAMA_CONTEXT_LENGTH=8192 and rerun run" if rec.get("context_ok") is False
+                else "; rerun run to measure again")
+        return f"placement {key}: unknown: {rec['note']} -> not eligible{hint}"
+    if rec["gpu_share"] >= 1.0:
+        return f"placement {key}: 100% -> passes the GPU gate"
+    return f"placement {key}: {rec['gpu_share']:.0%} on GPU at ctx {ctx} -> not eligible (partial GPU)"
+
+
+def record_placement(directory: pathlib.Path, spec: Spec, http: Callable[[str], dict] = http_json,
+                     log: Callable[[str], None] = lambda s: None) -> None:
+    """Measured once and kept when ok; an unknown reading is replaced by the next measurement. Each new reading is logged."""
     recs = load_placement(directory)
     if recs.get(spec.key, {}).get("status") == "ok":
         return
     recs[spec.key] = measure_placement(spec, http)
     write_record(placement_path(directory), recs)
+    log(describe_placement(spec.key, recs[spec.key]))
 
 
 def placement_gate(spec: Spec | None, placement: dict | None) -> str | None:

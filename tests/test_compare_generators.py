@@ -71,8 +71,9 @@ class FakeWarm:
     def chat(self, system, user, *, json_reply=False, temperature=0.0, validate=None):
         if self.events is not None:
             self.events.append(("warm", self.model))
-        if self.fail:
-            raise self.fail
+        fail = self.fail.pop(0) if isinstance(self.fail, list) and self.fail else (None if isinstance(self.fail, list) else self.fail)
+        if fail:
+            raise fail
         return '{"ready": true}'
 
 
@@ -119,7 +120,7 @@ class FakeOllama:
                            for t, sh in self.share.items()]}
 
 
-def run(n=6, models=MODELS, clients=None, filt=None, events=None, warm_fail=None, **kw):
+def run(n=6, models=MODELS, clients=None, filt=None, events=None, warm_fail=None, log_lines=None, **kw):
     clients = {} if clients is None else clients
     http = kw.pop("http", None) or FakeOllama()
     http.events = events
@@ -129,8 +130,8 @@ def run(n=6, models=MODELS, clients=None, filt=None, events=None, warm_fail=None
         c.events = events
         return c
 
-    done = cg.run_comparison(n, models, client, filt or FakeFilter(), pacer=NoWait(), log=lambda s: None, http=http,
-                             make_warm_client=lambda spec: FakeWarm(spec.model, events, warm_fail), **kw)
+    done = cg.run_comparison(n, models, client, filt or FakeFilter(), pacer=NoWait(), log=(log_lines.append if log_lines is not None else (lambda s: None)),
+                             http=http, make_warm_client=lambda spec: FakeWarm(spec.model, events, warm_fail), **kw)
     return done, clients
 
 
@@ -849,11 +850,11 @@ def test_warm_up_failure_modes(data):
     missing = llm.LLMError("404 model not found", status=404)
     with pytest.raises(cg.ConfigError):
         run(n=2, models=[MIMO], warm_fail=missing)
-    slow = llm.LLMError("503 unavailable", status=503, retryable=True)
-    run(n=2, models=[MIMO], warm_fail=slow)  # the bits themselves are still measured: only the warm-up failed
-    w = cg.read_record(cg.warmup_path(cg.run_dir()))[MIMO]
-    assert w["ok"] is False and len(cg.load_attempts(cg.run_dir(), [MIMO], 2)[MIMO]) == 2
-    assert cg.load_placement(cg.run_dir())[MIMO]["status"] == "ok"  # measured after the first good call instead
+    slow = llm.LLMError("transport: ReadTimeout", retryable=True)
+    with pytest.raises(cg.WarmupError, match="failed twice"):  # a cold load must not be absorbed by a timed call
+        run(n=2, models=[MIMO], warm_fail=slow)
+    assert not (cg.run_dir() / MIMO / "p00.json").exists()
+    assert len(cg.read_record(cg.warmup_path(cg.run_dir()))[MIMO]["history"]) == 4 and not cg.load_placement(cg.run_dir())  # one try per config stop, then both tries
 
 
 def test_the_warm_up_client_has_a_cold_load_timeout_and_no_retries(monkeypatch):
@@ -862,3 +863,60 @@ def test_the_warm_up_client_has_a_cold_load_timeout_and_no_retries(monkeypatch):
     assert (c.base_url, c.model, c.retries) == ("http://box:11434/v1", "bonsai-2:4b", 0)
     assert c.timeout == c.deadline_s == cg.WARMUP_TIMEOUT_S >= 126  # the measured cold load of bonsai-2:4b was 126 s
     assert c.extra_body == llm.OLLAMA_NO_THINK
+
+
+# --- D-97 review round 3: re-measure unknown placement, retry the warm-up -----------------------------------------
+
+def test_a_fully_cached_rerun_measures_an_unknown_placement_with_no_timed_call_and_leaves_an_ok_one(data):
+    events = []
+    run(n=2, models=[MIMO], http=FakeOllama(ps={"models": []}))  # the first run ends with placement unknown
+    assert cg.load_placement(cg.run_dir())[MIMO]["status"] == "unknown"
+    before = len(cg.load_attempts(cg.run_dir(), [MIMO], 2)[MIMO])
+    lines = []
+    run(n=2, models=[MIMO], events=events, log_lines=lines)  # all cached; Ollama now reports properly
+    assert [k for k, _ in events] == ["warm", "ps"]  # warmed up and measured, and not one timed call
+    assert cg.load_placement(cg.run_dir())[MIMO]["status"] == "ok"
+    assert len(cg.load_attempts(cg.run_dir(), [MIMO], 2)[MIMO]) == before  # nothing added to the attempts
+    events.clear()
+    run(n=2, models=[MIMO], events=events)
+    assert events == []  # ok is kept: no warm-up, no read
+
+
+def test_each_placement_is_logged_in_plain_words_with_the_hint_for_a_wrong_context(data):
+    tag = cg.MODELS[MIMO].tag()
+    lines = []
+    run(n=1, models=[MIMO], http=FakeOllama(share={tag: 1.0}), log_lines=lines)
+    assert f"placement {MIMO}: 100% -> passes the GPU gate" in lines
+    assert any(l.startswith(f"placement {MIMO}") for l in lines)
+    for share, ctx, want in ((0.88, 8192, f"placement {MIMO}: 88% on GPU at ctx 8192 -> not eligible (partial GPU)"),
+                             (1.0, 4096, f"placement {MIMO}: unknown: loaded at context 4096, not 8192 -> not eligible; "
+                                         "restart with OLLAMA_CONTEXT_LENGTH=8192 and rerun run"),
+                             (1.0, None, None)):
+        d = data / f"x{share}{ctx}"
+        lines = []
+        http = FakeOllama(share={tag: share}, context=ctx)
+        run(n=1, models=[MIMO], http=http, directory=d, log_lines=lines)
+        if want:
+            assert want in lines
+    d = data / "gone"
+    lines = []
+    run(n=1, models=[MIMO], http=FakeOllama(ps={"models": []}), directory=d, log_lines=lines)
+    assert f"placement {MIMO}: unknown: model missing from /api/ps -> not eligible; rerun run to measure again" in lines
+
+
+def test_a_warm_up_that_fails_once_is_retried_and_both_tries_are_in_the_history(data):
+    slow = llm.LLMError("transport: ReadTimeout", retryable=True)
+    events = []
+    run(n=2, models=[MIMO], warm_fail=[slow], events=events)
+    assert [k for k, _ in events].count("warm") == 2
+    w = cg.read_record(cg.warmup_path(cg.run_dir()))[MIMO]
+    assert w["ok"] is True and len(w["history"]) == 2
+    assert len(cg.load_attempts(cg.run_dir(), [MIMO], 2)[MIMO]) == 2  # the run went on
+
+
+def test_a_warm_up_that_fails_twice_stops_the_run_and_caches_nothing_for_that_block(data):
+    slow = llm.LLMError("transport: ReadTimeout", retryable=True)
+    with pytest.raises(cg.ConfigError, match="nothing cached"):
+        run(n=2, models=[BONSAI, MIMO], warm_fail=[None, slow, slow])  # bonsai warms fine, mimo fails twice
+    assert (cg.run_dir() / BONSAI / "p00.json").exists() and not (cg.run_dir() / MIMO).exists()
+    assert len(cg.read_record(cg.warmup_path(cg.run_dir()))[MIMO]["history"]) == 2
