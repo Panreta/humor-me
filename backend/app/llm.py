@@ -114,18 +114,20 @@ class Client:
     input_tokens: int = 0
     output_tokens: int = 0
     extra_body: dict | None = None  # provider-specific request fields, merged into every request
+    json_schema: bool = False  # send a dict `json_reply` as a json_schema response_format (Ollama enforces it), not json_object
 
-    def chat(self, system: str, user: str, *, json_reply: bool = False, temperature: float = 0.0,
+    def chat(self, system: str, user: str, *, json_reply: bool | dict = False, temperature: float = 0.0,
              validate: Callable[[str], None] | None = None) -> str:
         return run_with_retries(self, lambda timeout: self._once(system, user, json_reply, temperature, timeout),
                                 validate)
 
-    def _once(self, system: str, user: str, json_reply: bool, temperature: float, timeout: float) -> str:
+    def _once(self, system: str, user: str, json_reply: bool | dict, temperature: float, timeout: float) -> str:
         body = {"model": self.model, "temperature": temperature,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
         body.update(self.extra_body or {})
         if json_reply:
-            body["response_format"] = {"type": "json_object"}
+            body["response_format"] = ({"type": "json_schema", "json_schema": {"name": "reply", "schema": json_reply}}
+                                       if self.json_schema and isinstance(json_reply, dict) else {"type": "json_object"})
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         # httpx's timeouts are per phase and the read one is per chunk, so they alone do not bound a slow-dripping
         # reply: the body is read in chunks and cut off once `timeout` has passed in total. What remains unbounded is

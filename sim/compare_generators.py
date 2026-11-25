@@ -1,4 +1,4 @@
-"""Exp 24: which model should write the live show's bits? Claude Haiku 5.5, or a local Ollama model (mimo-v2.6:9b, bonsai-2:4b).
+"""Exp 24: which model should write the live show's bits? Claude Haiku 5.5, or a local Ollama model (bonsai-2:4b, qwen3:4b-instruct; D-101).
 A local model is eligible only if Ollama puts it 100% on the GPU at context 8192 (it must fit beside Kokoro, which runs on
 the CPU); gemma4:12b is a reference: measured and on the ballot, never picked (D-97).
 
@@ -62,6 +62,7 @@ SCHEMA_VERSION = "attempts-v2"
 
 OLLAMA_URL = "http://127.0.0.1:11434/v1"  # Ollama's OpenAI-compatible endpoint: no key
 OLLAMA_PROVIDER = "ollama"
+LOCAL_JSON_MODE = "json_schema"  # D-101: local models are sent the reply schema, as Claude is; "json_object" is any JSON
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,7 @@ class Spec:
 # result's key. D-96 explains why the Gemini writers were dropped. Local calls are sequential and need no spacing
 # (one GPU), but keep the pacer's interface.
 MODELS = {
-    "mimo-v2.6-9b": Spec("mimo-v2.6-9b", OLLAMA_PROVIDER, "mimo-v2.6:9b", 0.0, 0.0, "ollama", 0.0, "MIMO_OLLAMA_TAG"),
+    "qwen3-4b-instruct": Spec("qwen3-4b-instruct", OLLAMA_PROVIDER, "qwen3:4b-instruct", 0.0, 0.0, "ollama", 0.0, "QWEN_OLLAMA_TAG"),
     "bonsai-2-4b": Spec("bonsai-2-4b", OLLAMA_PROVIDER, "bonsai-2:4b", 0.0, 0.0, "ollama", 0.0, "BONSAI_OLLAMA_TAG"),
     "claude-haiku-5-5": Spec("claude-haiku-5-5", "anthropic", "claude-haiku-5-5", 0.10, 0.50, "anthropic", 1.0),
     # D-97: too big to serve the live loop beside Kokoro, so it only shows how far the others are from a stronger model
@@ -127,7 +128,7 @@ def gen_digest(seed: int = SEED) -> str:
              str((generate.K, generate.JOKES, generate.TEMPERATURE, generate.GENERATOR_TIMING, generate.RETRIES)),
              safety.PROMPT_ID, safety.SYSTEM, str((generate.FILTER_TIMING, generate.FILTER_RETRIES, SAFETY_MODEL)),
              json.dumps([[k, m.provider, m.tag(), m.base_url()] for k, m in MODELS.items()]),  # the candidates
-             SCHEMA_VERSION, str(seed)]
+             LOCAL_JSON_MODE, SCHEMA_VERSION, str(seed)]
     return hashlib.sha256("\x00".join(parts).encode()).hexdigest()[:8]
 
 
@@ -247,7 +248,7 @@ def needs_safety(att: dict | None) -> bool:
                                                                   and att["safety_tries"] < MAX_SAFETY_TRIES))
 
 
-WARMUP_TIMEOUT_S = 300.0  # a cold load took 126 s for bonsai-2:4b and 35 s for mimo-v2.6:9b (D-97), far past a bit's 12 s
+WARMUP_TIMEOUT_S = 300.0  # a cold load took 126 s for bonsai-2:4b and 35 s for mimo-v2.6:9b, since dropped (D-97), far past a bit's 12 s
 
 
 def warmup_path(directory: pathlib.Path) -> pathlib.Path:
@@ -361,7 +362,7 @@ def make_client(spec: Spec):
     timeout, deadline = generate.GENERATOR_TIMING
     if spec.local:
         return llm.Client(spec.base_url(), "", spec.tag(), timeout, retries=generate.RETRIES, deadline_s=deadline,
-                          extra_body=llm.OLLAMA_NO_THINK)
+                          extra_body=llm.OLLAMA_NO_THINK, json_schema=LOCAL_JSON_MODE == "json_schema")
     return llm.from_env(timeout, role="joke_writer", provider=spec.provider, model=spec.model,
                         retries=generate.RETRIES, deadline_s=deadline)
 
@@ -369,7 +370,7 @@ def make_client(spec: Spec):
 def make_warmup_client(spec: Spec):
     """The same local client with a timeout long enough for a cold load, and no retries."""
     return llm.Client(spec.base_url(), "", spec.tag(), WARMUP_TIMEOUT_S, retries=0, deadline_s=WARMUP_TIMEOUT_S,
-                      extra_body=llm.OLLAMA_NO_THINK)
+                      extra_body=llm.OLLAMA_NO_THINK, json_schema=LOCAL_JSON_MODE == "json_schema")
 
 
 def make_safety_client():

@@ -20,7 +20,7 @@ from sim import judge_generators as jg  # noqa: E402
 from tests.test_compare_generators import (MODELS, TAG, FakeModel, NoWait, data,  # noqa: E402,F401
                                            fresh_safety, run)  # noqa: F401
 
-PREF = {"charlie": 0, "bravo": 1, "alpha": 2}  # this user's taste: claude, bonsai, mimo
+PREF = {"charlie": 0, "bravo": 1, "alpha": 2}  # this user's taste: claude, bonsai, qwen
 JUDGE = "claude-haiku-5-5"  # an API judge, so the fake client stands in for it
 
 
@@ -76,14 +76,14 @@ def test_the_few_shot_prompt_is_built_from_the_votes_with_blind_letters_only(dat
         for lines in ex[p]["options"].values():
             assert all(line in user for line in lines)
     assert user.count("## Example") == 3 and user.rstrip().endswith("Rank these options as that person would.")
-    assert not any(w in (system + user).lower() for w in ("gemini", "claude", "haiku", "mimo", "bonsai", "ollama"))
+    assert not any(w in (system + user).lower() for w in ("gemini", "claude", "haiku", "qwen", "bonsai", "ollama"))
     assert "Their ranking" not in user.split("## New setting to rank")[1]
     assert "new letters" not in system and "reused" in system  # the letters repeat from one setting to the next
 
 
 def test_user_examples_with_a_model_subset_keep_the_users_order_among_the_rest(data):
     d, key, votes = prep()
-    subset = ["mimo-v2.6-9b", "claude-haiku-5-5"]
+    subset = ["qwen3-4b-instruct", "claude-haiku-5-5"]
     ex = jg.user_examples(d, subset, key, votes, {p["id"]: p for p in cg.prompts(60)})
     assert sorted(ex) == sorted(key)
     for pid, e in ex.items():
@@ -110,7 +110,7 @@ def test_a_perfect_judge_ranks_the_same_in_every_order_and_the_mean_is_exact(dat
     judge = FakeJudge()
     result = judge_run(judge, d)
     assert result["n_calls"] == len(judge.sent) == 3 * (30 + 30)  # three orders for each of 30 leave-one-out and 30 later prompts
-    assert all(r == {"claude-haiku-5-5": 1.0, "bonsai-2-4b": 2.0, "mimo-v2.6-9b": 3.0} for r in result["judge_ranks"].values())
+    assert all(r == {"claude-haiku-5-5": 1.0, "bonsai-2-4b": 2.0, "qwen3-4b-instruct": 3.0} for r in result["judge_ranks"].values())
     assert result["joined"] and not result["incomplete"] and result["pairwise"]["rate"] == 1.0
 
 
@@ -129,7 +129,7 @@ def test_a_model_with_no_safe_thread_is_ranked_last_by_the_judge_too(data):
     d, key, votes = prep(clients=clients)
     result = judge_run(FakeJudge(), d)
     r = result["judge_ranks"]["p30"]
-    assert r["bonsai-2-4b"] == 3.0 and r["claude-haiku-5-5"] == 1.0 and r["mimo-v2.6-9b"] == 2.0
+    assert r["bonsai-2-4b"] == 3.0 and r["claude-haiku-5-5"] == 1.0 and r["qwen3-4b-instruct"] == 2.0
     shown, last = jg.shown_threads(d, MODELS, "p30", {})
     assert "bonsai-2-4b" not in shown and last == ["bonsai-2-4b"]
 
@@ -160,7 +160,7 @@ def test_the_cache_key_hashes_everything_the_judge_is_shown(data):
     assert jg.call_id(JUDGE, a["kind"], a["pid"], a["order"], a["system"], a["user"] + " ") != a["id"]
     assert jg.call_id("other-judge", a["kind"], a["pid"], a["order"], a["system"], a["user"]) != a["id"]
     # a changed bit in a later prompt re-asks exactly that prompt, in every order, and nothing else
-    path = d / "mimo-v2.6-9b" / "p45.json"
+    path = d / "qwen3-4b-instruct" / "p45.json"
     rec = json.loads(path.read_text(encoding="utf-8"))
     att = cg.final(rec)
     t = cg.playable_thread(rec)
@@ -360,7 +360,7 @@ def test_the_explorer_bundle_names_no_model_and_the_replies_come_back_through_th
     info = jg.export_bundle(MODELS, 60, 30, JUDGE, out, directory=d)
     assert info["calls"] == 180 and (info["loo"], info["new"]) == (90, 90)
     text = (out / "calls.jsonl").read_text(encoding="utf-8")
-    assert not any(w in text.lower() for w in ("gemini", "claude", "haiku", "mimo", "bonsai", "ollama", "key.json"))
+    assert not any(w in text.lower() for w in ("gemini", "claude", "haiku", "qwen", "bonsai", "ollama", "key.json"))
     assert [p.name for p in out.iterdir()] == ["calls.jsonl"]  # the manifest stays in the run folder
     assert jg.manifest_path(d).exists()
     rows = [json.loads(line) for line in text.splitlines()]

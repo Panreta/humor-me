@@ -106,6 +106,22 @@ def test_extra_body_fields_are_sent_with_every_request():
     assert "reasoning_effort" not in seen[0]
 
 
+SCHEMA = {"type": "object", "required": ["x"]}
+
+
+def test_json_schema_is_sent_only_when_asked_and_only_for_a_schema():
+    c, seen = client((200, completion("ok")), json_schema=True)
+    c.chat("s", "u", json_reply=SCHEMA)
+    assert seen[0]["response_format"] == {"type": "json_schema", "json_schema": {"name": "reply", "schema": SCHEMA}}
+    c.chat("s", "u", json_reply=True)  # no schema to send: any JSON
+    assert seen[1]["response_format"] == {"type": "json_object"}
+    c.chat("s", "u")
+    assert "response_format" not in seen[2]
+    c, seen = client((200, completion("ok")))  # the default, and what Gemini's client keeps: json_object even with a schema
+    c.chat("s", "u", json_reply=SCHEMA)
+    assert seen[0]["response_format"] == {"type": "json_object"}
+
+
 def test_a_timeout_is_retried():
     c, seen = client(httpx.ReadTimeout("slow"), (200, completion("ok")), retries=1)
     assert c.chat("s", "u") == "ok" and len(seen) == 2
