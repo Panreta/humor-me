@@ -44,7 +44,7 @@ JUDGES = {
     # Run on Explorer from a bundle (explorer/judge_generators.py); no API, no price, no live client.
     JUDGE_MODEL: cg.Spec(JUDGE_MODEL, "explorer", "Qwen/Qwen2.5-7B-Instruct", 0.0, 0.0, "explorer", 0.0),
     "claude-haiku-5-5": cg.MODELS["claude-haiku-5-5"],
-    "gemini-flash-lite": cg.MODELS["gemini-flash-lite"],
+    "gemini-flash-lite": cg.Spec("gemini-flash-lite", "gemini", "gemini-flash-lite-latest", 0.10, 0.40, "gemini-judge", 7.0),
 }
 OLLAMA_URL = "http://127.0.0.1:11434/v1"  # Ollama's OpenAI-compatible endpoint: the same llm.Client, no key
 OLLAMA_TIMING = (900.0, 1500.0)  # a 27B model reading 15k tokens is slow: per attempt and over all attempts

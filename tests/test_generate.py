@@ -79,6 +79,49 @@ def test_a_client_error_and_a_provider_block_are_not_retried():
         assert len(seen) == 1
 
 
+@pytest.mark.parametrize("raw", [
+    "<think>hmm {not json}</think>\n" + reply(),  # a reasoning block before the JSON
+    "<think>\nmulti\nline\n</think>" + reply(),
+    "reasoning the template opened in the prompt</think>" + reply(),  # only the closing tag is in the reply
+    "<think>a</think><think>b</think>" + reply(),
+    reply(),  # no block: untouched
+])
+def test_a_reasoning_block_never_breaks_the_json_parse(raw):
+    c, _ = client((200, completion(raw)))
+    assert generate.GeminiGenerator(c).generate("neurotic", 0, 0, {"venue": "club", "energy": "high", "age": "adults"}).texts
+
+
+def test_a_reply_that_is_only_an_unfinished_reasoning_block_is_an_empty_reply():
+    c, _ = client((200, completion("<think>still thinking about")))
+    with pytest.raises(llm.LLMError, match="empty reply"):
+        c.chat("s", "u")
+
+
+def test_extra_body_fields_are_sent_with_every_request():
+    c, seen = client((200, completion("ok")), extra_body=llm.OLLAMA_NO_THINK)
+    c.chat("s", "u", json_reply=True)
+    assert seen[0]["reasoning_effort"] == "none" and seen[0]["response_format"] == {"type": "json_object"}
+    c, seen = client((200, completion("ok")))
+    c.chat("s", "u")
+    assert "reasoning_effort" not in seen[0]
+
+
+SCHEMA = {"type": "object", "required": ["x"]}
+
+
+def test_json_schema_is_sent_only_when_asked_and_only_for_a_schema():
+    c, seen = client((200, completion("ok")), json_schema=True)
+    c.chat("s", "u", json_reply=SCHEMA)
+    assert seen[0]["response_format"] == {"type": "json_schema", "json_schema": {"name": "reply", "schema": SCHEMA}}
+    c.chat("s", "u", json_reply=True)  # no schema to send: any JSON
+    assert seen[1]["response_format"] == {"type": "json_object"}
+    c.chat("s", "u")
+    assert "response_format" not in seen[2]
+    c, seen = client((200, completion("ok")))  # the default, and what Gemini's client keeps: json_object even with a schema
+    c.chat("s", "u", json_reply=SCHEMA)
+    assert seen[0]["response_format"] == {"type": "json_object"}
+
+
 def test_a_timeout_is_retried():
     c, seen = client(httpx.ReadTimeout("slow"), (200, completion("ok")), retries=1)
     assert c.chat("s", "u") == "ok" and len(seen) == 2

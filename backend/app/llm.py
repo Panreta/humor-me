@@ -8,6 +8,7 @@ a second or two on a 429, not longer (the bridge line covers that, docs/plans/li
 """
 import json
 import os
+import re
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -26,6 +27,22 @@ def strip_fence(reply: str) -> str:
     if reply.startswith("```"):
         reply = reply.strip("`").removeprefix("json").strip()
     return reply
+
+
+# Asked of Ollama's OpenAI-compatible endpoint for models tagged "thinking". Unverified: if the installed Ollama ignores
+# it, `strip_think` still keeps a reasoning block out of the JSON parse (it only costs the latency of thinking).
+OLLAMA_NO_THINK = {"reasoning_effort": "none"}
+_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.S)
+
+
+def strip_think(reply: str) -> str:
+    """The reply without a reasoning block. Closed `<think>...</think>` blocks go; a reply that only closes one (the
+    chat template put the opening tag in the prompt) keeps what follows the last `</think>`; an opened block that never
+    closed (cut off) drops everything from its tag on, which leaves nothing usable and is reported as an empty reply."""
+    reply = _THINK_BLOCK.sub("", reply)
+    if "</think>" in reply:
+        reply = reply.rsplit("</think>", 1)[1]
+    return reply.split("<think>", 1)[0]
 
 
 class LLMError(Exception):
@@ -96,17 +113,21 @@ class Client:
     # Token bookkeeping for cost estimates (Exp 24): summed over every reply that carried a usage block.
     input_tokens: int = 0
     output_tokens: int = 0
+    extra_body: dict | None = None  # provider-specific request fields, merged into every request
+    json_schema: bool = False  # send a dict `json_reply` as a json_schema response_format (Ollama enforces it), not json_object
 
-    def chat(self, system: str, user: str, *, json_reply: bool = False, temperature: float = 0.0,
+    def chat(self, system: str, user: str, *, json_reply: bool | dict = False, temperature: float = 0.0,
              validate: Callable[[str], None] | None = None) -> str:
         return run_with_retries(self, lambda timeout: self._once(system, user, json_reply, temperature, timeout),
                                 validate)
 
-    def _once(self, system: str, user: str, json_reply: bool, temperature: float, timeout: float) -> str:
+    def _once(self, system: str, user: str, json_reply: bool | dict, temperature: float, timeout: float) -> str:
         body = {"model": self.model, "temperature": temperature,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+        body.update(self.extra_body or {})
         if json_reply:
-            body["response_format"] = {"type": "json_object"}
+            body["response_format"] = ({"type": "json_schema", "json_schema": {"name": "reply", "schema": json_reply}}
+                                       if self.json_schema and isinstance(json_reply, dict) else {"type": "json_object"})
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         # httpx's timeouts are per phase and the read one is per chunk, so they alone do not bound a slow-dripping
         # reply: the body is read in chunks and cut off once `timeout` has passed in total. What remains unbounded is
@@ -140,6 +161,7 @@ class Client:
         if choice.get("finish_reason") == "content_filter":
             raise LLMError("blocked by provider")
         text = (choice.get("message") or {}).get("content")
+        text = strip_think(text) if isinstance(text, str) else text
         if not isinstance(text, str) or not text.strip():
             raise LLMError("empty reply")
         return text
