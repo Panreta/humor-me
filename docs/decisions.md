@@ -91,7 +91,7 @@ What we decided and why, one line each. Click an ID for the full record (options
 | [D-85](agent/decisions-detail.md#d-85) | Nov 15 | Acceptance run passed: 3 simulated shows and 1 live show ran clean. Stage 0 is done. |
 | [D-86](agent/decisions-detail.md#d-86) | Nov 24 | Two decision files: this one for people, a detailed one for agents. |
 | [D-87](agent/decisions-detail.md#d-87) | Nov 24 | Docs people read stay short and plain; agent-only detail lives in `docs/agent/`. |
-| [D-88](agent/decisions-detail.md#d-88) | Nov 24 | Tag the 90k rJokes jokes with the room each suits (venue, energy, age) for Tingyu's judge; upvotes ignore the room, so a gain is not expected. |
+| [D-89](agent/decisions-detail.md#d-89) | Nov 24 | Tag the 90k rJokes jokes with the room each suits (venue, energy, age) for Tingyu's judge; upvotes ignore the room, so a gain is not expected. |
 
 New decision: add its full entry to the detailed log with the next ID, then a row here in the same PR.
 A test fails if the two files' IDs don't match.
