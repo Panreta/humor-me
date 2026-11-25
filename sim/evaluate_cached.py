@@ -1,4 +1,4 @@
-"""Exp 23: do cached bits fill the show-open silence? (docs/agent/decisions-detail.md, D-88)
+"""Exp 23: do cached bits fill the show-open silence? (docs/agent/decisions-detail.md, D-90)
 
 Usage:
     python -m sim.evaluate_cached <session id> [<session id> ...] [--dir data/sessions] [--record]
@@ -6,11 +6,12 @@ Usage:
 Scores shows the user ran (3 simulated, `GENERATOR=llm`, after at least one live show gave the cache). Plain, it prints
 and saves nothing; `--record` writes `reports/metrics/cached_bits.json`: numbers and session ids only, no text.
 
-Bar, fixed before any run: on 3 simulated shows with GENERATOR=llm whose first audio is a cached line of bit 0's own
-mode, the show-open silence (show_start to the first audio of any kind, cached or joke) is at most 2 s on every one.
-A show that does not qualify (no cached line for bit 0's mode, so the opener was a joke or another mode's line) is
-listed and does not count toward the 3. The between-bit silence is reported beside it, with no bar: this change does
-not target it, and Exp 20's bar (no silence over 2 s) is the one that judges it.
+Bar (fixed before any run, changed once after review and before any run): on 3 simulated shows with GENERATOR=llm
+whose logged cache (the `cache` row) held a bit of bit 0's own mode with a line that passed the re-check at the start,
+the show-open silence (show_start to the first audio of any kind, cached or joke) is at most 2 s on every one. A show
+qualifies by what it had at the start, not by what it played: a slow or failed cached render is a MISS, not an
+exclusion. A show with no such cached bit is listed and does not count toward the 3. The between-bit silence is
+reported beside it, with no bar: this change does not target it, and Exp 20's bar (no silence over 2 s) judges it.
 """
 import argparse
 import hashlib
@@ -44,13 +45,12 @@ def between_bit_silence(rows: list[dict]) -> list[float]:
     return silences(rows)["between"]
 
 
-def opened_with_cache(rows: list[dict]) -> bool:
-    """True when the show's first audio was a cached line of the mode bit 0 played (the bar's precondition)."""
-    audio = [r for r in rows if r["event"] in AUDIO]
-    first = min(audio, key=lambda r: r["audio_start_at"], default=None)
+def had_cache_for_bit_zero(rows: list[dict]) -> bool:
+    """True when the show's `cache` row held a bit of the mode bit 0 played with at least one line that passed the
+    re-check (the bar's precondition, decided from what the show had at its start)."""
     mode = next((r["action"] for r in rows if r["event"] == "bit_decision" and r["bit"] == 0), None)
-    return (first is not None and first["event"] == "bridge" and first.get("kind") == "cached"
-            and first["source"].get("mode") == mode)
+    return any(b["mode"] == mode and any(line["verdict"] == "pass" for line in b["lines"])
+               for r in rows if r["event"] == "cache" for b in r["bits"])
 
 
 def show_report(session: str, directory: pathlib.Path) -> dict:
@@ -68,7 +68,7 @@ def show_report(session: str, directory: pathlib.Path) -> dict:
     return {"session": session, "valid": True, "error": None, "at": start["at"], "room": start["room"],
             "status": ends[-1]["status"] if ends else "none", "generator_id": start["generator_id"],
             "counts": llm and start["room"] == "sim" and bool(ends) and ends[-1]["status"] == "finished"
-                      and opened_with_cache(rows),
+                      and had_cache_for_bit_zero(rows),
             "open_silence_s": open_silence(rows),
             "n_bridges": len(bridges), "n_cached": sum(r.get("kind") == "cached" for r in bridges),
             "between_n": len(between), "between_max_s": max(between, default=None),
@@ -128,7 +128,7 @@ def verdict(res: dict) -> str:
     got = f"{res['n_counted']} of {res['shows_needed']} qualifying shows"
     if res["n_counted"] < res["shows_needed"]:
         return (f"Show-open silence at most {res['bar_open_s']:.0f} s: NOT DECIDED, only {got} (a qualifying show is a "
-                f"finished simulated llm show that opened with a cached line of bit 0's mode)")
+                f"finished simulated llm show whose cache held a bit of bit 0's mode)")
     return (f"Show-open silence at most {res['bar_open_s']:.0f} s on every one of {got}: "
             f"{'PASS' if res['pass_open'] else 'MISS'} (worst {secs(res['open_max_s'])}); "
             f"worst between-bit silence {secs(res['between_max_s'])}, no bar")

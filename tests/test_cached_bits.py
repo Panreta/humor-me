@@ -1,4 +1,4 @@
-"""Cached bits (D-88): which bits are popular, the safety re-check for the room at hand, how the show plays them, that
+"""Cached bits (D-90): which bits are popular, the safety re-check for the room at hand, how the show plays them, that
 they leave no label behind, and Exp 23's scoring on synthetic logs. Fake voice and clock; no API, no Kokoro."""
 import asyncio
 import pathlib
@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "backend"))
 
-from app import safety  # noqa: E402
+from app import cache, safety  # noqa: E402
 from app import log as log_module  # noqa: E402
 from app.cache import CachedBit, CachedLine, popular_bits, screen  # noqa: E402
 from app.director import load_director  # noqa: E402
@@ -28,16 +28,21 @@ def frozen_time(monkeypatch):
     return now
 
 
-def live_show(directory, bits, room="live", at=1000.0, now=None):
-    """bits: (mode, levels, line texts[, bit_end reward to write]). One finished show of `room`; returns its rows."""
+def live_show(directory, bits, room="live", at=1000.0, now=None, age="mixed", bank=()):
+    """bits: (mode, levels, line texts[, bit_end reward to write]). One finished show of `room`; returns its rows.
+    A text in `bank` was played from the hand-written bank (its candidates row says so)."""
     if now is not None:
         now[0] = at
     log = SessionLog(directory)
-    log.write("show_start", room=room, **START)
+    log.write("show_start", room=room, **{**START, "context": {**CTX, "age": age}})
     for i, (mode, levels, texts, *fake) in enumerate(bits):
         log.write("bit_decision", bit=i, obs={"t": i, "n_bits": 8, "context": CTX, "last_mode": None},
                   scores={m: 0.0 for m in MODES}, greedy=mode, action=mode, probs={m: 1 / 6 for m in MODES})
         for joke, text in enumerate(texts):
+            from_bank = text in bank
+            log.write("candidates", bit=i, joke=joke, prompt_id="p", prompt="", generator_id="bank-v1" if from_bank else "gen",
+                      items=[{"text": text, "verdict": "pass",
+                              "reason": "hand-checked bank: voice failed (bank-v1); rules: ok" if from_bank else None}])
             log.write("joke_played", bit=i, joke=joke, chosen=0, pick_prob=1.0, text=text, tts_seconds=0.1,
                       audio_seconds=1.0, audio_start_at=1.0, audio_end_at=2.0)
             react(log, i, joke, levels[joke])
@@ -71,10 +76,10 @@ def test_simulated_shows_never_make_a_bit_popular(tmp_path, frozen_time):
 
 
 def test_reward_is_recomputed_from_the_labels_not_read_from_bit_end(tmp_path, frozen_time):
-    rows = live_show(tmp_path, [("optimist", [0] * 5, lines("liar"), 1.0), ("optimist", [3] * 5, lines("honest"), 0.0)],
+    rows = live_show(tmp_path, [("optimist", [1] * 5, lines("liar"), 1.0), ("optimist", [3] * 5, lines("honest"), 0.0)],
                      now=frozen_time)
     got = popular_bits([rows])["optimist"]
-    assert [b.lines[0].text for b in got] == ["honest line 0", "liar line 0"] and [b.reward for b in got] == [1.0, 0.0]
+    assert [b.lines[0].text for b in got] == ["honest line 0", "liar line 0"] and [b.reward for b in got] == [1.0, pytest.approx(1 / 3)]
 
 
 def test_a_bit_with_too_few_labels_is_skipped(tmp_path, frozen_time):
@@ -87,7 +92,7 @@ def test_a_bit_with_too_few_labels_is_skipped(tmp_path, frozen_time):
 
 def test_a_bit_that_repeats_a_better_ones_lines_is_dropped(tmp_path, frozen_time):
     a = live_show(tmp_path, [("cynic", [3] * 5, lines("same"))], at=1000.0, now=frozen_time)
-    b = live_show(tmp_path, [("cynic", [1] * 5, lines("same")), ("cynic", [0] * 5, lines("other"))], at=2000.0, now=frozen_time)
+    b = live_show(tmp_path, [("cynic", [1] * 5, lines("same")), ("cynic", [1] * 5, lines("other"))], at=2000.0, now=frozen_time)
     got = popular_bits([a, b], per_mode=3)["cynic"]
     assert [x.lines[0].text for x in got] == ["same line 0", "other line 0"] and got[0].session == a[0]["session"]
 
@@ -101,32 +106,70 @@ def test_each_mode_keeps_only_its_best_per_mode(tmp_path, frozen_time):
     assert popular_bits([rows], per_mode=1)["optimist"][0].reward == 1.0
 
 
+def test_a_line_the_bank_played_is_never_cached_and_a_level_zero_line_is_dropped(tmp_path, frozen_time):
+    rows = live_show(tmp_path, [("cynic", [3, 3, 3, 0, 3], lines("g")), ("optimist", [3] * 5, lines("b"))],
+                     now=frozen_time, bank={"g line 1", "b line 0", "b line 1", "b line 2", "b line 3", "b line 4"})
+    got = popular_bits([rows])
+    assert [ln.text for ln in got["cynic"][0].lines] == ["g line 0", "g line 2", "g line 4"]  # 1: bank, 3: level 0
+    assert "optimist" not in got  # every line came from the bank, so the bit is gone
+
+
+def test_a_bit_carries_its_source_shows_age_and_venue(tmp_path, frozen_time):
+    rows = live_show(tmp_path, [("cynic", [3] * 5, lines("t"))], age="teens", now=frozen_time)
+    b = popular_bits([rows])["cynic"][0]
+    assert (b.age, b.venue) == ("teens", CTX["venue"])
+
+
 # --- the safety re-check ---
 
 
-def bit_of(*texts, mode="neurotic", reward=0.9):
-    return CachedBit("s", 0, mode, reward, tuple(CachedLine(i, t) for i, t in enumerate(texts)))
+def bit_of(*texts, mode="neurotic", reward=0.9, age="mixed", venue="bar", session="s"):
+    return CachedBit(session, 0, mode, reward, tuple(CachedLine(i, t) for i, t in enumerate(texts)), age, venue)
 
 
 def test_a_line_that_passed_a_mixed_room_is_dropped_for_a_teen_room():
     beer = "I drank a beer before the show"
-    cached = {"neurotic": [bit_of("My code is anxious.", beer, "My fan is loud.")]}
-    mixed = screen(cached, safety.check_rules, "mixed")
-    teens = screen(cached, safety.check_rules, "teens")
+    cached = {"neurotic": [bit_of("My code is anxious.", beer, "My fan is loud.", age="teens")]}
+    mixed, _ = screen(cached, safety.check_rules, "mixed")
+    teens, report = screen(cached, safety.check_rules, "teens")
     assert [ln.text for ln in mixed[0].lines] == ["My code is anxious.", beer, "My fan is loud."]
     assert [ln.text for ln in teens[0].lines] == ["My code is anxious.", "My fan is loud."]
-    assert screen({"neurotic": [bit_of(beer)]}, safety.check_rules, "teens") == []  # nothing left: the bit goes
+    assert [(x["verdict"], x["reason"]) for x in report[0]["lines"]][1] == ("reject", "rules: teens_alcohol:beer")
+    assert screen({"neurotic": [bit_of(beer, age="teens")]}, safety.check_rules, "teens")[0] == []  # the bit goes
+
+
+def test_a_teen_room_takes_only_bits_from_teen_shows():
+    clean = "My fan is loud."  # passes the rules for teens: only the source audience tells the rooms apart
+    cached = {"neurotic": [bit_of(clean, age="mixed", session="adult")], "cynic": [bit_of("My code sighs.", mode="cynic", age="teens", session="teen")]}
+    kept, report = screen(cached, safety.check_rules, "teens")
+    assert [b.session for b in kept] == ["teen"]
+    assert next(b for b in report if b["session"] == "adult")["lines"][0]["reason"] == "teen room, source show was mixed"
+    assert next(b for b in report if b["session"] == "adult")["source_age"] == "mixed"
+    assert len(screen(cached, safety.check_rules, "mixed")[0]) == 2  # an adult room takes both
+    odd, _ = screen({"neurotic": [bit_of(clean, age="kids")]}, safety.check_rules, "children")  # any non-standard age is teens
+    assert len(odd) == 1
+    assert screen({"neurotic": [bit_of(clean, age="mixed")]}, safety.check_rules, "kids")[0] == []
+
+
+def test_a_line_in_two_pooled_bits_is_kept_once_and_a_same_venue_bit_goes_first():
+    cached = {"neurotic": [bit_of("same", "a1", reward=0.9, venue="bar", session="x")],
+              "cynic": [bit_of("same", "b1", mode="cynic", reward=0.5, venue="club", session="y")]}
+    kept, report = screen(cached, safety.check_rules, "mixed", venue="club")
+    assert [b.session for b in kept] == ["y", "x"]  # the club bit leads despite the lower reward
+    assert [ln.text for ln in kept[0].lines] == ["same", "b1"] and [ln.text for ln in kept[1].lines] == ["a1"]
+    assert report[1]["lines"][0]["reason"] == "duplicate of a pooled line"
 
 
 def test_a_filter_that_cannot_decide_drops_the_line():
     def broken(text, age):
         raise RuntimeError("down")
-    assert screen({"neurotic": [bit_of("anything")]}, broken, "mixed") == []
+    kept, report = screen({"neurotic": [bit_of("anything")]}, broken, "mixed")
+    assert kept == [] and report[0]["lines"][0]["reason"] == "filter error: RuntimeError"
 
 
 def test_the_show_re_checks_cached_lines_for_its_own_room_and_never_says_a_failing_one(tmp_path):
     beer = "I drank a beer before the show"
-    cached = {"neurotic": [bit_of("My code is anxious.", beer)]}
+    cached = {"neurotic": [bit_of("My code is anxious.", beer, age="teens")]}
     teen_ctx = {**CTX, "age": "teens"}
     voice, log = FakeVoice(), SessionLog(tmp_path)
     asyncio.run(run_show(load_director([], seed=1), "sim", teen_ctx, generator=Gen(delay=0.5), safety=_RulesFilter(),
@@ -168,7 +211,7 @@ def test_the_show_opens_with_cached_lines_only_while_bit_zero_is_still_preparing
     rows, voice = run(tmp_path, pool(), gen=Gen(delay=0.1), seconds=0.35, n_bits=1)
     plays = [t for k, t in voice.events if k == "start"]
     opener = [t for t in plays if t.startswith("cached")]
-    assert 1 <= len(opener) < OPEN_CAP and len(opener) == 2
+    assert 1 <= len(opener) < OPEN_CAP  # prep ends mid-open: never the whole cap
     assert plays[:2] == opener and plays[2].startswith("ok 0.0")  # the bit follows the cached lines at once
     assert len({t.split()[1] for t in opener}) == 1 and opener == sorted(opener)  # one bit's lines, in order
 
@@ -259,7 +302,7 @@ def test_the_bank_stack_plays_cached_lines_that_are_in_the_bank_only():
     from app.bank import load_bank
     bank_text = next(iter(BankOnlySafety().allowed))
     cached = {"neurotic": [bit_of(bank_text, "A line from an llm show.")]}
-    kept = screen(cached, BankOnlySafety().check, "mixed")
+    kept, _ = screen(cached, BankOnlySafety().check, "mixed")
     assert [ln.text for ln in kept[0].lines] == [bank_text] and load_bank()
 
 
@@ -313,11 +356,15 @@ def test_a_director_rebuilt_from_a_log_with_cached_bridge_rows_equals_one_withou
 
 
 def timeline(frozen_time, tmp_path, first, kind="cached", mode="neurotic", room="sim", generator="gemini-x", status="finished",
-             gap=None):
-    """A show starting at t=1000 whose first audio starts `first` seconds in: an opener (kind) then bit 0's joke."""
+             gap=None, pool="neurotic", verdict="pass"):
+    """A show starting at t=1000 whose first audio starts `first` seconds in: an opener (kind) then bit 0's joke.
+    `pool` is the mode of the one bit in the show's `cache` row (None: no row)."""
     frozen_time[0] = 1000.0
     log = SessionLog(tmp_path)
     log.write("show_start", room=room, **{**START, "generator_id": generator})
+    if pool:
+        log.write("cache", bits=[{"session": "o", "bit": 1, "mode": pool, "reward": 0.7, "source_age": "mixed",
+                                  "lines": [{"joke": 0, "text": "c", "verdict": verdict, "reason": "rules: ok"}]}])
     log.write("bit_decision", bit=0, obs={"t": 0, "n_bits": 8, "context": CTX, "last_mode": None},
               scores={m: 0.0 for m in MODES}, greedy=mode, action=mode, probs={m: 1 / 6 for m in MODES})
     t = 1000.0 + first
@@ -353,17 +400,21 @@ def test_between_bit_silence_counts_cached_and_filler_lines_as_audio():
     assert ev.between_bit_silence(rows) == [pytest.approx(0.5), pytest.approx(0.5), pytest.approx(3.0)]
 
 
-def test_a_show_counts_only_with_a_cached_opener_of_bit_zeros_mode(frozen_time, tmp_path):
-    ok = timeline(frozen_time, tmp_path, 1.2)
-    other_mode = timeline(frozen_time, tmp_path, 1.0)
-    # same log shape, but the opener came from a different mode
-    rows = read_session(tmp_path / f"{other_mode}.jsonl")
-    assert ev.opened_with_cache(rows)
-    rows[2]["source"]["mode"] = "cynic"
-    assert not ev.opened_with_cache(rows)
-    assert not ev.opened_with_cache(read_session(tmp_path / f"{timeline(frozen_time, tmp_path, 8.0, kind='filler')}.jsonl"))
-    assert not ev.opened_with_cache(read_session(tmp_path / f"{timeline(frozen_time, tmp_path, 8.0, kind=None)}.jsonl"))
-    assert ev.show_report(ok, tmp_path)["counts"] and ev.show_report(ok, tmp_path)["open_silence_s"] == pytest.approx(1.2)
+def rows_of(tmp_path, sid):
+    return read_session(tmp_path / f"{sid}.jsonl")
+
+
+def test_a_show_qualifies_by_the_cache_it_had_at_the_start_not_by_what_it_played(frozen_time, tmp_path):
+    had = timeline(frozen_time, tmp_path, 1.2)
+    assert ev.had_cache_for_bit_zero(rows_of(tmp_path, had))
+    assert not ev.had_cache_for_bit_zero(rows_of(tmp_path, timeline(frozen_time, tmp_path, 8.0, kind=None, pool=None)))
+    assert not ev.had_cache_for_bit_zero(rows_of(tmp_path, timeline(frozen_time, tmp_path, 8.0, kind=None, pool="cynic")))
+    assert not ev.had_cache_for_bit_zero(rows_of(tmp_path, timeline(frozen_time, tmp_path, 8.0, kind=None, verdict="reject")))
+    # a cached bit of bit 0's mode that never played (slow or failed render) still qualifies, and is scored as it ran
+    failed = timeline(frozen_time, tmp_path, 9.0, kind=None)
+    s = ev.show_report(failed, tmp_path)
+    assert s["counts"] and s["open_silence_s"] == pytest.approx(12.5)  # 9 s + the fake joke's 3.5 s offset
+    assert ev.show_report(had, tmp_path)["open_silence_s"] == pytest.approx(1.2)
 
 
 def test_the_bar_needs_three_qualifying_shows_each_at_most_two_seconds(frozen_time, tmp_path):
@@ -372,11 +423,13 @@ def test_the_bar_needs_three_qualifying_shows_each_at_most_two_seconds(frozen_ti
     assert res["n_counted"] == 3 and res["pass_open"] and res["open_max_s"] == pytest.approx(2.0)
     late = ev.run([*good[:2], timeline(frozen_time, tmp_path, 2.1)], directory=tmp_path)
     assert late["n_counted"] == 3 and not late["pass_open"] and "MISS" in ev.verdict(late)
+    slow_render = ev.run([*good[:2], timeline(frozen_time, tmp_path, 9.0, kind=None)], directory=tmp_path)
+    assert slow_render["n_counted"] == 3 and not slow_render["pass_open"]  # a MISS, not an exclusion
     two = ev.run(good[:2], directory=tmp_path)
     assert not two["pass_open"] and "NOT DECIDED" in ev.verdict(two)
-    # a show that does not qualify is reported and not counted: bank, live, aborted, no cached opener
+    # a show that does not qualify is reported and not counted: bank, live, aborted, no cache for bit 0's mode
     extras = [timeline(frozen_time, tmp_path, 0.5, generator="bank-v1"), timeline(frozen_time, tmp_path, 0.5, room="live"),
-              timeline(frozen_time, tmp_path, 0.5, status="aborted"), timeline(frozen_time, tmp_path, 9.0, kind=None)]
+              timeline(frozen_time, tmp_path, 0.5, status="aborted"), timeline(frozen_time, tmp_path, 9.0, kind=None, pool=None)]
     mixed = ev.run([*good[:2], *extras], directory=tmp_path)
     assert mixed["n_counted"] == 2 and not mixed["pass_open"]
     assert [s["counts"] for s in mixed["shows"]] == [True, True, False, False, False, False]
@@ -391,3 +444,123 @@ def test_the_report_stores_numbers_and_ids_only(frozen_time, tmp_path):
     blob = str(res)
     assert "\"c\"" not in blob and "'text'" not in blob  # no line text anywhere
     assert ev.digest([sid], tmp_path) != ev.digest([sid, "missing"], tmp_path)
+
+
+# --- review round 1: the log, the stack, aborts and the voice ---
+
+
+def test_the_show_logs_its_cache_pool_right_after_show_start_with_every_verdict(tmp_path):
+    beer = "I drank a beer before the show"
+    cached = {"neurotic": [bit_of("My code is anxious.", beer, age="teens", session="src")],
+              "cynic": [bit_of("My code is anxious.", "A fresh one.", mode="cynic", age="mixed", session="adult")]}
+    teen_ctx = {**CTX, "age": "teens"}
+    rows, _ = run(tmp_path, cached, gen=Gen(delay=0.05), ctx=teen_ctx, n_bits=1)
+    assert [r["event"] for r in rows[:2]] == ["show_start", "cache"]
+    by = {b["session"]: b for b in rows[1]["bits"]}
+    assert [(x["text"], x["verdict"]) for x in by["src"]["lines"]] == [("My code is anxious.", "pass"), (beer, "reject")]
+    assert by["src"]["source_age"] == "teens" and by["src"]["mode"] == "neurotic" and by["src"]["reward"] == 0.9
+    assert all(x["verdict"] == "reject" and "teen room" in x["reason"] for x in by["adult"]["lines"])
+    rows, _ = run(tmp_path, None, gen=Gen(delay=0.02), n_bits=1)
+    assert not [r for r in rows if r["event"] == "cache"]  # no cache, no row
+
+
+def test_a_log_with_a_cache_row_validates_without_it_and_replays_the_same(tmp_path, frozen_time):
+    validate({"schema": 2, "session": "s", "at": 1.0, "event": "cache", "bits": []})
+    with pytest.raises(ValueError):
+        validate({"schema": 1, "session": "s", "at": 1.0, "event": "cache", "bits": []})
+    with pytest.raises(ValueError):
+        validate({"schema": 2, "session": "s", "at": 1.0, "event": "cache", "bits": [{"session": "x"}]})
+    with_cache, _ = run(tmp_path, pool(), gen=Gen(delay=0.05), n_bits=2)
+    assert any(r["event"] == "cache" for r in with_cache)
+    stripped = [r for r in with_cache if r["event"] not in ("cache", "bridge")]
+    assert same(load_director([with_cache], room="sim", seed=1), load_director([stripped], room="sim", seed=1))
+
+
+def test_only_the_llm_stack_gets_cached_lines():
+    sessions = []
+    assert cache.cached_for(None, sessions) is None  # the bank stack has no filler, so no cached line either
+    assert cache.cached_for(["a bridge"], sessions) == {}
+    called = []
+    orig = cache.popular_bits
+    cache.popular_bits = lambda s: called.append(s) or {"x": []}
+    try:
+        assert cache.cached_for(None, sessions) is None and not called
+        assert cache.cached_for(["b"], sessions) == {"x": []} and called
+    finally:
+        cache.popular_bits = orig
+
+
+def test_the_bank_stack_run_end_to_end_plays_no_cached_row(tmp_path):
+    from app.bank import BankGenerator
+    from app.live import BankOnlySafety
+    gen, flt, fallback, bridges = BankGenerator(), BankOnlySafety(), None, None
+    voice, log = FakeVoice(), SessionLog(tmp_path)
+    asyncio.run(run_show(load_director([], seed=1), "sim", CTX, generator=gen, safety=flt, selector=UniformSelector(0),
+                         tts=voice, player=FakePlayer(voice, seconds=0.01), source=SimRoom(CTX, 0), clock=RealClock(),
+                         log=log, n_bits=2, config=FAST, fallback=fallback, bridge_lines=bridges,
+                         cached=cache.cached_for(bridges, [])))
+    assert not [r for r in read_session(log.path) if r["event"] in ("bridge", "cache")]
+
+
+def test_an_abort_during_the_open_leaves_no_pending_task_and_writes_show_end_aborted(tmp_path):
+    voice, log = FakeVoice(), SessionLog(tmp_path)
+
+    async def go():
+        task = asyncio.ensure_future(run_show(load_director([], seed=1), "sim", CTX, generator=Gen(delay=0.5), safety=_RulesFilter(),
+                                              selector=UniformSelector(0), tts=voice, player=FakePlayer(voice, seconds=0.05),
+                                              source=SimRoom(CTX, 0), clock=RealClock(), log=log, n_bits=1, config=FAST,
+                                              cached=pool(n_lines=3)))
+        await asyncio.sleep(0.3)  # inside the open: lines played, a wait for the next render or for prep
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await asyncio.sleep(0.05)
+        return [t for t in asyncio.all_tasks() if t is not asyncio.current_task() and not t.done()]
+    assert asyncio.run(go()) == []
+    assert read_session(log.path)[-1] == {**read_session(log.path)[-1], "event": "show_end", "status": "aborted"}
+
+
+def test_extra_cached_renders_go_round_robin_by_mode():
+    from app.show import _round_robin
+
+    def group(mode, i, n=2):
+        return [_Cached(f"{mode}{i}.{j}", mode, {}, ready=asyncio.Event()) for j in range(n)]
+    groups = [group("a", 0), group("a", 1), group("b", 0), group("c", 0)]
+    got = [e.text for e in _round_robin(groups, skip=groups[0])]
+    assert got[:3] == ["a1.0", "b0.0", "c0.0"] and sorted(got) == sorted(e.text for g in groups[1:] for e in g)
+
+
+def test_cached_renders_are_chained_so_bit_zeros_first_line_waits_behind_at_most_one(tmp_path):
+    import threading
+
+    class FairSlowVoice(FakeVoice):
+        """A serial voice that serves requests in the order they came, like the real engine's lock, and records how
+        many cached lines were outstanding (asked for, not yet done) whenever any line asked."""
+
+        def __init__(self):
+            super().__init__(delay=0.1)
+            self.cond, self.next_ticket, self.serving = threading.Condition(), 0, 0
+            self.outstanding, self.at_request = [], []
+
+        def synthesize(self, text):
+            with self.cond:
+                ticket = self.next_ticket
+                self.next_ticket += 1
+                self.at_request.append((text, sum(t.startswith("cached") for t in self.outstanding)))
+                self.outstanding.append(text)
+                while ticket != self.serving:
+                    self.cond.wait()
+            try:
+                return super().synthesize(text)
+            finally:
+                with self.cond:
+                    self.serving += 1
+                    self.outstanding.remove(text)
+                    self.cond.notify_all()
+    voice = FairSlowVoice()
+    rows, _ = run(tmp_path, pool(n_bits=2, n_lines=5), gen=Gen(delay=0.05), voice=voice, n_bits=2, seconds=0.02)
+    assert rows[-1]["status"] == "finished" and any(t.startswith("cached") for t, _ in voice.at_request)
+    ahead = dict(voice.at_request)  # cached renders in front of each line when it asked
+    assert ahead[next(t for t, _ in voice.at_request if t.startswith("ok 0.0"))] <= 1
+    # chained: a cached line never asks while another cached line is still outstanding, in the open or after it
+    assert all(n == 0 for t, n in voice.at_request if t.startswith("cached"))

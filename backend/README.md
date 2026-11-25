@@ -57,7 +57,7 @@ The mode the director picked is never sent. Presses outside their window are not
 row), only noted by the Python logger. Within a hold the last press wins and each change is a `reaction` row.
 By default the show uses the bank and a bank-only filter (`BankOnlySafety`), which needs no key. `GENERATOR=llm` switches to the
 real stack (`app/generate.py`): one model call per bit for 5 jokes x 3 candidates, the safety filter's rules plus one LLM verdict call
-per bit, the next line rendered while the current one plays, and filler while a bit loads: cached lines from the best bits of earlier live shows (`app/cache.py`, rules re-checked for this room's age, never rated) at the show open and between bits, then in-character bridge lines. A failed call is retried
+per bit, the next line rendered while the current one plays, and filler while a bit loads: cached lines from the best bits of earlier live shows (`app/cache.py`, rules re-checked for this room's age, a teen room only from teen shows, never rated, logged in a `cache` row) at the show open and between bits, then in-character bridge lines. A failed call is retried
 twice inside a deadline; a failed generation or a bit whose candidates are all rejected falls back to the hand-checked bank (rules only, no API call), logged in
 `candidates`. A `live` room refuses to start without `app/blocklist.local.txt`.
 
