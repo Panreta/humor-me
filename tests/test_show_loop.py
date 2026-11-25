@@ -347,3 +347,40 @@ def test_a_rating_on_an_unreadable_log_is_an_error_not_a_dropped_socket(server):
         ws.send_json({"type": "rating", "value": 2})
         assert ws.receive_json()["type"] == "error"  # still answering
 
+
+
+def test_pause_and_resume_land_in_the_log_and_out_of_order_ones_are_refused(server):
+    errors = []
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "pause"})  # no show yet
+        errors.append(json.loads(ws.receive()["text"]))
+        ws.send_json(start("sim"))
+        sent = []
+
+        def on_open(msg):
+            if sent:
+                return
+            sent.append(1)
+            for kind in ("resume", "pause", "pause", "resume"):  # refused, ok, refused, ok
+                ws.send_json({"type": kind})
+
+        seen = pump(ws, on_open=on_open)
+    assert errors[0]["type"] == "error" and "no show" in errors[0]["message"]
+    replies = [(m["type"], m.get("paused")) for m in seen if m["type"] in ("error", "pause_state")]
+    assert replies == [("error", None), ("pause_state", True), ("error", None), ("pause_state", False)]
+    assert seen[-1]["status"] == "finished"
+    rows = only_log(server)
+    marks = [r for r in rows if r["event"] in ("pause", "resume")]
+    assert [r["event"] for r in marks] == ["pause", "resume"]
+    start_at = next(r for r in rows if r["event"] == "joke_played")["audio_start_at"]
+    assert marks[0]["paused_at"] >= start_at and marks[1]["resumed_at"] >= marks[0]["paused_at"]  # the show clock
+
+
+def test_a_show_closed_while_paused_leaves_an_unmatched_pause_before_show_end(server):
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(start("live"))
+        pump(ws, stop=lambda m: m["type"] == "reaction_window")
+        ws.send_json({"type": "pause"})
+        assert json.loads(ws.receive()["text"])["type"] == "pause_state"
+    rows = only_log(server)
+    assert [r["event"] for r in rows[-2:]] == ["pause", "show_end"] and rows[-1]["status"] == "aborted"

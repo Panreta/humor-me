@@ -9,6 +9,7 @@ import numpy as np
 
 from app.cache import CachedBit, screen
 from app.log import SessionLog
+from app.pauses import Pauses, overlaps
 from app.reward import VERSION, reward_v1
 from app.rooms import REACTION
 from app.tts import wav_seconds
@@ -228,8 +229,9 @@ async def _speak(plan: _Plan, tts, clock):
         await plan.bank()
 
 
-async def _joke(bit, joke, plans, *, tts, player, source, clock, log, config, spawn):
-    """One joke, end to end. Returns the level, or None when nothing was played or the room did not answer."""
+async def _joke(bit, joke, plans, *, tts, player, source, clock, log, config, spawn, pauses):
+    """One joke, end to end. Returns the level for the bit's reward, or None when nothing was played, the room did not
+    answer, or a pause overlapped the playback (D-92: the label is still logged, replay drops it by the same rule)."""
     plan = plans[joke]
     _start_render(plans, joke, tts, clock, spawn)
     _start_render(plans, joke + 1, tts, clock, spawn)
@@ -243,6 +245,7 @@ async def _joke(bit, joke, plans, *, tts, player, source, clock, log, config, sp
     start = clock.now()
     await player.play(wav, text)
     end = clock.now()
+    spoiled = overlaps(start, end, pauses.intervals())  # no await since `end`, so a later pause cannot be missed
     log.write("joke_played", bit=bit, joke=joke, chosen=chosen, pick_prob=prob, text=text,
               tts_seconds=tts_seconds, audio_seconds=wav_seconds(wav), audio_start_at=start, audio_end_at=end)
     level, key, latency = await source.reaction(bit, joke, config.timeout_s)
@@ -256,7 +259,7 @@ async def _joke(bit, joke, plans, *, tts, player, source, clock, log, config, sp
         level, key, latency = fix  # last press wins; the hold restarts at the new level's length
         log.write("reaction", bit=bit, joke=joke, source=source.source, level=level, key=key, latency_s=latency)
     log.write("gap", bit=bit, joke=joke, planned_hold_s=hold, actual_gap_s=clock.now() - before)
-    return level
+    return None if spoiled else level
 
 
 # A bit prepares after the previous one ends, so the wait is generation (deadline 12 s) then the filter (25 s), about
@@ -385,10 +388,11 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
                    explore_seed: int | None = None, operator: str = "sim", git_sha: str = "unknown",
                    audio: dict | None = None, n_bits: int = 8, jokes_per_bit: int = 5, config=REACTION,
                    fallback: Generator | None = None, bridge_lines: list[str] | None = None,
-                   cached: dict[str, list[CachedBit]] | None = None) -> None:
+                   cached: dict[str, list[CachedBit]] | None = None, pauses: Pauses | None = None) -> None:
     """One show. `director` is an EpsilonSoft over LinUCB, already warm: the caller replays the career into it
     (app.director.load_director) so this loop never decides which rooms count."""
     modes = AudienceEnv().modes
+    pauses = Pauses() if pauses is None else pauses  # the server's handler writes the rows and updates this; a headless show never pauses
     inner = director.inner
     tasks: set[asyncio.Task] = set()  # the live ones, so an abort can cancel them and a long show does not keep every render
 
@@ -451,7 +455,7 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
                 if bridge_lines:
                     spawn(render_bridges())
             levels = [await _joke(bit, joke, plans, tts=tts, player=player, source=source, clock=clock, log=log,
-                                  config=config, spawn=spawn) for joke in range(jokes_per_bit)]
+                                  config=config, spawn=spawn, pauses=pauses) for joke in range(jokes_per_bit)]
             reward = reward_v1(levels)
             log.write("bit_end", bit=bit, n_labels=sum(lv is not None for lv in levels), reward_version=VERSION,
                       reward=reward)
