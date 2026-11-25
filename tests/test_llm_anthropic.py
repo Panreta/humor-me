@@ -249,7 +249,34 @@ def test_safety_filter_runs_on_the_claude_client_with_validate():
 
 
 ENV_NAMES = ("LLM_PROVIDER", "LLM_MODEL", "LLM_BASE_URL", "LLM_API_KEY", "GEMINI_BASE_URL", "GEMINI_API_KEY",
-             "JOKE_WRITER_PROVIDER", "JOKE_WRITER_MODEL", "SAFETY_CHECK_PROVIDER", "SAFETY_CHECK_MODEL")
+             "JOKE_WRITER_PROVIDER", "JOKE_WRITER_MODEL", "SAFETY_CHECK_PROVIDER", "SAFETY_CHECK_MODEL",
+             "JOKE_WRITER_THINKING", "SAFETY_CHECK_THINKING")
+
+
+def test_thinking_is_set_per_role_and_a_typo_is_refused(monkeypatch):
+    for name in ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("SAFETY_CHECK_PROVIDER", "anthropic")
+    monkeypatch.setenv("JOKE_WRITER_PROVIDER", "anthropic")
+    monkeypatch.setenv("SAFETY_CHECK_THINKING", "off")
+    assert llm.from_env(role="safety_check").thinking is False
+    assert llm.from_env(role="joke_writer").thinking is True  # the writer never follows the check's setting
+    assert llm.from_env(role="safety_check", thinking=True).thinking is True  # an explicit option wins (Exp 19 arms)
+    monkeypatch.setenv("SAFETY_CHECK_THINKING", "of")
+    with pytest.raises(RuntimeError):
+        llm.from_env(role="safety_check")
+
+
+def test_the_shipped_sample_env_runs_the_check_on_haiku_without_thinking(monkeypatch):
+    sample = pathlib.Path(__file__).resolve().parents[1] / "backend" / "sample.env"
+    values = dict(line.split("=", 1) for line in sample.read_text(encoding="utf-8").splitlines()
+                  if line and not line.startswith("#"))
+    for name in ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    for name in ("SAFETY_CHECK_PROVIDER", "SAFETY_CHECK_MODEL", "SAFETY_CHECK_THINKING"):
+        monkeypatch.setenv(name, values[name])
+    check = llm.from_env(role="safety_check")
+    assert isinstance(check, llm_anthropic.Client) and check.model == "claude-haiku-5-5" and check.thinking is False
 
 
 @pytest.fixture
