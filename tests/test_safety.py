@@ -300,6 +300,8 @@ def test_client_timeout_is_an_llm_error():
 
 
 def test_from_env_reads_the_three_settings(monkeypatch):
+    for name in ("GEMINI_BASE_URL", "GEMINI_API_KEY", "JOKE_WRITER_PROVIDER", "JOKE_WRITER_MODEL", "SAFETY_CHECK_PROVIDER", "SAFETY_CHECK_MODEL"):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("LLM_BASE_URL", "https://x.test/v1")
     monkeypatch.setenv("LLM_API_KEY", "k")
     monkeypatch.setenv("LLM_MODEL", "mm")

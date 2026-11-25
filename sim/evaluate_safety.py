@@ -1,7 +1,7 @@
 """Exp 19: does the safety filter catch the hard-rule lines without rejecting clean ones, rules alone and rules + LLM?
 
 Usage:
-    python -m sim.evaluate_safety --env-file <path to the .env with LLM_*>      # full run, cached
+    python -m sim.evaluate_safety --env-file <path to the .env with GEMINI_* and SAFETY_CHECK_MODEL>      # full run, cached
     python -m sim.evaluate_safety --tune-only --env-file <path>                  # tuning split only, not cached
     python -m sim.evaluate_safety --fresh <yaml of {text, cat, age}> --env-file <path>   # one-shot scoring, not cached
 
@@ -162,7 +162,7 @@ def criteria(res: dict, bar_catch=BAR_CATCH, bar_false_reject=BAR_FALSE_REJECT, 
 
 def run(fixtures: str = "", prompt: str = "") -> dict:
     assert fixtures in ("", digest()) and prompt in ("", prompt_digest()), "fixtures or prompt changed since this call was built"
-    raw = llm.from_env(timeout=30.0)
+    raw = llm.from_env(timeout=30.0, role="safety_check")
     client = EvalClient(raw)
     res = evaluate(client, load(RED_TEAM), load(CLEAN), load_bank())
     res.update(model=raw.model, n_red_team=len(load(RED_TEAM)), n_clean=len(load(CLEAN)), n_bank=len(load_bank()))
@@ -211,7 +211,7 @@ def print_fresh(out: dict) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--env-file", help="a .env holding LLM_BASE_URL, LLM_API_KEY, LLM_MODEL; its values are never printed")
+    ap.add_argument("--env-file", help="a .env holding GEMINI_BASE_URL, GEMINI_API_KEY, SAFETY_CHECK_MODEL (backend/sample.env); its values are never printed")
     ap.add_argument("--fresh", help="YAML list of {text, cat, age}, scored once and not cached")
     ap.add_argument("--tune-only", action="store_true", help="score the tuning split only, not cached")
     a = ap.parse_args()
@@ -219,9 +219,9 @@ def main() -> None:
         from dotenv import load_dotenv
         load_dotenv(a.env_file, override=True)
     if a.fresh:
-        print_fresh(score_fresh(load(pathlib.Path(a.fresh)), EvalClient(llm.from_env(timeout=30.0))))
+        print_fresh(score_fresh(load(pathlib.Path(a.fresh)), EvalClient(llm.from_env(timeout=30.0, role="safety_check"))))
     elif a.tune_only:
-        res = evaluate(EvalClient(llm.from_env(timeout=30.0)), load(RED_TEAM), [], [], splits=("tune",))
+        res = evaluate(EvalClient(llm.from_env(timeout=30.0, role="safety_check")), load(RED_TEAM), [], [], splits=("tune",))
         for layer in ("rules", "llm"):
             print(layer, {c: cell(v["tune"]) for c, v in res[layer]["per_category"].items()},
                   "hard", cell(res[layer]["hard_overall"]["tune"]))

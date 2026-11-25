@@ -588,6 +588,8 @@ def test_stack_choice_and_the_live_room_guard(monkeypatch, tmp_path):
     monkeypatch.setattr(safety, "BLOCKLIST_LOCAL", tmp_path / "missing.txt")
     with pytest.raises(safety.SafetyNotReady):
         main.make_stack("live")
+    for name in ("JOKE_WRITER_PROVIDER", "JOKE_WRITER_MODEL", "SAFETY_CHECK_PROVIDER", "SAFETY_CHECK_MODEL", "GEMINI_BASE_URL"):
+        monkeypatch.delenv(name, raising=False)  # an exported shell variable must not change what this test builds
     monkeypatch.setenv("LLM_BASE_URL", "http://x")
     monkeypatch.setenv("LLM_MODEL", "m")
     gen, filt, fallback, bridges = main.make_stack("sim")
