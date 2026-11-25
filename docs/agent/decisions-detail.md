@@ -874,3 +874,54 @@ The first two numeric columns are the first run (by the coordinator, one afterno
 **Not measured, said plainly.** Everything above is five bits per cell; the run's 60 prompts are what count. The schema's effect on speed and on the jokes' quality (constrained decoding can change both) is unmeasured; the funniness comparison is the user's blind vote. The reply schema allows any number of threads and lines, so a model that returns the wrong lengths is still a failure of the model. The screen used the default Ollama context (8192) and a laptop that was otherwise idle; the run shares the laptop with the user's other work.
 
 **Power on the shipped ballot (computed in review, `simulate_decision_power(eligible=3, references=1)`, the real `decide()`, 400 runs).** Three models can win (Haiku, bonsai, qwen), so the best has to beat two rivals, as in D-94; the D-97 figures for two eligible no longer apply. Chance the truly funnier model is called clearly funnier, by its lead in latent sd: at 30 voted prompts 20% at 0.5, 57% at 0.75, 84% at 1.0, 99% at 1.5; at 60 (with the judge, an upper bound) 49%, 88%, 99%, 100%. A false winner with no real gap: about 1%. So the vote finds only a clear gap; a small one ends inconclusive and the cost tie-break (local is $0) decides.
+
+## <a id="d-102"></a>D-102 · 2026-11-25 — DPO's judge is the D-95 judge, taught on 60 same-model pairs and gated on 60 more (user)
+Decided by the user, 2026-11-25, with the Dec 8 demo still speaking the trained model. Tingyu's judge (#37, Exp 17) has been overdue since Nov 8, and DPO needs a pairwise judge.
+
+**Choice.** The judge calibrated on the user's Exp 24 votes (D-95) also labels DPO's preference pairs. It must pass D-95's own bars (top-pick agreement, pairwise agreement, no model bias), and then the gate below.
+
+**The risk.** The Exp 24 ballot compares bits from different models, which can differ a lot. DPO pairs are two bits from the same model, usually much closer in quality. A judge that matches the user on wide gaps can be near chance on narrow ones, and DPO would then learn the judge's quirks, not the user's taste.
+
+**Pairs, fixed before any data.** The user ranks 120 pairs of two bits from the training base model (the Exp 24 local winner), on prompts outside the Exp 24 ballot and outside DPO's training prompts. Each pair is shown in both orders, so position bias cancels.
+- **Teach set, 60 pairs:** given to the judge as examples of the user's taste, on top of the 30 Exp 24 votes.
+- **Test set, 60 pairs:** never shown to the judge; only these decide the gate.
+
+**Gate.** The lower end of the judge's 95% Wilson interval on the test set must clear 50%, which needs at least 38 of 60 (63%). The user moved from 20 pairs at a 60% point estimate after seeing its power, before any data.
+
+**Power (computed, exact binomial).**
+| Test pairs | Must agree on | Passes if the judge is truly 65% / 70% / 75% right | Passes by luck at 50% |
+|---|---|---|---|
+| 20 | 15 | 25% / 42% / 62% | 2% |
+| 40 | 27 | 44% / 70% / 90% | 2% |
+| **60** | **38** | **66% / 90% / 98%** | **3%** |
+| 100 | 60 | 87% / 99% / 100% | 3% |
+At 20 pairs a judge that is truly 70% right fails more often than it passes; at 60 it passes 9 times in 10.
+
+**If the judge fails:** DPO does not run on it. The options are more of the user's votes, or Tingyu's judge.
+
+**Options rejected.** (a) Wait for Tingyu's judge: overdue since Nov 8, and 13 days remain. (b) Adopt the D-95 judge on its own bars: tests only cross-model pairs, the wrong distribution for DPO. (c) 20 test pairs at a 60% point estimate: can't tell a good judge from chance (table). (d) The user's votes alone as DPO labels: too few pairs for DPO in the time left.
+
+**Judgment calls, not measured.** The 60/60 split: more teaching pairs probably help the judge, but nothing here measures how much. The user's time: about 35 s a pair, so about 70 minutes for 120, in several sittings. Whether the frozen judge stays aligned as DPO moves the model away from its starting outputs (reward hacking): no check is planned during training.
+
+## <a id="d-103"></a>D-103 · 2026-11-25 — Exp 24: bonsai's first block is archived, not scored, after a local server fault; its block is rerun (user)
+Decided by the user, 2026-11-25, during the first Exp 24 run, before any vote or score.
+
+**What happened.** qwen3:4b-instruct finished its block clean (60 of 60, 4.8 to 8.5 s). bonsai-2:4b then had 3 failures of its own (p06, p07, p09: wrong number of jokes, "expected 3 threads of 5"), and from p19 on **17 ReadTimeouts in a row** (p19 to p35, each at the 12 s limit). The Ollama tray app had been left running beside `ollama serve`; from about 14:25 it restarted a server every 1.2 s (`app.log`: "ollama exited", `server.log`: "bind: Only one usage of each socket address"), and `/api/ps` showed nothing loaded and the GPU idle while the calls timed out. After the tray app shut down (14:27:31), the same model answered a direct call in 6 s, 100% on the GPU at context 8192.
+
+**Options.** (a) Count every attempt, as D-94 says: bonsai is out, partly for a fault in our machine. (b, chosen) **Archive bonsai's 36 attempts and rerun its block on a clean server**, the D-96 precedent: an outage on our side is not data about the model. (c) Drop only the timeouts: moves the bar after seeing data, which D-94 rules out.
+
+**Cost of (b).** bonsai's 3 shape failures are seen, and its rerun is not blind to them; the rerun counts only its own attempts. Everything else stands: qwen's block, the placement and warm-up records. The archive is `data/model_comparison/gen-71242a99/bonsai-2-4b.aborted-tray-respawn-2026-11-25/` (gitignored, kept). The harness reads only exact model folder names, so the archive is never scored.
+
+**Prevention.** Quit the tray app before a run. Not built: a check in `run` that stops when two Ollama servers are running or nothing is loaded after a warm-up.
+
+## <a id="d-104"></a>D-104 · 2026-11-25 — Exp 24: drop the gemma4:12b reference, which cannot finish a bit in 12 s (user)
+Decided by the user, 2026-11-25, during the Exp 24 rerun, before any vote.
+
+**What happened.** The three candidates finished: qwen3:4b-instruct 60 of 60 valid, bonsai-2:4b 59 of 60 (one wrong joke count), Claude Haiku 5.5 58 of 60 (one timeout, one wrong joke count); all three are within the failure bar. gemma4:12b then timed out on its first 7 bits, every one at the 12 s limit, and its placement read unknown (the 1 GB report seen before, D-97). A direct call: about 145 output tokens in 13 to 15 s, no thinking (0 reasoning tokens), so about 10 tokens/s, with part of the model on the CPU. A bit is about 500 tokens, so about 50 s.
+
+**Options.** (a, chosen) **Drop the reference.** The ballot is back to 3 options (about 38 minutes to vote). The reference's job, showing how far the small models are from a stronger one, is already done by Haiku, which is also the model the trained one must catch. (b) Keep it with a longer time limit for it alone (it can never be picked): about 50 minutes more generation, 12 more minutes of voting, and the record would say it ran on other timing.
+
+**Mechanics (#73).** `gemma4-12b` is removed from `MODELS`; the reference rule stays in the code and is tested on a stand-in. The candidate list is hashed into the run folder's name, so the folder moves from `gen-71242a99` to `gen-2a512264`. It is renamed, not regenerated: the three remaining models' bits were made with identical settings, and only the list changed. Gemma's 7 failed attempts are archived beside the archived bonsai block (D-103).
+
+**Power.** Unchanged in substance: three models can win, as before. With no reference: 20% at a 0.5 sd lead, 83% at 1.0, 98% at 1.5, on 30 voted prompts (D-101's figures).
+
