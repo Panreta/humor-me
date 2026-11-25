@@ -16,6 +16,11 @@ JOKES = 5
 TEMPERATURE = 0.9
 PROMPT_ID = "gen-v3"
 
+# The one reply shape `parse` accepts, for providers that can enforce it (Claude structured output).
+REPLY_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["premises", "threads"],
+                "properties": {"premises": {"type": "array", "items": {"type": "string"}},
+                               "threads": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}}}
+
 # One identity, six attitudes (HumorGen personas as modes, CLAUDE.md invariant 3).
 MODES = {
     "neurotic": "anxious and over-analytical: spirals about small things, rehearses worst cases",
@@ -118,7 +123,7 @@ class GeminiGenerator:
         system = SYSTEM.format(mode=mode, mode_note=MODES[mode], k=K, jokes=JOKES, teens=teens)
         user = json.dumps({"venue": context["venue"], "energy": context["energy"], "premises_already_told": self._told})
         try:
-            premises, lines = parse(self.client.chat(system, user, json_reply=True, temperature=TEMPERATURE))
+            premises, lines = parse(self.client.chat(system, user, json_reply=REPLY_SCHEMA, temperature=TEMPERATURE))
         except (llm.LLMError, GenerationError) as e:
             return e
         return f"{system}\n\n{user}", lines, premises
@@ -145,6 +150,6 @@ def llm_stack(room: str):
     """(generator, safety, fallback, bridge lines) for a show on the real model. Raises SafetyNotReady for a live
     room without the slur list. The deadlines keep a failing provider inside the bridge lines' cover."""
     safety.require_ready(room)
-    return (GeminiGenerator(llm.from_env(GENERATOR_TIMING[0], retries=RETRIES, deadline_s=GENERATOR_TIMING[1])),
-            LiveSafety(llm.from_env(FILTER_TIMING[0], retries=FILTER_RETRIES, deadline_s=FILTER_TIMING[1])),
+    return (GeminiGenerator(llm.from_env(GENERATOR_TIMING[0], role="joke_writer", retries=RETRIES, deadline_s=GENERATOR_TIMING[1])),
+            LiveSafety(llm.from_env(FILTER_TIMING[0], role="safety_check", retries=FILTER_RETRIES, deadline_s=FILTER_TIMING[1])),
             BankGenerator(), list(BRIDGES))

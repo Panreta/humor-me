@@ -96,6 +96,7 @@ What we decided and why, one line each. Click an ID for the full record (options
 | [D-90](agent/decisions-detail.md#d-90) | Nov 24 | A paused or cut-short show still trains the director and judge from its finished parts; pauses get log rows, and its rating isn't reported. |
 | [D-91](agent/decisions-detail.md#d-91) | Nov 24 | Shows open with the best bits from earlier live shows, so the room never hears 10 s of silence. Teen rooms use only bits from teen shows. Not yet measured. |
 | [D-92](agent/decisions-detail.md#d-92) | Nov 24 | If a pause hits while a joke is playing, that joke's label is left out of the reward (the rest of the bit still counts); its audio isn't used to train the laugh detector. Extends D-90. |
+| [D-93](agent/decisions-detail.md#d-93) | Nov 24 | Model settings are named by the job they do (the joke writer and the safety check read their own), and the joke writer can run on Claude through the official SDK. Not run for real yet. |
 
 New decision: add its full entry to the detailed log with the next ID, then a row here in the same PR.
 A test fails if the two files' IDs don't match.

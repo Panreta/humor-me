@@ -10,16 +10,19 @@ cd backend
 uv python install 3.12  # or any Python 3.12
 uv venv --seed --python 3.12 .venv
 .venv/Scripts/python -m pip install -r requirements.txt
-cp .env.example .env
+cp sample.env .env
 ```
 
-`.env` points at any OpenAI-compatible chat endpoint (see `.env.example`):
+`.env` points at any OpenAI-compatible chat endpoint (see `sample.env`):
 
 | Variable | Example |
 |---|---|
-| `LLM_BASE_URL` | `https://api.groq.com/openai/v1`, `http://localhost:11434/v1` (Ollama) |
-| `LLM_API_KEY` | provider key (empty for Ollama) |
-| `LLM_MODEL` | e.g. `llama-3.1-8b-instant` |
+| `GEMINI_BASE_URL` | `https://api.groq.com/openai/v1`, `http://localhost:11434/v1` (Ollama) |
+| `GEMINI_API_KEY` | provider key (empty for Ollama) |
+| `JOKE_WRITER_MODEL` | e.g. `llama-3.1-8b-instant` |
+| `JOKE_WRITER_PROVIDER` | `openai` (default, the three above) or `anthropic` (official SDK, key in `ANTHROPIC_API_KEY`, `JOKE_WRITER_MODEL=claude-haiku-5-5`) |
+
+To run the show on Claude, set `JOKE_WRITER_PROVIDER=anthropic` (the model defaults to `claude-haiku-5-5`) and add a paid `ANTHROPIC_API_KEY`; the safety check stays on Gemini unless `SAFETY_CHECK_PROVIDER=anthropic` is set too, so leave it. Each job reads only its own `<JOB>_PROVIDER` and `<JOB>_MODEL`; the old `LLM_*` and `GENERATOR` names still work until you rename them.
 
 ## Run
 
@@ -59,14 +62,14 @@ cd backend
 
 The mode the director picked is never sent. Presses outside their window are not logged as reactions (replay counts every
 row), only noted by the Python logger. Within a hold the last press wins and each change is a `reaction` row.
-By default the show uses the bank and a bank-only filter (`BankOnlySafety`), which needs no key. `GENERATOR=llm` switches to the
+By default the show uses the bank and a bank-only filter (`BankOnlySafety`), which needs no key. `JOKE_SOURCE=llm` switches to the
 real stack (`app/generate.py`): one model call per bit for 5 jokes x 3 candidates, the safety filter's rules plus one LLM verdict call
 per bit, the next line rendered while the current one plays, and filler while a bit loads: cached lines from the best bits of earlier live shows (`app/cache.py`, rules re-checked for this room's age, a teen room only from teen shows, never rated, logged in a `cache` row) at the show open and between bits, then in-character bridge lines. A failed call is retried
 twice inside a deadline; a failed generation or a bit whose candidates are all rejected falls back to the hand-checked bank (rules only, no API call), logged in
 `candidates`. A `live` room refuses to start without `app/blocklist.local.txt`.
 
 ```sh
-.venv/Scripts/python -m uvicorn app.main:app --port 8000 --env-file .env   # with GENERATOR=llm in .env
+.venv/Scripts/python -m uvicorn app.main:app --port 8000 --env-file .env   # with JOKE_SOURCE=llm in .env
 ```
 
 ## Acceptance run (T11, the Stage 0 exit)
@@ -85,11 +88,11 @@ The user runs the shows; `sim/acceptance.py` scores them. Needed: 3 simulated sh
 
 ```sh
 cd backend
-.venv/Scripts/python -m uvicorn app.main:app --port 8000 --env-file .env   # with GENERATOR=llm in .env
+.venv/Scripts/python -m uvicorn app.main:app --port 8000 --env-file .env   # with JOKE_SOURCE=llm in .env
 cd ../frontend && npm run dev   # then open http://localhost:3000
 ```
 
-Set `GENERATOR=llm` in `backend/.env` (a one-command prefix differs between Bash and PowerShell, and `--env-file` reads it either way). Simulated shows can run on `GENERATOR=bank` (no quota) or `llm`; the live show uses `llm` (decisions-detail.md 2026-11-15).
+Set `JOKE_SOURCE=llm` in `backend/.env` (a one-command prefix differs between Bash and PowerShell, and `--env-file` reads it either way). Simulated shows can run on `JOKE_SOURCE=bank` (no quota) or `llm`; the live show uses `llm` (decisions-detail.md 2026-11-15).
 
 **Run:** (1) three Simulated shows back to back, untouched; (2) one Live show, you press W / K / Space / D for every joke, consent ticked; (3) after each show answer the rating prompt (keys 1 to 5, or Skip; a show that failed before it began shows its error and no prompt). Then score them. The session ids are the file names in `data/sessions/` without `.jsonl`:
 
