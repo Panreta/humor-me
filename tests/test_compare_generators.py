@@ -15,9 +15,20 @@ from app import llm, safety  # noqa: E402
 from sim import compare_generators as cg  # noqa: E402
 
 MODELS = ["qwen3-4b-instruct", "bonsai-2-4b", "claude-haiku-5-5"]
-GEMMA = "gemma4-12b"  # a reference: on the ballot, never picked (D-97)
+GEMMA = "ref-local"  # a stand-in reference (D-97): on the ballot, never picked; none ships since D-104
+SHIPPED = dict(cg.MODELS)  # before the fixture below adds the stand-in
+
+
+REF_SPEC = cg.Spec(GEMMA, cg.OLLAMA_PROVIDER, "ref-local:1b", 0.0, 0.0, "ollama", 0.0, reference=True)
+
+
+@pytest.fixture(autouse=True)
+def stand_in_reference(monkeypatch):
+    monkeypatch.setitem(cg.MODELS, GEMMA, REF_SPEC)
+
+
 TAG = {"qwen3-4b-instruct": "alpha", "bonsai-2-4b": "bravo", "claude-haiku-5-5": "charlie", GEMMA: "delta"}  # text must not name a model
-BY_ID = {cg.MODELS[k].model: t for k, t in TAG.items()}
+BY_ID = {{**cg.MODELS, GEMMA: REF_SPEC}[k].model: t for k, t in TAG.items()}
 
 
 def reply(tag):
@@ -181,10 +192,8 @@ def test_the_filter_client_is_haiku_without_thinking_whatever_the_env_says(monke
 
 
 def test_the_candidates_are_haiku_and_two_local_ollama_models_and_the_digest_follows_them(monkeypatch):
-    assert list(cg.MODELS) == MODELS + [GEMMA]
+    assert list(SHIPPED) == MODELS
     qwen, bonsai, haiku = (cg.MODELS[m] for m in MODELS)
-    gemma = cg.MODELS[GEMMA]
-    assert (gemma.tag(), gemma.local, gemma.reference, gemma.price_in) == ("gemma4:12b", True, True, 0.0)
     assert not (qwen.reference or bonsai.reference or haiku.reference)  # the gate decides about qwen, not a flag
     assert (qwen.tag(), bonsai.tag(), haiku.provider) == ("qwen3:4b-instruct", "bonsai-2:4b", "anthropic")
     assert qwen.local and bonsai.local and not haiku.local and (qwen.price_in, qwen.price_out) == (0.0, 0.0)
@@ -193,12 +202,9 @@ def test_the_candidates_are_haiku_and_two_local_ollama_models_and_the_digest_fol
     monkeypatch.setenv("QWEN_OLLAMA_TAG", "qwen3:4b-instruct-q8")  # the tag `ollama list` shows may differ
     assert qwen.tag() == "qwen3:4b-instruct-q8" and cg.gen_digest() != before
     monkeypatch.delenv("QWEN_OLLAMA_TAG")
-    monkeypatch.setenv("GEMMA_OLLAMA_TAG", "gemma4:12b-q8")
-    assert gemma.tag() == "gemma4:12b-q8" and cg.gen_digest() != before
-    monkeypatch.delenv("GEMMA_OLLAMA_TAG")
     monkeypatch.setenv("OLLAMA_URL", "http://other:11434/v1")
     assert cg.gen_digest() != before
-    monkeypatch.undo()
+    monkeypatch.delenv("OLLAMA_URL")  # not undo(): that would also drop the stand-in reference
     assert cg.gen_digest() == before
 
 
@@ -218,9 +224,10 @@ def test_the_json_mode_is_part_of_the_digest_so_no_folder_mixes_modes(monkeypatc
     assert cg.make_client(cg.MODELS["bonsai-2-4b"]).json_schema is False  # the constant drives the client too
 
 
-def test_the_candidates_are_haiku_bonsai_and_qwen_with_gemma_as_the_reference():
-    assert [m for m, s in cg.MODELS.items() if not s.reference] == ["qwen3-4b-instruct", "bonsai-2-4b", "claude-haiku-5-5"]
-    assert [m for m, s in cg.MODELS.items() if s.reference] == ["gemma4-12b"] and "mimo-v2.6-9b" not in cg.MODELS
+def test_the_shipped_candidates_are_haiku_bonsai_and_qwen_with_no_reference():
+    assert [m for m, s in SHIPPED.items() if not s.reference] == ["qwen3-4b-instruct", "bonsai-2-4b", "claude-haiku-5-5"]
+    assert not [m for m, s in SHIPPED.items() if s.reference]  # D-104 dropped gemma4:12b
+    assert "mimo-v2.6-9b" not in SHIPPED and "gemma4-12b" not in SHIPPED
     assert cg.MODELS["qwen3-4b-instruct"].tag() == "qwen3:4b-instruct" and cg.MODELS["qwen3-4b-instruct"].price_in == 0.0
 
 

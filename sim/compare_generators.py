@@ -1,6 +1,6 @@
 """Exp 24: which model should write the live show's bits? Claude Haiku 5.5, or a local Ollama model (bonsai-2:4b, qwen3:4b-instruct; D-101).
 A local model is eligible only if Ollama puts it 100% on the GPU at context 8192 (it must fit beside Kokoro, which runs on
-the CPU); gemma4:12b is a reference: measured and on the ballot, never picked (D-97).
+the CPU). A `reference` model (D-97) would be measured and on the ballot but never picked; none ships since D-104.
 
 Usage (needs the Anthropic and Gemini keys in backend/.env and Ollama running, see backend/README.md "Comparing generator models"):
     python -m sim.compare_generators run --env-file backend/.env            # generate + safety, resumable, paced
@@ -97,9 +97,7 @@ MODELS = {
     "qwen3-4b-instruct": Spec("qwen3-4b-instruct", OLLAMA_PROVIDER, "qwen3:4b-instruct", 0.0, 0.0, "ollama", 0.0, "QWEN_OLLAMA_TAG"),
     "bonsai-2-4b": Spec("bonsai-2-4b", OLLAMA_PROVIDER, "bonsai-2:4b", 0.0, 0.0, "ollama", 0.0, "BONSAI_OLLAMA_TAG"),
     "claude-haiku-5-5": Spec("claude-haiku-5-5", "anthropic", "claude-haiku-5-5", 0.10, 0.50, "anthropic", 1.0),
-    # D-97: too big to serve the live loop beside Kokoro, so it only shows how far the others are from a stronger model
-    "gemma4-12b": Spec("gemma4-12b", OLLAMA_PROVIDER, "gemma4:12b", 0.0, 0.0, "ollama", 0.0, "GEMMA_OLLAMA_TAG", reference=True),
-}
+}  # D-104: gemma4:12b, the reference, was dropped: about 10 tokens/s with part of it on the CPU, so no bit fit 12 s
 SAFETY_BUCKET = "anthropic-safety"  # the filter's own requests; a paid tier, so no free-tier spacing (Exp 19 reruns: 0 retries)
 SAFETY_GAP_S = 0.0
 MODE_ORDER = tuple(generate.MODES)
@@ -487,7 +485,7 @@ def placement_gate(spec: Spec | None, placement: dict | None) -> str | None:
 
 # --- blind ballot ------------------------------------------------------------------------------------------------
 
-LETTERS = "ABCD"  # the models of a prompt, references included: the reference makes it four
+LETTERS = "ABCD"  # up to four models a prompt, references included; three ship since D-104
 
 
 def playable_thread(rec: dict | None) -> int | None:
