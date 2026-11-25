@@ -25,7 +25,7 @@ def test_mermaid_diagrams_force_light_theme():
 def test_decision_logs_share_ids():
     # decisions.md is the plain log for people, decisions-detail.md the full one for agents; IDs are the join.
     import re
-    detail = (ROOT / "docs/decisions-detail.md").read_text(encoding="utf-8")
+    detail = (ROOT / "docs/agent/decisions-detail.md").read_text(encoding="utf-8")
     plain = (ROOT / "docs/decisions.md").read_text(encoding="utf-8")
     detail_ids = re.findall(r'^## <a id="d-(\d+)"></a>D-(\d+) · ', detail, re.M)
     assert all(a == b for a, b in detail_ids), "anchor and heading IDs differ"

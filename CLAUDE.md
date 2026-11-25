@@ -14,10 +14,9 @@ Read before working:
 - [docs/data-sources.md](docs/data-sources.md) — what data we use and for what role
 - [docs/pipeline.md](docs/pipeline.md) — transcript → beats/bits/sets pipeline, labels, schemas
 - [docs/roadmap.md](docs/roadmap.md) — stages, exit criteria, estimates
-- [docs/decisions-detail.md](docs/decisions-detail.md) — **the decision log agents read and append to**; append, don't
+- [docs/agent/decisions-detail.md](docs/agent/decisions-detail.md) — **the decision log agents read and append to**; append, don't
   rewrite history. Each entry has an ID (D-xx, next number, never renumbered) and needs a one-line row with the same ID
-  in [docs/decisions.md](docs/decisions.md), the plain-language log for human readers (Tingyu's call how it reads),
-  in the same PR. `tests/test_docs.py` fails if the IDs differ. Don't move detail into decisions.md.
+  in [docs/decisions.md](docs/decisions.md), the plain-language log for human readers, in the same PR. `tests/test_docs.py` fails if the IDs differ.
 - [notebooks/decisions.ipynb](notebooks/decisions.ipynb) — **index of the evidence for every decision**, linking each
   to a section notebook: `decisions-data.ipynb` (transcripts, rJokes), `decisions-director.ipynb` (sim, director),
   `decisions-live.ipynb` (live loop, Exp 19 onward); judge, SFT and DPO get `decisions-model.ipynb` with their first
@@ -30,6 +29,13 @@ Read before working:
 - [docs/dev-log.md](docs/dev-log.md) — problems hit (symptom → cause → caught by → fix).
   **Add an entry whenever a bug, data quirk or tooling issue costs real time.**
 - [references/md/](references/md/) — markdown versions of the reference papers
+
+## Writing docs (team rule, 2026-11-24)
+
+Every doc a person reads (README, report, slides, wiki, status, plans, decisions.md) is **short and plain**: lead with
+the point, one idea per sentence, no jargon a teammate would have to look up, no wall-of-text entries. Polish before
+committing. Agent-only working records (full evidence, numbers, option-by-option reasoning) go under `docs/agent/`
+and nowhere else; human docs link to them instead of copying detail in.
 
 ## Measure before cut (every decision, every agent)
 

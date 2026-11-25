@@ -1,7 +1,7 @@
 # Live loop plan
 
 Build the full show loop with button rewards, a simulated room and session logs, so the judge and the trained
-model can be added later without changing the data. Decisions behind this plan: [decisions-detail.md](../decisions-detail.md),
+model can be added later without changing the data. Decisions behind this plan: [decisions-detail.md](../agent/decisions-detail.md),
 entries dated 2026-11-08.
 
 **Out of scope:** the judge (PR #37), SFT and DPO, Explorer runs, callbacks, banter, laugh detection. Detection is
@@ -36,7 +36,7 @@ to need something else, stop and say so.
   Run `python scripts/run_notebook.py` (every decisions notebook and decision-plot). Exp 17 is reserved for issue #38, so numbering here starts at 18.
 - **The pass criterion in the task is fixed for builders.** If a result misses it, report the miss and don't move the bar. The bars are
   a first estimate: the user may re-tune one when an experiment shows it was wrong, through a new decisions-detail.md entry giving the old bar, the new bar and the result behind the change.
-- **Records:** decisions go in `docs/decisions-detail.md` (append only). Any bug or quirk that cost time goes in `docs/dev-log.md`.
+- **Records:** decisions go in `docs/agent/decisions-detail.md` (append only). Any bug or quirk that cost time goes in `docs/dev-log.md`.
   New terms go in `docs/wiki/glossary.md`, in beginner-friendly words.
 - **Never:** write code with backslashes through a shell heredoc (use Write or Edit); print or commit rJokes or
   transcript text; use the section-sign symbol; commit anything from `data/sessions/`; add attribution trailers.
@@ -126,7 +126,7 @@ Runs in parallel once T0 is merged: T1, T2, T7, T8.
 ### T1: ε director and Exp 18
 
 - **Goal:** explore at ε = 0.2 with exact pick probabilities, and measure what it costs.
-- **Files:** `sim/policies.py`, new `sim/evaluate_epsilon.py`, `tests/test_policies.py`, notebooks, `docs/metrics.md`, `docs/decisions-detail.md`.
+- **Files:** `sim/policies.py`, new `sim/evaluate_epsilon.py`, `tests/test_policies.py`, notebooks, `docs/metrics.md`, `docs/agent/decisions-detail.md`.
 - **Build:** a wrapper with `act`, `update` and `probs(obs)` around any policy exposing a greedy action. `update` passes through unchanged.
 - **Tests:** probabilities sum to 1; empirical pick rates match `probs` over many draws; ε = 0 equals plain LinUCB exactly.
 - **Experiment:** ε ∈ {0, 0.1, 0.2}, paired on seeds, at 5 shows (1,000 seeds) and 30 shows (200 seeds), under judge and human taste,

@@ -306,7 +306,7 @@ the past matter (section 2.6).
 
 **In this repo.** Arms = 6 HumorGen modes. Context = venue × energy × age (27 combinations) +
 last bit's mode and reward. Reward = mean laugh level of the bit's 5 jokes ÷ 3 ∈ [0, 1].
-One decision per **bit** (8 per show), not per joke: [decisions-detail.md D-25](decisions-detail.md#d-25).
+One decision per **bit** (8 per show), not per joke: [decisions-detail.md D-25](agent/decisions-detail.md#d-25).
 
 **Expert edge.** We report regret in **laughs lost vs oracle** (sum of levels), and use the
 *exact* expected reward from the sim (no sampling noise in regret). Reviewers like this: it reads
@@ -550,7 +550,7 @@ flowchart TD
 
 ## 4. Decision digest
 
-D-numbers are the IDs in [decisions.md](decisions.md); full text in [decisions-detail.md](decisions-detail.md).
+D-numbers are the IDs in [decisions.md](decisions.md); full text in [decisions-detail.md](agent/decisions-detail.md).
 
 ### Design decisions
 

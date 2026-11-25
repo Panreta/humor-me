@@ -1,7 +1,7 @@
 # Decision Log: full detail
 
 Append-only, written for agents and for checking evidence. Every entry has an ID (D-xx, in order, never renumbered)
-and a matching one-line entry in [decisions.md](decisions.md), the plain-language log for human readers.
+and a matching one-line entry in [decisions.md](../decisions.md), the plain-language log for human readers.
 `tests/test_docs.py` fails if the two files' IDs differ. Format: options, trade-offs, choice, evidence or
 "judgment call, not measured".
 
@@ -690,3 +690,6 @@ Bars from the plan (T11), unchanged: (a) 3 simulated shows in a row with no inte
 
 ## <a id="d-86"></a>D-86 · 2026-11-24 — Split the decision log: plain log for humans, detail log for agents (user)
 Decided by the user, 2026-11-24, after Tingyu asked for decisions.md to be as readable as possible. **Options:** (a) keep one file and add a plain summary line to each entry; (b) rewrite decisions.md in plain language and drop detail (agents lose the numbers, CIs and rejected options that measure-before-cut depends on); (c) two files joined by IDs. **Choice: (c).** decisions.md belongs to human readers; this file keeps the full record and is what agents read and append to. Every entry has an ID (D-01 onward, in file order, so the old "decisions.md #29" reference stays D-29), and `tests/test_docs.py` fails if an ID is in one file but not the other, so the two cannot drift silently. A new decision goes here first, then gets its line in decisions.md in the same PR. Cost: two files to touch per decision. Judgment call, not measured.
+
+## <a id="d-87"></a>D-87 · 2026-11-24 — Docs people read are short and plain; agent detail moves to docs/agent/ (user)
+Decided by the user, 2026-11-24, after Tingyu (and his internship manager's view) asked that no repo doc be written only for AI. **Options:** (a) keep D-86 as is, with the plain log as a stub of entry titles; (b) make every doc plain and drop the detailed record (agents lose the numbers, CIs and rejected options that measure-before-cut checks against); (c) human-facing docs (README, report, slides, wiki, decisions.md, status, plans) are written concise and plain, and agent-only working records live under `docs/agent/`, which people don't need to read. **Choice: (c).** This file moves to `docs/agent/decisions-detail.md`; decisions.md is rewritten as one plain sentence per decision (what, and why in a clause) instead of entry titles. CLAUDE.md now carries the writing rule so every session follows it. Existing human-facing docs are not rewritten in this PR. Judgment call, not measured.

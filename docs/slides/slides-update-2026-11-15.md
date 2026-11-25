@@ -4,7 +4,7 @@ The update deck [humor-me-update-2026-11-15.pptx](humor-me-update-2026-11-15.ppt
 between the Nov 1 deck ([humor-me.pptx](humor-me.pptx), monologue in [slides.md](slides.md)) and Nov 15. It reuses
 the main deck's look. Each slide below has its title, a one-line takeaway, a picture of the slide, what to say, and
 **Q&A notes** that are for you, not the audience. Slide pictures are in [img/update-2026-11-15/](img/update-2026-11-15/).
-Numbers come from [docs/metrics.md](../metrics.md) and [docs/decisions-detail.md](../decisions-detail.md), as of 2026-11-15.
+Numbers come from [docs/metrics.md](../metrics.md) and [docs/agent/decisions-detail.md](../agent/decisions-detail.md), as of 2026-11-15.
 Terms are defined in the [glossary](../wiki/glossary.md). Claude (the AI assistant) built the deck from the main
 deck's slides and drafted this monologue.
 

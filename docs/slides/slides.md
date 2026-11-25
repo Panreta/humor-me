@@ -10,7 +10,7 @@ Fonts: Junge 36 pt for titles, Nunito Bold 18 pt for takeaways, Nunito 14 pt for
 Each slide also has **Q&A notes**: the numbers behind it and the questions it invites. They are for you,
 not the audience. [Q&A reference](#qa-reference) at the end has the
 overall summary and the hardest questions. Numbers come from [docs/metrics.md](../metrics.md) and
-[docs/decisions-detail.md](../decisions-detail.md), as of 2026-11-01. Terms are defined in the
+[docs/agent/decisions-detail.md](../agent/decisions-detail.md), as of 2026-11-01. Terms are defined in the
 [glossary](../wiki/glossary.md).
 
 **Still yours to decide.** These are left as written:

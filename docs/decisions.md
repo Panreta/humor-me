@@ -1,97 +1,96 @@
 # Decisions
 
-What we decided and why, in plain words. One row per decision; the ID links to the full record
-(options, numbers, evidence) in [decisions-detail.md](decisions-detail.md).
-
-Adding a decision: write the full entry in decisions-detail.md, then add its row here with the same ID.
-A check in `tests/test_docs.py` fails if the IDs in the two files don't match. Rewording a row here is fine;
-changing what was decided needs a new entry.
+What we decided and why, one line each. Click an ID for the full record (options, numbers, evidence).
 
 | ID | Date | Decision |
 | --- | --- | --- |
-| [D-01](decisions-detail.md#d-01) | 2026-10-20 | Audio-only realtime loop |
-| [D-02](decisions-detail.md#d-02) | 2026-10-20 | Per-joke laughter is the reward; episode rating is the outcome |
-| [D-03](decisions-detail.md#d-03) | 2026-10-20 | Contextual bandit over HumorGen persona modes, fixed core identity |
-| [D-04](decisions-detail.md#d-04) | 2026-10-20 | LLM-as-judge first, learned reward model later |
-| [D-05](decisions-detail.md#d-05) | 2026-10-20 | Data sources |
-| [D-06](decisions-detail.md#d-06) | 2026-10-20 | Research framing |
-| [D-07](decisions-detail.md#d-07) | 2026-10-20 | M1 = Dec 15 (RL course final project, school demo) |
-| [D-08](decisions-detail.md#d-08) | 2026-10-20 | Context = three operator-set features, not one venue label |
-| [D-09](decisions-detail.md#d-09) | 2026-10-20 | Teens = stricter safety filter (hard rule) |
-| [D-10](decisions-detail.md#d-10) | 2026-10-20 | Model output = next bit, conditioned on room state |
-| [D-11](decisions-detail.md#d-11) | 2026-10-20 | Transcripts are for structure + reward, never as imitation text |
-| [D-12](decisions-detail.md#d-12) | 2026-10-20 | Laugh labels: lexicon-mapped levels, binary primary |
-| [D-13](decisions-detail.md#d-13) | 2026-10-20 | Opener/closer are positions, not bit types |
-| [D-14](decisions-detail.md#d-14) | 2026-10-20 | Density gate for laugh labels; Birbiglia replaces Bamford in held-out |
-| [D-15](decisions-detail.md#d-15) | 2026-10-21 | Applause alone is not a laugh |
-| [D-16](decisions-detail.md#d-16) | 2026-10-21 | Two datasets, split logically at the output |
-| [D-17](decisions-detail.md#d-17) | 2026-10-21 | Callbacks are first-class: hooks in set memory, callback(k) planner action |
-| [D-18](decisions-detail.md#d-18) | 2026-10-21 | Laugh predictor trains on lines, not beats |
-| [D-19](decisions-detail.md#d-19) | 2026-10-21 | Gemini (free tier) for S4–S5, with minimal excerpts |
-| [D-20](decisions-detail.md#d-20) | 2026-10-21 | S4: Gemini directly on whole sets (supersedes "minimal excerpts" above) |
-| [D-21](decisions-detail.md#d-21) | 2026-10-21 | Bit = smallest standalone unit; same-topic bits form a thread |
-| [D-22](decisions-detail.md#d-22) | 2026-10-26 | Pause the transcript pipeline; rJokes + simulator first |
-| [D-23](decisions-detail.md#d-23) | 2026-10-26 | Long-form sets are planned hierarchically, not generated in one pass |
-| [D-24](decisions-detail.md#d-24) | 2026-10-26 | Northeastern Explorer for GPU work; laptop for everything else |
-| [D-25](decisions-detail.md#d-25) | 2026-10-27 | The director picks a mode per bit, not per joke |
-| [D-26](decisions-detail.md#d-26) | 2026-10-27 | Director policy: LinUCB with a uniform prior |
-| [D-27](decisions-detail.md#d-27) | 2026-10-28 | Keep the director's features; within-show adaptation needs show state |
-| [D-28](decisions-detail.md#d-28) | 2026-10-28 | Keep 8-bit sets; longer sets don't let the director read a turn |
-| [D-29](decisions-detail.md#d-29) | 2026-10-28 | Show state step A (tonight's record as features): not adopted; go to B |
-| [D-30](decisions-detail.md#d-30) | 2026-10-31 | Show state step B (career + tonight's correction): not adopted; C needs exploration and fatigue planning |
-| [D-31](decisions-detail.md#d-31) | 2026-10-31 | Sim `base`: HumorGen win rates mapped linearly (retroactive record) |
-| [D-32](decisions-detail.md#d-32) | 2026-10-31 | rJokes is for mode statistics only, never joke material |
-| [D-33](decisions-detail.md#d-33) | 2026-10-31 | Quote a few rJokes rows in docs; never the dataset |
-| [D-34](decisions-detail.md#d-34) | 2026-11-01 | Human vs judge mode ranking: design and pass criteria (fixed before running) |
-| [D-35](decisions-detail.md#d-35) | 2026-11-01 | Human `base` for the sim: decile win rates |
-| [D-36](decisions-detail.md#d-36) | 2026-11-01 | Human vs judge mode ranking: outcome |
-| [D-37](decisions-detail.md#d-37) | 2026-11-01 | Joke length vs upvotes: weak correlation, clear trend |
-| [D-38](decisions-detail.md#d-38) | 2026-11-01 | rJokes correlation map: design and rule (fixed before running) |
-| [D-39](decisions-detail.md#d-39) | 2026-11-01 | rJokes correlation map: outcome, Exp 10 stands |
-| [D-40](decisions-detail.md#d-40) | 2026-11-01 | Correlation-map rule misses a weak link paired with a strong one |
-| [D-41](decisions-detail.md#d-41) | 2026-11-01 | Two tastes in the sim: pass criteria (fixed before running) |
-| [D-42](decisions-detail.md#d-42) | 2026-11-01 | Two tastes in the sim: outcome, the director choice holds |
-| [D-43](decisions-detail.md#d-43) | 2026-11-01 | Demo voice: Kokoro, local, on the CPU |
-| [D-44](decisions-detail.md#d-44) | 2026-11-01 | M1 target moves to Dec 8; presentation and report on Dec 14 |
-| [D-45](decisions-detail.md#d-45) | 2026-11-01 | Cut banter and roast handling from M1 |
-| [D-46](decisions-detail.md#d-46) | 2026-11-01 | Split show state step C: keep the MDP, defer callbacks |
-| [D-47](decisions-detail.md#d-47) | 2026-11-01 | Show state step C1: method and pass criteria (fixed before running) |
-| [D-48](decisions-detail.md#d-48) | 2026-11-01 | Show state step C1, first run: fails, and the run doesn't test planning fairly |
-| [D-49](decisions-detail.md#d-49) | 2026-11-01 | Show state step C1b: fix the scale and targets (fixed before running) |
-| [D-50](decisions-detail.md#d-50) | 2026-11-01 | Show state step C1b, bug fixed: one more run (fixed before running) |
-| [D-51](decisions-detail.md#d-51) | 2026-11-01 | rJokes may also test judges, still never joke material |
-| [D-52](decisions-detail.md#d-52) | 2026-11-01 | Trained joke model and DPO move into M1, from our own premises |
-| [D-53](decisions-detail.md#d-53) | 2026-11-01 | Oracle vs planning optimum: keep the oracle as the yardstick, report the true ceiling beside it |
-| [D-54](decisions-detail.md#d-54) | 2026-11-01 | Every experiment gets a chart or a stated reason |
-| [D-55](decisions-detail.md#d-55) | 2026-11-08 | Live loop: one process, with an append-only log as the contract |
-| [D-56](decisions-detail.md#d-56) | 2026-11-08 | Director state is rebuilt from logs at show start |
-| [D-57](decisions-detail.md#d-57) | 2026-11-08 | Live reward comes from operator keys, on frozen laugh levels |
-| [D-58](decisions-detail.md#d-58) | 2026-11-08 | Explore at ε = 0.2 and pick candidates uniformly, with logged probabilities |
-| [D-59](decisions-detail.md#d-59) | 2026-11-08 | Record raw show audio, with consent |
-| [D-60](decisions-detail.md#d-60) | 2026-11-08 | Laugh detector arrives in stages, with buttons as the fallback |
-| [D-61](decisions-detail.md#d-61) | 2026-11-08 | M1 shows validate the judge and DPO; training waits for about 30 shows |
-| [D-62](decisions-detail.md#d-62) | 2026-11-08 | PR standard: one task, reviewed before it reaches the user |
-| [D-63](decisions-detail.md#d-63) | 2026-11-08 | Safety filter: rules first, classifier only if they miss (Exp 19) |
-| [D-64](decisions-detail.md#d-64) | 2026-11-08 | Scraps from the Loft permission, on record |
-| [D-65](decisions-detail.md#d-65) | 2026-11-08 | One decisions notebook per project section |
-| [D-66](decisions-detail.md#d-66) | 2026-11-08 | Joke bank gets bit structure, transcript statistics stay undecided |
-| [D-67](decisions-detail.md#d-67) | 2026-11-08 | Exp 18: exploring at ε = 0.2 misses its bar in one of six rooms |
-| [D-68](decisions-detail.md#d-68) | 2026-11-08 | Keep ε = 0.2; the cost bar no longer covers the doubled-judge stress room |
-| [D-69](decisions-detail.md#d-69) | 2026-11-08 | Safety filter: rules plus an LLM check |
-| [D-70](decisions-detail.md#d-70) | 2026-11-08 | Safety filter: rules plus an LLM check (Exp 19 re-run) |
-| [D-71](decisions-detail.md#d-71) | 2026-11-08 | Safety check latency bar moves to 3 s at p95; red-team list stays in the repo |
-| [D-72](decisions-detail.md#d-72) | 2026-11-08 | Safety bar: at least 75% on fresh indirect lines; no pre-approval of scripts |
-| [D-73](decisions-detail.md#d-73) | 2026-11-08 | Safety bar met on the second fresh set; T8 accepted |
-| [D-74](decisions-detail.md#d-74) | 2026-11-14 | Generator: one call per bit, render-ahead, bridge lines and a bank fallback (Exp 20) |
-| [D-75](decisions-detail.md#d-75) | 2026-11-14 | Bank fallback lines run through the rules only (user) |
-| [D-76](decisions-detail.md#d-76) | 2026-11-14 | A bit plays one candidate thread (user) |
-| [D-77](decisions-detail.md#d-77) | 2026-11-14 | Session log v2 adds a bridge event (user) |
-| [D-78](decisions-detail.md#d-78) | 2026-11-14 | Exp 20: the generated show meets its timing bars on three shows |
-| [D-79](decisions-detail.md#d-79) | 2026-11-15 | Consent-gated raw audio over the websocket (T10) |
-| [D-80](decisions-detail.md#d-80) | 2026-11-15 | Exp 21: the click-alignment bar re-tuned to the spread around a constant (user) |
-| [D-81](decisions-detail.md#d-81) | 2026-11-15 | Operator UI waveform: full-width bars with a solid idle line, lilac-tinted mono theme (user) |
-| [D-82](decisions-detail.md#d-82) | 2026-11-15 | First live show uses Gemini (GENERATOR=llm) (user) |
-| [D-83](decisions-detail.md#d-83) | 2026-11-15 | Exp 22: rating after show_end; the acceptance scorer is built, the shows are the user's |
-| [D-84](decisions-detail.md#d-84) | 2026-11-15 | Exp 22: review round 1 changes to the rating and the scorer |
-| [D-85](decisions-detail.md#d-85) | 2026-11-15 | Exp 22: the acceptance run passes; Stage 0 is done |
-| [D-86](decisions-detail.md#d-86) | 2026-11-24 | Split the decision log: plain log for humans, detail log for agents (user) |
+| [D-01](agent/decisions-detail.md#d-01) | Oct 20 | Audio only, no camera: faster, and the robot can't joke about how people look. |
+| [D-02](agent/decisions-detail.md#d-02) | Oct 20 | Learn from laughs per joke; report the whole-show rating. Ratings are too rare to learn from, and raw laugh counts can be gamed. |
+| [D-03](agent/decisions-detail.md#d-03) | Oct 20 | One robot personality; a bandit picks which comedy style to use. Switching whole personas felt incoherent. |
+| [D-04](agent/decisions-detail.md#d-04) | Oct 20 | Start with an AI judge; replace it later with a scorer trained on our own audience votes. |
+| [D-05](agent/decisions-detail.md#d-05) | Oct 20 | Main data is our own show logs; rJokes and published methods get us started. |
+| [D-06](agent/decisions-detail.md#d-06) | Oct 20 | Research questions: does adapting beat a fixed style? Does a trained scorer beat the AI judge? |
+| [D-07](agent/decisions-detail.md#d-07) | Oct 20 | First milestone is the Dec 15 course demo, with the RL part proven in a simulator. Date later moved (D-44). |
+| [D-08](agent/decisions-detail.md#d-08) | Oct 20 | Before a show the operator sets venue, energy and age group. Audio can't tell age. |
+| [D-09](agent/decisions-detail.md#d-09) | Oct 20 | Teen audiences always get a stricter safety filter. |
+| [D-10](agent/decisions-detail.md#d-10) | Oct 20 | The system writes the next bit based on how the room is reacting. |
+| [D-11](agent/decisions-detail.md#d-11) | Oct 20 | Comedy transcripts teach structure and laugh timing only; we never copy their jokes. |
+| [D-12](agent/decisions-detail.md#d-12) | Oct 20 | Transcript laughs are scored 0 to 4; "laughed or not" is the main label. |
+| [D-13](agent/decisions-detail.md#d-13) | Oct 20 | Opener and closer are positions in the set, not kinds of bits. |
+| [D-14](agent/decisions-detail.md#d-14) | Oct 20 | Only transcripts that mark laughs often are used for laugh labels. |
+| [D-15](agent/decisions-detail.md#d-15) | Oct 21 | Applause without laughter doesn't count as a laugh. |
+| [D-16](agent/decisions-detail.md#d-16) | Oct 21 | Transcripts split into two datasets: with laugh labels, and structure only. |
+| [D-17](agent/decisions-detail.md#d-17) | Oct 21 | Callbacks are something the planner can choose. Later deferred (D-46). |
+| [D-18](agent/decisions-detail.md#d-18) | Oct 21 | The laugh predictor learns from single lines, because passage length alone gave the answer away. |
+| [D-19](agent/decisions-detail.md#d-19) | Oct 21 | Use free Gemini to label transcripts, sending as little text as possible. Replaced by D-20. |
+| [D-20](agent/decisions-detail.md#d-20) | Oct 21 | Send each whole set to Gemini in one call; it answers with line numbers, never quotes. |
+| [D-21](agent/decisions-detail.md#d-21) | Oct 21 | A bit is the smallest piece that works on its own; bits on one topic form a thread. |
+| [D-22](agent/decisions-detail.md#d-22) | Oct 26 | Pause transcript work and build on rJokes and a simulator first: behind schedule, and less legal risk. |
+| [D-23](agent/decisions-detail.md#d-23) | Oct 26 | Plan a long set bit by bit, not as one long text, so the show can change live. |
+| [D-24](agent/decisions-detail.md#d-24) | Oct 26 | University GPU cluster for heavy batch jobs; everything else runs on the laptop. |
+| [D-25](agent/decisions-detail.md#d-25) | Oct 27 | The director picks a style once per bit, not per joke: comedians commit to an angle, and 5 jokes give a steadier signal. |
+| [D-26](agent/decisions-detail.md#d-26) | Oct 27 | The director uses LinUCB: it lost the fewest laughs in simulation. |
+| [D-27](agent/decisions-detail.md#d-27) | Oct 28 | Adding "how the last bit did" as an input didn't help; keep the inputs as they are. |
+| [D-28](agent/decisions-detail.md#d-28) | Oct 28 | Keep 8-bit (10-minute) shows; longer shows didn't help the director notice a mood change. |
+| [D-29](agent/decisions-detail.md#d-29) | Oct 28 | Remembering tonight's results (step A) failed its test; not adopted. |
+| [D-30](agent/decisions-detail.md#d-30) | Oct 31 | A per-show correction (step B) failed too: it kept repeating what worked and the room got tired. |
+| [D-31](agent/decisions-detail.md#d-31) | Oct 31 | The simulated audience's style preferences come from the HumorGen paper's judge scores. |
+| [D-32](agent/decisions-detail.md#d-32) | Oct 31 | rJokes is used for style statistics only, never as jokes; its safety labels proved unreliable. |
+| [D-33](agent/decisions-detail.md#d-33) | Oct 31 | Docs may quote a few rJokes examples, never the dataset. |
+| [D-34](agent/decisions-detail.md#d-34) | Nov 1 | Plan for comparing human (upvote) and AI judge rankings of styles, with pass criteria set before running. |
+| [D-35](agent/decisions-detail.md#d-35) | Nov 1 | The human ranking compares jokes of similar length (10 length groups). |
+| [D-36](agent/decisions-detail.md#d-36) | Nov 1 | Humans and the AI judge agree only weakly, so the simulator is tested with both tastes. |
+| [D-37](agent/decisions-detail.md#d-37) | Nov 1 | Longer jokes get slightly more upvotes, so styles are compared only among similar-length jokes. |
+| [D-38](agent/decisions-detail.md#d-38) | Nov 1 | Plan for checking whether other joke features skew the human ranking. |
+| [D-39](agent/decisions-detail.md#d-39) | Nov 1 | No other feature mattered; the human ranking stands. |
+| [D-40](agent/decisions-detail.md#d-40) | Nov 1 | That check's rule had a gap; an extra test confirmed the main findings. |
+| [D-41](agent/decisions-detail.md#d-41) | Nov 1 | Pass criteria for testing the director under human taste. |
+| [D-42](agent/decisions-detail.md#d-42) | Nov 1 | LinUCB still wins under human taste; keep it. |
+| [D-43](agent/decisions-detail.md#d-43) | Nov 1 | Voice is Kokoro, run locally on the CPU: free, and no network needed at the venue. |
+| [D-44](agent/decisions-detail.md#d-44) | Nov 1 | Demo moves to Dec 8; presentation and report are due Dec 14. |
+| [D-45](agent/decisions-detail.md#d-45) | Nov 1 | Banter and roast replies are cut from the demo to make time. |
+| [D-46](agent/decisions-detail.md#d-46) | Nov 1 | Try show-long planning now (step C1); callbacks come after the demo. |
+| [D-47](agent/decisions-detail.md#d-47) | Nov 1 | Step C1 uses linear Q-learning, gets the same test as steps A and B, and runs once. |
+| [D-48](agent/decisions-detail.md#d-48) | Nov 1 | C1's first run failed, likely because of a scaling mistake in its design. |
+| [D-49](agent/decisions-detail.md#d-49) | Nov 1 | With the scaling fixed (C1b) it still failed; the demo keeps LinUCB. A code bug was found afterwards. |
+| [D-50](agent/decisions-detail.md#d-50) | Nov 1 | With the bug fixed it still fails; LinUCB stays. |
+| [D-51](agent/decisions-detail.md#d-51) | Nov 1 | rJokes may be used to test AI judges, still never as jokes. |
+| [D-52](agent/decisions-detail.md#d-52) | Nov 1 | Train our own joke model (SFT, then DPO) for the demo, from premises we write. |
+| [D-53](agent/decisions-detail.md#d-53) | Nov 1 | Report the true best possible score beside the "best next bit" benchmark; they differ by under 1 laugh a show. |
+| [D-54](agent/decisions-detail.md#d-54) | Nov 1 | Every experiment gets a chart, or a reason it doesn't need one. |
+| [D-55](agent/decisions-detail.md#d-55) | Nov 8 | The live show is one program that writes one log file per show. |
+| [D-56](agent/decisions-detail.md#d-56) | Nov 8 | At each show start, the director relearns from the saved logs. |
+| [D-57](agent/decisions-detail.md#d-57) | Nov 8 | The operator rates each joke's laugh with a key press (0 to 3); that is the reward. |
+| [D-58](agent/decisions-detail.md#d-58) | Nov 8 | The director tries a random style 20% of the time, so the logs can test other directors later. |
+| [D-59](agent/decisions-detail.md#d-59) | Nov 8 | Record show audio, only with the room's consent, to train a laugh detector later. |
+| [D-60](agent/decisions-detail.md#d-60) | Nov 8 | The laugh detector rolls in step by step; key presses stay as the backup. |
+| [D-61](agent/decisions-detail.md#d-61) | Nov 8 | Demo shows check the AI judge and the trained model; training on shows waits until about 30 shows. |
+| [D-62](agent/decisions-detail.md#d-62) | Nov 8 | Small PRs, each reviewed by a second AI before the user sees it. |
+| [D-63](agent/decisions-detail.md#d-63) | Nov 8 | Safety filter starts with word rules; add an AI check only if the rules miss. |
+| [D-64](agent/decisions-detail.md#d-64) | Nov 8 | Scraps from the Loft allowed us to use its transcripts for this project, locally. |
+| [D-65](agent/decisions-detail.md#d-65) | Nov 8 | Split the decisions notebook into one per project area. |
+| [D-66](agent/decisions-detail.md#d-66) | Nov 8 | The hand-written joke bank gets bit structure: opener, tags, closer. |
+| [D-67](agent/decisions-detail.md#d-67) | Nov 8 | Exploring 20% of the time costs under 1 laugh a show in 5 of 6 simulated rooms; the extreme room misses. |
+| [D-68](agent/decisions-detail.md#d-68) | Nov 8 | Keep 20% exploration; the extreme room no longer counts against the bar. |
+| [D-69](agent/decisions-detail.md#d-69) | Nov 8 | Word rules alone missed too much; add an AI check for each bit. |
+| [D-70](agent/decisions-detail.md#d-70) | Nov 8 | Rules fixed and AI check added; a line is blocked whenever the check can't confirm it. |
+| [D-71](agent/decisions-detail.md#d-71) | Nov 8 | The safety check may take up to 3 s (was 2 s); it runs ahead, so the audience doesn't wait. |
+| [D-72](agent/decisions-detail.md#d-72) | Nov 8 | Safety bar: catch at least 75% of new, indirect offensive lines. No human pre-approves scripts. |
+| [D-73](agent/decisions-detail.md#d-73) | Nov 8 | The safety filter passed on a second fresh set (24 of 25). |
+| [D-74](agent/decisions-detail.md#d-74) | Nov 14 | Generator: one AI call per bit, next line prepared while one plays, filler lines between bits, hand-written jokes as backup. |
+| [D-75](agent/decisions-detail.md#d-75) | Nov 14 | Backup jokes go through the word rules only, so they still work when the AI service is down. |
+| [D-76](agent/decisions-detail.md#d-76) | Nov 14 | A bit keeps one storyline across its jokes, so the closer can call back to the opener. |
+| [D-77](agent/decisions-detail.md#d-77) | Nov 14 | Filler lines are logged too (log format version 2). |
+| [D-78](agent/decisions-detail.md#d-78) | Nov 14 | Generated shows meet the timing bars: no noticeable dead air. |
+| [D-79](agent/decisions-detail.md#d-79) | Nov 15 | Room audio is recorded through the browser, only when consent is ticked for that show. |
+| [D-80](agent/decisions-detail.md#d-80) | Nov 15 | Audio timing bar changed: a steady 0.24 s delay is harmless; only jitter and drift count. Both passed. |
+| [D-81](agent/decisions-detail.md#d-81) | Nov 15 | Operator screen: full-width waveform, lilac theme; it never shows the chosen comedy style. |
+| [D-82](agent/decisions-detail.md#d-82) | Nov 15 | The first live show uses Gemini to write jokes, so the full system gets tested. |
+| [D-83](agent/decisions-detail.md#d-83) | Nov 15 | After each show the operator enters the room's 1-5 rating; a script scores the acceptance run. |
+| [D-84](agent/decisions-detail.md#d-84) | Nov 15 | Review fixes to the rating prompt and the scoring script. |
+| [D-85](agent/decisions-detail.md#d-85) | Nov 15 | Acceptance run passed: 3 simulated shows and 1 live show ran clean. Stage 0 is done. |
+| [D-86](agent/decisions-detail.md#d-86) | Nov 24 | Two decision files: this one for people, a detailed one for agents. |
+| [D-87](agent/decisions-detail.md#d-87) | Nov 24 | Docs people read stay short and plain; agent-only detail lives in `docs/agent/`. |
+
+New decision: add its full entry to the detailed log with the next ID, then a row here in the same PR.
+A test fails if the two files' IDs don't match.
