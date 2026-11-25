@@ -695,6 +695,15 @@ The one miss is an indirect drinking hint at `age: teens`, which the user judged
 
 Requests 21, 16 and 19 per show (about 93 for 5 shows, peak 4 a minute, against the assumed 500 a day and 15 a minute): met. **Bank share per show: 12.5%, 0% and 0%.** The 12.5% (5 jokes, one bit) was a generator call that failed (`RemoteProtocolError`, wall time 361.7 s, probably a suspended laptop: dev-log 2026-11-15), not the filter. **Filter: 0 calls failed after retries, 6 retried (4 in show 1, 2 in show 3), 0 malformed replies;** the slowest filter call was 5.9 s including its retries. Bridge lines 13, 11 and 12. First line after the start 11.0, 10.5 and 6.5 s (not barred; the first filter call took 5.9 and 5.1 s in shows 1 and 2, a slow cold call). **Caveat:** the provider was mostly healthy, so this shows the longer budget does not hurt the timing, not that stalls are now handled; the stalls and bad replies are covered by synthetic tests (`tests/test_safety.py`), and the real evidence of the failure is still Exp 22's one 75% show.
 
+**Rerun after review (2026-11-24).** Review of #58 changed two things: `MAX_BRIDGES` 5 to 8, because a bit's wait is generation (12 s deadline) plus the filter (25 s), about 37 s, not the filter's 25 s alone; and a partial verdict reply is kept when the re-ask fails, so the lines it judged still pass. The cache key includes `MAX_BRIDGES`, so Exp 20 was rerun; this replaces the run above.
+
+| | n | p95 | max | bar | |
+|---|---|---|---|---|---|
+| Within-bit dead air | 96 | 0.003 s | 0.017 s | p95 at most 1 s | met |
+| Between-bit dead air | 57 | 0.013 s | 0.033 s | max at most 2 s | met |
+
+Requests 16, 23 and 15 per show (90 for 5 shows, peak 4 a minute): met. **Bank share 0%, 0% and 12.5%;** the 12.5% was the joke writer returning malformed JSON for one bit, not the filter. Filter: 0 failed, 3 retried, 0 bad replies, slowest call 5.3 s. First line after the start 12.0, 6.9 and 7.4 s (not barred). Same caveat: a healthy provider, so the new cap was not exercised; `tests/test_generate.py` checks that 8 lines at about 5 s cover the two deadlines.
+
 ## Click alignment (Exp 21, 2026-11-15)
 
 `python -m sim.evaluate_clock check data/sessions/8cdeae59a177.jsonl clicks.json` (notebook Exp 21, task T10). Raw: `reports/metrics/audio_clock.json`, keyed by the session id and a digest of the clicks file; numbers only, the recording and clicks stay outside the repo. One simulated show (`GENERATOR=bank`), laptop speakers and microphone, Audio enhancements off. `play` beeped 35 times (2 kHz, 100 ms, every 10 s); 30 fell inside the recording. Beeps are found with a matched filter for the tone and a threshold of 8x the recording's noise.

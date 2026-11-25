@@ -489,3 +489,12 @@ def test_a_malformed_reply_cannot_extend_the_deadline(monkeypatch):
     safety.prefetch(LINES, "mixed", filter_client(provider, monkeypatch))
     assert provider.calls == 2 and provider.now <= 25.0  # no time for a third call, so it fails closed
     assert not any(safety.check(t, "mixed").ok for t in LINES)
+
+
+def test_a_partial_reply_survives_a_re_ask_that_stalls(monkeypatch):
+    # The re-ask times out, but the first reply already cleared line 0: that line still passes, line 1 fails closed.
+    provider = Stalls((1.5, verdict_json([0])), 1000.0)
+    client = filter_client(provider, monkeypatch)
+    safety.prefetch(LINES, "mixed", client)
+    assert safety.check(LINES[0], "mixed").ok and not safety.check(LINES[1], "mixed").ok
+    assert client.bad_replies == 1 and client.retried == provider.calls - 2  # the re-ask isn't counted as a retry

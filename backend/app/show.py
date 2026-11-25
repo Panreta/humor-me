@@ -258,7 +258,10 @@ async def _joke(bit, joke, plans, *, tts, player, source, clock, log, config, sp
     return level
 
 
-MAX_BRIDGES = 5  # about 25 s of cover, sized to the filter's 25 s deadline; past it the provider is down, not slow
+# A bit prepares after the previous one ends, so the wait is generation (deadline 12 s) then the filter (25 s), about
+# 37 s at worst; at about 5 s a line, 8 lines cover it. Past that the provider is down, not slow. The 10 bridge lines
+# repeat in a long stall. tests/test_generate.py keeps this in step with app.generate's deadlines.
+MAX_BRIDGES = 8
 
 
 async def _bridge(prep: asyncio.Task, rendered: list, player, used: list, *, bit, clock, log) -> None:
