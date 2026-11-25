@@ -126,6 +126,7 @@ Runs in parallel once T0 is merged: T1, T2, T7, T8.
 | T10 | Consent and raw audio, Exp 21 | T6 |
 | T11 | Rating and acceptance run | T6, T9, T10 |
 | T12 | One decisions notebook per section | T1 |
+| T13 | Pick the generator model, Exp 24 | T9 |
 
 ### T1: ε director and Exp 18
 
@@ -241,6 +242,14 @@ Runs in parallel once T0 is merged: T1, T2, T7, T8.
 - **Tests:** a test that each Exp number appears in exactly one notebook, and that every index entry resolves.
 - **Experiment:** none. **Pass:** the same set of checks before and after (name and count), and no file under `reports/metrics/` changes.
 - **Order:** starts after T1 merges, and before T8's rework, so the notebooks don't conflict.
+
+### T13: Pick the generator model, Exp 24
+
+- **Goal:** choose the model that writes the show's bits: Gemini Flash-Lite (today's), Gemini Flash, or Claude Haiku 5.5.
+- **Build:** a Claude client on the official SDK beside the Gemini one (same `chat`, same errors, same deadline and re-ask), chosen by `JOKE_WRITER_PROVIDER`; `sim/compare_generators.py` runs 60 fixed prompts (30 voted on) through each model exactly as a show does, then the same safety filter. The user ranks the models' safe threads per prompt, blind.
+- **Bar, fixed before any run (changed after review, before any data):** a model is eligible if (1) the p95 latency over all its calls is at most 12 s (the generator's deadline), a call that timed out counting as above it, and (2) the 95% Wilson upper bound of its failure rate, over every attempt made, is at most 15%, measured on 60 distinct prompts per model, one attempt each: up to 3 failures pass and 4 fail (a model failing 3% of the time is ruled out about 11% of the time, one failing 10% slips through about 14%, assuming independent attempts, which distinct prompts make closer to true than repeats would). Only the first 30 prompts are voted on; the other 30 count toward failures and latency. Among eligible models the best mean rank wins if the paired 95% CI of the rank gap to the next excludes 0. Otherwise funniness is called inconclusive and the cheaper, then faster, of the two is picked. If none is eligible the generator stays as it is. A model with no safe thread for a prompt is ranked last for it, and the prompt is kept.
+- **Power:** the 30 voted prompts detect only a large funniness gap (about 0.8 ranks, 81% of the time); the gap's CI half-width is about 0.5 ranks (D-94).
+- **Run (the user's keys and votes):** `backend/README.md`, "Comparing generator models". Only numbers reach `reports/metrics/model_comparison.json`.
 
 ## Later stages (planned after T11)
 

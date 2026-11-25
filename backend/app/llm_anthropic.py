@@ -13,7 +13,7 @@ import anthropic
 from app.llm import LLMError, run_with_retries
 
 MODEL = "claude-haiku-5-5"
-# Per million tokens, USD (for cost estimates).
+# Per million tokens, USD (Exp 24 cost estimates).
 PRICE_PER_MTOK = {"input": 0.10, "output": 0.50}
 # Adaptive thinking tokens count against max_tokens, so leave room for them; this is a cap, not a spend.
 MAX_TOKENS = 4096

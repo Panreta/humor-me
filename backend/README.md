@@ -22,8 +22,6 @@ cp sample.env .env
 | `JOKE_WRITER_MODEL` | e.g. `llama-3.1-8b-instant` |
 | `JOKE_WRITER_PROVIDER` | `openai` (default, the three above) or `anthropic` (official SDK, key in `ANTHROPIC_API_KEY`, `JOKE_WRITER_MODEL=claude-haiku-5-5`) |
 
-To run the show on Claude, set `JOKE_WRITER_PROVIDER=anthropic` (the model defaults to `claude-haiku-5-5`) and add a paid `ANTHROPIC_API_KEY`; the safety check stays on Gemini unless `SAFETY_CHECK_PROVIDER=anthropic` is set too, so leave it. Each job reads only its own `<JOB>_PROVIDER` and `<JOB>_MODEL`; the old `LLM_*` and `GENERATOR` names still work until you rename them.
-
 ## Run
 
 ```sh
@@ -106,6 +104,18 @@ python -m sim.acceptance <sim id 1> <sim id 2> <sim id 3> <live id> --record
 Pass only the shows meant to count: an unreadable log among the ids fails check (a).
 
 It prints a table per show (valid rows, status, bank share, bridges, label counts, pauses with paused seconds and jokes dropped, rating, audio coverage), a reported rating that leaves out paused and aborted shows (they stay listed as not counted), and the four verdicts: (a) 3 simulated in a row, (b) a valid finished live show, (c) label spread (one key over 60% of presses is flagged, reported only), (d) per-bit reward noise against the sim's 0.15, with "RERUN Exp 18" when it is more than half away. With one live show the noise rests on 8 bits and the interval is wide; the output says when the call is a guess. `--record` saves numbers and the session ids only, in `reports/metrics/acceptance.json` (no text, no audio, no paths); then run `python scripts/run_notebook.py` to refresh the Exp 22 section, which lists the recorded ids. Logs and recordings in `data/sessions/` are gitignored: never commit them.
+
+## Comparing generator models (Exp 24)
+
+Compares Gemini Flash-Lite (today's), Gemini Flash and Claude Haiku 5.5 on 60 bits (30 are voted on; all 60 count toward failures and speed). The bar is fixed in [the plan](../docs/plans/live-loop.md) (T13). Run from the repo root, in the root venv, in the main checkout (the keys are there).
+
+1. **Keys in `backend/.env`** (names as in `backend/sample.env`): `GEMINI_BASE_URL`, `GEMINI_API_KEY` and `ANTHROPIC_API_KEY` (a paid key; Claude is not free). The models are named by the harness, not by `JOKE_WRITER_MODEL`. If `app/blocklist.local.txt` exists the filter's rules use it, as in a live show.
+2. **Generate (about 50 minutes unattended: 60 bits per model, paced for the free tier, resumable):** `.venv/Scripts/python -m sim.compare_generators run --env-file backend/.env`. Stop and rerun any time; finished calls are not repeated. A bad key, a wrong model name or any unexpected error on a model's first call stops the run and saves nothing. `--redo-failed` adds a new attempt where the last one failed for a key, setting or provider-availability reason (every attempt is kept and counts toward the failure rate); `--models gemini-flash-lite,claude-haiku-5-5` picks models, `--n 72` adds prompts, `--ballot` sets how many of the first prompts are voted on (30).
+3. **Ballot:** `python -m sim.compare_generators export` (the first 30 prompts) (after `run` has finished) writes `ballot.md` and `votes.csv` under `data/model_comparison/gen-<digest>/` and the key apart in `data/model_comparison/key/`. A model with no safe thread for a prompt is not shown and is ranked last for it.
+4. **Vote (about 40 minutes):** `python -m sim.compare_generators vote` shows each prompt and asks for the order, best first (`BAC`). It saves after every answer, `s` skips, `q` quits; run it again to continue. Don't open the `key` folder. Or fill `votes.csv` by hand from `ballot.md`.
+5. **Score:** `python -m sim.compare_generators score` prints the table and the pick, and saves numbers only to `reports/metrics/model_comparison.json`. Then `python scripts/run_notebook.py` to refresh the Exp 24 section and commit the metrics file.
+
+Everything under `data/model_comparison/` (joke text, ballot, key, votes) is gitignored: never commit it. To run a show on Claude, set `JOKE_WRITER_PROVIDER=anthropic` (the model defaults to `claude-haiku-5-5`); the safety check stays on Gemini unless `SAFETY_CHECK_PROVIDER=anthropic` is set too, so leave it for now.
 
 ## Cached bits run (Exp 23)
 

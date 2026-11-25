@@ -93,7 +93,7 @@ class Client:
     retried: int = 0
     failed: int = 0
     bad_replies: int = 0
-    # Token bookkeeping for cost estimates: summed over every reply that carried a usage block.
+    # Token bookkeeping for cost estimates (Exp 24): summed over every reply that carried a usage block.
     input_tokens: int = 0
     output_tokens: int = 0
 
@@ -165,7 +165,7 @@ def from_env(timeout: float = 8.0, *, role: str = "joke_writer", provider: str |
     before the voice). Each role reads only its own `<ROLE>_PROVIDER` (`gemini`, the default, or `anthropic`, the
     official SDK in app.llm_anthropic) and `<ROLE>_MODEL`, so the safety check never follows the joke writer to
     another provider. Both clients expose `chat(system, user, *, json_reply, temperature, validate)` and raise
-    `LLMError`. `provider` and `model` override the env (a script that compares several models in one process).
+    `LLMError`. `provider` and `model` override the env (the Exp 24 harness compares several in one process).
     Raises RuntimeError for a missing setting, or a model name that belongs to the other provider."""
     prefix = ROLES[role]
     named = provider or os.environ.get(f"{prefix}_PROVIDER")  # a provider from any new name, not the default

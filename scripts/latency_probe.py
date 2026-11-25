@@ -51,7 +51,7 @@ def main() -> None:
     if model.startswith("claude") or os.getenv("JOKE_WRITER_PROVIDER") == "anthropic":
         # This probe speaks the OpenAI-compatible protocol; Claude is not on that endpoint.
         raise SystemExit(f"{model}: Claude is not reachable through GEMINI_BASE_URL. Probe a Gemini model, e.g. "
-                         "JOKE_WRITER_MODEL=gemini-flash-lite-latest.")
+                         "JOKE_WRITER_MODEL=gemini-flash-lite-latest, or time Claude with `sim.compare_generators`.")
 
     ttfts, totals = [], []
     with httpx.Client(timeout=60) as client:
