@@ -247,39 +247,93 @@ def needs_safety(att: dict | None) -> bool:
                                                                   and att["safety_tries"] < MAX_SAFETY_TRIES))
 
 
+WARMUP_TIMEOUT_S = 300.0  # a cold load took 126 s for bonsai-2:4b and 35 s for mimo-v2.6:9b (D-97), far past a bit's 12 s
+
+
+def warmup_path(directory: pathlib.Path) -> pathlib.Path:
+    return directory / "warmup.json"
+
+
+def warm_up(spec: Spec, client, directory: pathlib.Path, now=time.perf_counter) -> bool:
+    """One untimed request so the model is loaded, and alone, before its first timed call. Not an attempt: it is not in
+    the model's records, latency or failures. Its wall time goes to `warmup.json` as `warmup_s` (the cold-load cost a show
+    would pay if the writer were not preloaded). Nothing listening or a missing model stops the run like a first call
+    does; any other failure is recorded and the run goes on."""
+    start = now()
+    try:
+        client.chat("Reply with JSON only.", '{"ready": true}', json_reply=True)
+        failure = None
+    except Exception as e:
+        failure = e
+    took = now() - start
+    if failure is not None and (failure_kind(failure) == "config" or "ConnectError" in str(failure)):
+        raise ConfigError(f"{spec.key} warm-up: {type(failure).__name__}: {failure} "
+                          f"(is Ollama running? `ollama serve`, and `ollama pull {spec.tag()}`)")
+    rec = read_record(warmup_path(directory)) or {}
+    history = rec.get(spec.key, {}).get("history", [])
+    rec[spec.key] = {"warmup_s": took, "ok": failure is None, "history": history + [took]}
+    write_record(warmup_path(directory), rec)
+    return failure is None
+
+
+def call_groups(models: list[str]) -> list[list[str]]:
+    """Local models one by one, each loaded once (Ollama keeps a single one of them in VRAM, so alternating reloads
+    every call); the hosted models together, prompt by prompt, at the place of the first of them."""
+    out, remote = [], None
+    for m in models:
+        if MODELS[m].local:
+            out.append([m])
+        elif remote is None:
+            remote = [m]
+            out.append(remote)
+        else:
+            remote.append(m)
+    return out
+
+
 def run_comparison(n: int, models: list[str], make_client: Callable[[Spec], object], safety_client, *,
                    redo_failed: bool = False, directory: pathlib.Path | None = None, pacer: Pacer | None = None,
-                   log: Callable[[str], None] = print, http: Callable[[str], dict] | None = None) -> dict:
-    """Prompt-major, so an interrupted run leaves every model with the same prompts. A file per model and prompt holds
-    every attempt made, appended, never overwritten: `redo_failed` adds an attempt where the last one failed for a
-    config or infrastructure reason, and the failure rate counts all of them. A local model's GPU placement is measured
-    right after its first successful call (D-97). Returns counts of what was done."""
+                   log: Callable[[str], None] = print, http: Callable[[str], dict] | None = None,
+                   make_warm_client: Callable[[Spec], object] | None = None) -> dict:
+    """Model-major for each local model, prompt-major among the hosted ones (`call_groups`), so a local model is loaded
+    once. A file per model and prompt holds every attempt made, appended, never overwritten: `redo_failed` adds an
+    attempt where the last one failed for a config or infrastructure reason, and the failure rate counts all of them.
+    A local model gets one untimed warm-up in each run before its first call, and its GPU placement is measured right
+    after it, when it is the only one loaded (D-97). Returns counts of what was done."""
     directory, pacer = directory or run_dir(), pacer or Pacer()
     clients = {m: make_client(MODELS[m]) for m in models}
     first = set(models)  # models whose first call this run has not happened yet
-    tries = {m: 0 for m in models if MODELS[m].local}  # placement measurements this run, per local model
+    warm = {m: False for m in models if MODELS[m].local}  # warmed up in this run
+    tries = {m: 0 for m in warm}  # placement measurements this run, per local model
     done = {"generated": 0, "judged": 0, "cached": 0}
-    for prompt in prompts(n):
-        for m in models:
-            path = directory / m / f"{prompt['id']}.json"
-            rec = read_record(path) or {"model": m, "prompt": prompt["id"], "attempts": []}
-            last = rec["attempts"][-1] if rec["attempts"] else None
-            if last is None or (redo_failed and not last["ok"] and last["kind"] in ("config", "infra")):
-                rec["attempts"].append(generate_bit(MODELS[m], prompt, clients[m], pacer, first=m in first))
-                first.discard(m)
-                done["generated"] += 1
-                write_record(path, rec)
-                if m in tries and rec["attempts"][-1]["ok"] and tries[m] < MAX_PLACEMENT_TRIES:
-                    tries[m] += 1
-                    record_placement(directory, MODELS[m], http or http_json)
-            else:
-                done["cached"] += 1
-            att = final(rec)
-            if needs_safety(att):
-                judge_bit(att, prompt, safety_client, pacer)
-                done["judged"] += 1
-                write_record(path, rec)
-            log(f"{prompt['id']} {m}: {'ok' if att['ok'] else 'FAILED ' + str(att['reason'])} {att['latency_s']:.1f}s")
+    for group in call_groups(models):
+        for prompt in prompts(n):
+            for m in group:
+                path = directory / m / f"{prompt['id']}.json"
+                rec = read_record(path) or {"model": m, "prompt": prompt["id"], "attempts": []}
+                last = rec["attempts"][-1] if rec["attempts"] else None
+                if last is None or (redo_failed and not last["ok"] and last["kind"] in ("config", "infra")):
+                    if m in warm and not warm[m]:
+                        warm[m] = True
+                        client = make_warm_client(MODELS[m]) if make_warm_client else clients[m]
+                        if warm_up(MODELS[m], client, directory):
+                            tries[m] += 1
+                            record_placement(directory, MODELS[m], http or http_json)
+                    rec["attempts"].append(generate_bit(MODELS[m], prompt, clients[m], pacer, first=m in first))
+                    first.discard(m)
+                    done["generated"] += 1
+                    write_record(path, rec)
+                    if m in tries and rec["attempts"][-1]["ok"] and tries[m] < MAX_PLACEMENT_TRIES:
+                        tries[m] += 1
+                        record_placement(directory, MODELS[m], http or http_json)
+                else:
+                    done["cached"] += 1
+                att = final(rec)
+                if needs_safety(att):
+                    judge_bit(att, prompt, safety_client, pacer)
+                    done["judged"] += 1
+                    write_record(path, rec)
+                log(f"{prompt['id']} {m}: {'ok' if att['ok'] else 'FAILED ' + str(att['reason'])} {att['latency_s']:.1f}s")
     return done
 
 
@@ -291,6 +345,12 @@ def make_client(spec: Spec):
                           extra_body=llm.OLLAMA_NO_THINK)
     return llm.from_env(timeout, role="joke_writer", provider=spec.provider, model=spec.model,
                         retries=generate.RETRIES, deadline_s=deadline)
+
+
+def make_warmup_client(spec: Spec):
+    """The same local client with a timeout long enough for a cold load, and no retries."""
+    return llm.Client(spec.base_url(), "", spec.tag(), WARMUP_TIMEOUT_S, retries=0, deadline_s=WARMUP_TIMEOUT_S,
+                      extra_body=llm.OLLAMA_NO_THINK)
 
 
 def make_safety_client():
@@ -868,7 +928,8 @@ def main() -> None:
         if "claude-haiku-5-5" in models and not os.environ.get("ANTHROPIC_API_KEY"):
             sys.exit("ANTHROPIC_API_KEY is not set: add a paid key to backend/.env (or pass --models without it)")
         try:
-            print(run_comparison(a.n, models, make_client, make_safety_client(), redo_failed=a.redo_failed))
+            print(run_comparison(a.n, models, make_client, make_safety_client(), redo_failed=a.redo_failed,
+                                make_warm_client=make_warmup_client))
         except ConfigError as e:
             sys.exit(f"stopped, nothing cached for the failing call: {e}")
     elif a.command == "export":

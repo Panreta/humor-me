@@ -32,8 +32,11 @@ class FakeModel:
         self.model, self.fail, self.tokens, self.vary = model, fail, tokens, vary
         self.attempts = self.input_tokens = self.output_tokens = 0
         self.calls = 0
+        self.events = None  # a shared list: the order in which the harness touches models, warm-ups and /api/ps
 
     def chat(self, system, user, *, json_reply=False, temperature=0.0, validate=None):
+        if self.events is not None:
+            self.events.append(("call", self.model))
         self.attempts += 1
         self.calls += 1
         fail = self.fail.pop(0) if isinstance(self.fail, list) and self.fail else (None if isinstance(self.fail, list) else self.fail)
@@ -57,6 +60,20 @@ class FakeFilter:
         items = json.loads(user)
         return json.dumps({"verdicts": [{"id": i["id"], "ok": not any(r in i["text"] for r in self.reject), "reason": "r"}
                                         for i in items]})
+
+
+class FakeWarm:
+    """The warm-up client: answers anything, or raises `fail`, and never touches the model's own call counters."""
+
+    def __init__(self, model, events=None, fail=None):
+        self.model, self.events, self.fail = model, events, fail
+
+    def chat(self, system, user, *, json_reply=False, temperature=0.0, validate=None):
+        if self.events is not None:
+            self.events.append(("warm", self.model))
+        if self.fail:
+            raise self.fail
+        return '{"ready": true}'
 
 
 class NoWait(cg.Pacer):
@@ -84,10 +101,13 @@ class FakeOllama:
     def __init__(self, share=None, ps=None, raises=None, context=cg.GATE_CONTEXT, tags=None):
         self.share = {cg.MODELS[m].tag(): 1.0 for m in MODELS[:2]} if share is None else share
         self.ps, self.raises, self.context, self.urls = ps, raises, context, []
+        self.events = None
         self.tags = list(self.share) if tags is None else tags
 
     def __call__(self, url):
         self.urls.append(url)
+        if self.events is not None and url.endswith("/api/ps"):
+            self.events.append(("ps", url))
         if self.raises:
             raise self.raises
         if url.endswith("/api/tags"):
@@ -99,11 +119,18 @@ class FakeOllama:
                            for t, sh in self.share.items()]}
 
 
-def run(n=6, models=MODELS, clients=None, filt=None, **kw):
+def run(n=6, models=MODELS, clients=None, filt=None, events=None, warm_fail=None, **kw):
     clients = {} if clients is None else clients
-    done = cg.run_comparison(n, models, lambda spec: clients.setdefault(spec.key, FakeModel(spec.model)),
-                             filt or FakeFilter(), pacer=NoWait(), log=lambda s: None,
-                             **{"http": FakeOllama(), **kw})
+    http = kw.pop("http", None) or FakeOllama()
+    http.events = events
+
+    def client(spec):
+        c = clients.setdefault(spec.key, FakeModel(spec.model))
+        c.events = events
+        return c
+
+    done = cg.run_comparison(n, models, client, filt or FakeFilter(), pacer=NoWait(), log=lambda s: None, http=http,
+                             make_warm_client=lambda spec: FakeWarm(spec.model, events, warm_fail), **kw)
     return done, clients
 
 
@@ -755,3 +782,83 @@ def test_power_with_two_eligible_beside_two_references_is_computed_through_decid
     two = cg.simulate_decision_power(30, 1.0, reps=100, n_boot=500, eligible=2, references=2)
     assert 0.5 < three <= 1.0 and 0.0 <= two <= 1.0
     assert cg.simulate_decision_power(30, 0.0, reps=100, n_boot=500, eligible=2, references=2) < 0.2  # no gap: a fluke
+
+
+# --- D-97 review: one local model in VRAM at a time, so order and warm-up matter ----------------------------------
+
+def blocks(events, kind="call"):
+    """The models in the order they were called, consecutive repeats collapsed."""
+    import itertools
+    return [m for m, _ in itertools.groupby(m for k, m in events if k == kind)]
+
+
+def test_each_local_model_is_called_in_one_block_so_it_is_loaded_once(data):
+    events = []
+    run(n=4, models=[MIMO, HAIKU, BONSAI], events=events)
+    names = [cg.MODELS[m].model for m in (MIMO, HAIKU, BONSAI)]
+    assert blocks(events) == names  # not mimo, haiku, bonsai, mimo, ...: alternating would evict the other local model each time
+    per = {m: sum(1 for k, x in events if k == "call" and x == cg.MODELS[m].model) for m in (MIMO, BONSAI)}
+    assert per == {MIMO: 4, BONSAI: 4}  # every prompt, one call a bit, all done in the block
+    events = []
+    run(n=2, models=[BONSAI, MIMO, GEMMA], events=events, directory=cg.run_dir() / "other")
+    assert blocks(events) == [cg.MODELS[m].model for m in (BONSAI, MIMO, GEMMA)]
+
+
+def test_hosted_models_stay_together_prompt_by_prompt_at_the_place_of_the_first():
+    assert cg.call_groups([MIMO, BONSAI, HAIKU, GEMMA]) == [[MIMO], [BONSAI], [HAIKU], [GEMMA]]
+    assert cg.call_groups([HAIKU, MIMO]) == [[HAIKU], [MIMO]]
+    assert [g for g in cg.call_groups(["claude-haiku-5-5"])] == [["claude-haiku-5-5"]]
+
+
+def test_a_local_model_is_warmed_up_untimed_and_placement_is_read_right_after_it_before_any_call(data):
+    events = []
+    run(n=2, models=[MIMO], events=events)
+    kinds = [k for k, _ in events]
+    assert kinds[:2] == ["warm", "ps"] and kinds.index("call") > 1  # resident and alone when it is measured
+    assert kinds.count("warm") == 1
+
+
+def test_the_warm_up_is_not_an_attempt_and_adds_nothing_to_latency_tokens_or_failures(data):
+    client = FakeModel(cg.MODELS[MIMO].model)
+    cg.run_comparison(3, [MIMO], lambda spec: client, FakeFilter(), pacer=NoWait(), log=lambda s: None, http=FakeOllama())
+    assert client.calls == 1 + 3  # no separate warm client: the warm-up goes through this one
+    atts = cg.load_attempts(cg.run_dir(), [MIMO], 3)[MIMO]
+    assert len(atts) == 3 and all(a["requests"] == 1 and a["input_tokens"] == 1000 for a in atts)  # the warm-up is excluded
+    s = cg.call_stats(atts, cg.MODELS[MIMO])
+    assert s["n_attempts"] == 3 and s["n_failed"] == 0
+    w = cg.read_record(cg.warmup_path(cg.run_dir()))[MIMO]
+    assert w["ok"] is True and w["warmup_s"] >= 0 and len(w["history"]) == 1
+    assert not any("warm" in json.dumps(a) for a in atts)
+
+
+def test_a_resume_that_makes_a_call_warms_up_again_and_a_fully_cached_one_does_not(data):
+    events = []
+    run(n=2, models=[MIMO], events=events)
+    run(n=2, models=[MIMO], events=events)  # everything cached: no call, so nothing to warm up for
+    assert [k for k, _ in events].count("warm") == 1
+    run(n=3, models=[MIMO], events=events)  # one new prompt: the model may have been unloaded since
+    assert [k for k, _ in events].count("warm") == 2
+    assert len(cg.read_record(cg.warmup_path(cg.run_dir()))[MIMO]["history"]) == 2
+
+
+def test_warm_up_failure_modes(data):
+    down = llm.LLMError("transport: ConnectError", retryable=True)
+    with pytest.raises(cg.ConfigError, match=r"warm-up.*ollama serve.*ollama pull mimo-v2.6:9b"):
+        run(n=2, models=[MIMO], warm_fail=down)
+    assert not (cg.run_dir() / MIMO / "p00.json").exists()  # nothing cached for the failing call
+    missing = llm.LLMError("404 model not found", status=404)
+    with pytest.raises(cg.ConfigError):
+        run(n=2, models=[MIMO], warm_fail=missing)
+    slow = llm.LLMError("503 unavailable", status=503, retryable=True)
+    run(n=2, models=[MIMO], warm_fail=slow)  # the bits themselves are still measured: only the warm-up failed
+    w = cg.read_record(cg.warmup_path(cg.run_dir()))[MIMO]
+    assert w["ok"] is False and len(cg.load_attempts(cg.run_dir(), [MIMO], 2)[MIMO]) == 2
+    assert cg.load_placement(cg.run_dir())[MIMO]["status"] == "ok"  # measured after the first good call instead
+
+
+def test_the_warm_up_client_has_a_cold_load_timeout_and_no_retries(monkeypatch):
+    monkeypatch.setenv("OLLAMA_URL", "http://box:11434/v1")
+    c = cg.make_warmup_client(cg.MODELS[BONSAI])
+    assert (c.base_url, c.model, c.retries) == ("http://box:11434/v1", "bonsai-2:4b", 0)
+    assert c.timeout == c.deadline_s == cg.WARMUP_TIMEOUT_S >= 126  # the measured cold load of bonsai-2:4b was 126 s
+    assert c.extra_body == llm.OLLAMA_NO_THINK
