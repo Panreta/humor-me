@@ -163,17 +163,20 @@ def test_digest_follows_the_filter_prompt_and_model(monkeypatch):
     monkeypatch.setattr(cg.safety, "SYSTEM", cg.safety.SYSTEM + " changed")
     assert cg.gen_digest() != before
     monkeypatch.undo()
-    monkeypatch.setattr(cg, "SAFETY_MODEL", "other")
-    assert cg.gen_digest() != before
+    for name, other in (("SAFETY_MODEL", "other"), ("SAFETY_PROVIDER", "gemini"), ("SAFETY_THINKING", True)):
+        monkeypatch.setattr(cg, name, other)
+        assert cg.gen_digest() != before, name  # no folder mixes two filters
+        monkeypatch.undo()
 
 
-def test_the_filter_client_uses_the_production_filter_timing_and_stays_gemini(monkeypatch):
-    for name in ("SAFETY_CHECK_PROVIDER", "SAFETY_CHECK_MODEL", "JOKE_WRITER_PROVIDER", "LLM_MODEL"):
+def test_the_filter_client_is_haiku_without_thinking_whatever_the_env_says(monkeypatch):
+    from app import llm_anthropic
+    for name in ("SAFETY_CHECK_PROVIDER", "SAFETY_CHECK_MODEL", "SAFETY_CHECK_THINKING", "JOKE_WRITER_PROVIDER", "LLM_MODEL"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("GEMINI_BASE_URL", "http://g/v1")
-    monkeypatch.setenv("JOKE_WRITER_PROVIDER", "anthropic")
+    monkeypatch.setenv("SAFETY_CHECK_PROVIDER", "gemini")  # a .env pointing elsewhere must not change the run's filter
+    monkeypatch.setenv("SAFETY_CHECK_THINKING", "on")
     c = cg.make_safety_client()
-    assert isinstance(c, llm.Client) and c.model == cg.SAFETY_MODEL
+    assert isinstance(c, llm_anthropic.Client) and c.model == "claude-haiku-5-5" and c.thinking is False
     assert (c.timeout, c.deadline_s, c.retries) == (*cg.generate.FILTER_TIMING, cg.generate.FILTER_RETRIES)
 
 

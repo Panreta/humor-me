@@ -11,8 +11,7 @@ Usage (needs the Anthropic and Gemini keys in backend/.env and Ollama running, s
 
 Each prompt is one bit, generated exactly as a show does it (`generate.GeminiGenerator`, one call, 3 threads of 5
 jokes, the production timeout, retries and deadline; a local model through Ollama's OpenAI-compatible endpoint), then
-judged by the same safety filter for every model (Flash-Lite
-through the OpenAI-compatible endpoint, as in a show). Latency, failures, safety pass rate, tokens and estimated cost
+judged by the same safety filter for every model (Claude Haiku 5.5 with thinking off, as in a show since D-100). Latency, failures, safety pass rate, tokens and estimated cost
 are measured; funniness is the user's blind ranking of one safe thread per model per prompt. Generated text, votes and
 the ballot key stay under `data/model_comparison/` (gitignored); only numbers reach `reports/metrics`.
 
@@ -55,7 +54,9 @@ N_BALLOT = 30  # the first of them are also voted on; power reasoning in docs/ag
 SEED = 24
 N_BOOT = 10_000
 BITS_PER_5_SHOWS = 40  # 8 bits x 5 shows, the demo's horizon
-SAFETY_MODEL = "gemini-flash-lite-latest"  # the filter is fixed across candidates: only the generator varies
+# The filter is fixed across candidates (only the generator varies) and pinned here, not read from .env, so a run cannot
+# change filters halfway. D-100: the show's filter, Haiku without thinking, off Gemini's free tier and its 503s.
+SAFETY_PROVIDER, SAFETY_MODEL, SAFETY_THINKING = "anthropic", "claude-haiku-5-5", False
 METRICS_NAME = "model_comparison"
 SCHEMA_VERSION = "attempts-v2"
 
@@ -99,8 +100,8 @@ MODELS = {
     # D-97: too big to serve the live loop beside Kokoro, so it only shows how far the others are from a stronger model
     "gemma4-12b": Spec("gemma4-12b", OLLAMA_PROVIDER, "gemma4:12b", 0.0, 0.0, "ollama", 0.0, "GEMMA_OLLAMA_TAG", reference=True),
 }
-SAFETY_BUCKET = "gemini-safety"  # the filter's own quota: Flash-Lite's free tier, spaced as in Exp 19
-SAFETY_GAP_S = 7.0
+SAFETY_BUCKET = "anthropic-safety"  # the filter's own requests; a paid tier, so no free-tier spacing (Exp 19 reruns: 0 retries)
+SAFETY_GAP_S = 0.0
 MODE_ORDER = tuple(generate.MODES)
 
 
@@ -126,7 +127,7 @@ def gen_digest(seed: int = SEED) -> str:
     comparison, not a mixed one."""
     parts = [generate.PROMPT_ID, generate.SYSTEM, generate.TEENS_RULE, json.dumps(generate.MODES, sort_keys=True),
              str((generate.K, generate.JOKES, generate.TEMPERATURE, generate.GENERATOR_TIMING, generate.RETRIES)),
-             safety.PROMPT_ID, safety.SYSTEM, str((generate.FILTER_TIMING, generate.FILTER_RETRIES, SAFETY_MODEL)),
+             safety.PROMPT_ID, safety.SYSTEM, str((generate.FILTER_TIMING, generate.FILTER_RETRIES, SAFETY_PROVIDER, SAFETY_MODEL, SAFETY_THINKING)),
              json.dumps([[k, m.provider, m.tag(), m.base_url()] for k, m in MODELS.items()]),  # the candidates
              LOCAL_JSON_MODE, SCHEMA_VERSION, str(seed)]
     return hashlib.sha256("\x00".join(parts).encode()).hexdigest()[:8]
@@ -374,10 +375,10 @@ def make_warmup_client(spec: Spec):
 
 
 def make_safety_client():
-    """The production filter's timing and retries (the filter is Gemini for every candidate, as in a show)."""
+    """The production filter's timing and retries, the same filter for every candidate (D-100's, as in a show)."""
     timeout, deadline = generate.FILTER_TIMING
-    return llm.from_env(timeout, role="safety_check", provider="gemini", model=SAFETY_MODEL,
-                        retries=generate.FILTER_RETRIES, deadline_s=deadline)
+    return llm.from_env(timeout, role="safety_check", provider=SAFETY_PROVIDER, model=SAFETY_MODEL,
+                        retries=generate.FILTER_RETRIES, deadline_s=deadline, thinking=SAFETY_THINKING)
 
 
 # --- GPU placement (D-97) ----------------------------------------------------------------------------------------

@@ -201,6 +201,10 @@ def from_env(timeout: float = 8.0, *, role: str = "joke_writer", provider: str |
         model = model or llm_anthropic.MODEL
         if not model.startswith("claude"):
             raise RuntimeError(f"{prefix}_MODEL={model!r} is not a Claude model but the provider is anthropic")
+        thinking = os.environ.get(f"{prefix}_THINKING", "on").strip().lower()
+        if thinking not in ("on", "off"):
+            raise RuntimeError(f"{prefix}_THINKING={thinking!r}: expected on or off")
+        options.setdefault("thinking", thinking == "on")  # D-100: the safety check runs with it off
         return llm_anthropic.from_env(timeout, model=model, **options)
     if not model and not named:
         model = os.environ.get("LLM_MODEL", "")  # an unrenamed .env: the old name, a Gemini model by construction

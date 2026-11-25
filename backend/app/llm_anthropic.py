@@ -35,6 +35,9 @@ class Client:
     bad_replies: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    # Off sends `thinking: disabled` (Haiku 5.5 accepts it at effort high or below; we run low). Structured output still
+    # holds the reply to the schema, so reasoning cannot leak into the parsed JSON. D-99 measures whether it is needed.
+    thinking: bool = True
     _built: Any = field(default=None, repr=False)
 
     def chat(self, system: str, user: str, *, json_reply: bool | dict = False, temperature: float = 0.0,
@@ -57,11 +60,12 @@ class Client:
         output_config: dict = {"effort": "low"}
         if isinstance(json_reply, dict):
             output_config["format"] = {"type": "json_schema", "schema": json_reply}
+        extra = {} if self.thinking else {"thinking": {"type": "disabled"}}
         try:
             resp = self._client().messages.create(
                 model=self.model, max_tokens=MAX_TOKENS, system=system,
                 messages=[{"role": "user", "content": user}], output_config=output_config,
-                timeout=anthropic.Timeout(timeout, connect=min(2.0, timeout)))
+                timeout=anthropic.Timeout(timeout, connect=min(2.0, timeout)), **extra)
         # Most specific first: RateLimitError is an APIStatusError, APITimeoutError an APIConnectionError.
         except anthropic.RateLimitError as e:
             raise LLMError("http 429", 429, retryable=True) from e
