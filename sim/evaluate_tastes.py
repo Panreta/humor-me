@@ -3,7 +3,7 @@
 Usage:
     python -m sim.evaluate_tastes
 
-Criteria were fixed before running (decisions.md 2026-11-01). Only `base` changes between tastes: venue, age
+Criteria were fixed before running (decisions-detail.md 2026-11-01). Only `base` changes between tastes: venue, age
 and dynamics stay as they are, so any difference comes from how strongly the room prefers some modes.
 """
 import copy

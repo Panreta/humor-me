@@ -20,10 +20,10 @@ row to "Done" with its PR. Add a row whenever something is deferred so it isn't 
 
 | Idea | PR | Outcome |
 |---|---|---|
-| Per-joke vs per-bit decisions | #1 | Per bit (decisions.md 2026-10-27) |
+| Per-joke vs per-bit decisions | #1 | Per bit (decisions-detail.md 2026-10-27) |
 | Priors: HumorGen vs uniform vs wrong | #4 | No significant difference at weight 1; LinUCB + uniform chosen |
 | Mid-set preference shift | (this PR) | Learners drop 95% → 80–83% of oracle; recover no faster than random; reaction feature doesn't help → needs show state |
 | Set length vs shift (user question) | (this PR) | No: 8–52-bit sets all stay at 80–85% of oracle after a turn; keep 8-bit sets |
 | Show state A: tonight's record as features | (this PR) | Fails pre-set criteria; hedges instead of reading the turn → step B |
 | Show state B: career + tonight's correction | (this PR) | No κ passes; win-stay meets fatigue, untried modes never tested → C |
-| #1 Human mode preference from rJokes upvotes (win rate vs the field + regression, not Bradley–Terry; decisions.md 2026-11-01) | (this PR) | Partial agreement with the judge; small mode effect in upvotes → two-tastes sim run next |
+| #1 Human mode preference from rJokes upvotes (win rate vs the field + regression, not Bradley–Terry; decisions-detail.md 2026-11-01) | (this PR) | Partial agreement with the judge; small mode effect in upvotes → two-tastes sim run next |

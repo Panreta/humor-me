@@ -13,7 +13,7 @@ recording hears them. `check` finds each tone in the WAV with a matched filter f
 speech and laughter do not win), converts it to wall clock with the log's `show_start.audio.start_at`, and compares it
 with the time `play` logged. Beeps whose search window is not inside the recording are counted as outside, not missed.
 
-Bar, re-tuned by the user on 2026-11-15 after the first real run (decisions.md): drift over the show at most 50 ms;
+Bar, re-tuned by the user on 2026-11-15 after the first real run (decisions-detail.md): drift over the show at most 50 ms;
 p95 of |offset - median offset| (the spread around a constant) at most 100 ms; at least 90% of the in-recording beeps
 matched. The constant offset is reported, not barred: it includes PlaySound's output latency, which this setup cannot
 separate from the recorder's start time. The old bar (p95 |offset| at most 100 ms) is still computed, as `pass_old_p95`.
