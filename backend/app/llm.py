@@ -57,6 +57,17 @@ def bump(client, **deltas: int) -> None:
             setattr(client, name, getattr(client, name) + n)
 
 
+class BadReply(str):
+    """A reply that failed `validate`, returned because its re-ask failed. `reask_error` is that failure, so a caller can
+    tell "the model answered badly twice" from "the model answered badly and the second call timed out" (D-111)."""
+    reask_error: "LLMError | None"
+
+    def __new__(cls, text: str, reask_error: "LLMError"):
+        self = super().__new__(cls, text)
+        self.reask_error = reask_error
+        return self
+
+
 class LLMError(Exception):
     def __init__(self, message: str, status: int | None = None, retryable: bool = False):
         super().__init__(message)
@@ -105,7 +116,7 @@ def run_with_retries(client, once: Callable[[float], str], validate: Callable[[s
             if not e.retryable or attempt == client.retries or late:
                 bump(client, failed=1)
                 if last_bad is not None:
-                    return last_bad
+                    return BadReply(last_bad, e)
                 raise
             bump(client, retried=1)
             client.sleep(wait)

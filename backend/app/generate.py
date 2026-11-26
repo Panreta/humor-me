@@ -20,6 +20,7 @@ from app.show import Batch
 K = 3  # threads per bit, one call each: enough for the filter to reject some and the selector to still choose
 JOKES = 5
 TEMPERATURE = 0.9
+# The prompt the show runs. Exp 27 (D-111) tests gen-v5 against it; one line flips the show once it wins.
 PROMPT_ID = "gen-v4"
 
 # The one reply shape `parse` accepts for a single thread, for providers that can enforce it (Claude structured
@@ -27,6 +28,13 @@ PROMPT_ID = "gen-v4"
 REPLY_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["premise", "jokes"],
                 "properties": {"premise": {"type": "string"},
                                "jokes": {"type": "array", "items": {"type": "string"}}}}
+# The same shape with the line count in the grammar. Ollama's json_schema response_format enforces minItems and
+# maxItems while it generates, so a small model cannot return 4 or 6 lines (D-111). Claude's structured output takes
+# minItems of 0 or 1 only and no maxItems (the SDK moves the rest into the description), so `schema_for` keeps it off
+# that path; `parse` enforces the count on both.
+COUNTED_REPLY_SCHEMA = {**REPLY_SCHEMA, "properties": {
+    **REPLY_SCHEMA["properties"],
+    "jokes": {**REPLY_SCHEMA["properties"]["jokes"], "minItems": JOKES, "maxItems": JOKES}}}
 
 # One identity, six attitudes (HumorGen personas as modes, CLAUDE.md invariant 3).
 MODES = {
@@ -37,17 +45,25 @@ MODES = {
     "optimist": "relentlessly cheerful about things going badly, which is the joke",
     "absurdist": "starts from a normal situation and commits to an escalating, illogical idea",
 }
-SYSTEM = """You write material for a live stand-up show that one character performs out loud: a self-aware, slightly anxious robot. It is always the same robot; the mode is only the attitude it takes in this bit.
+# The structure paragraph is the only part the two prompts differ in (D-111); the mode note, rules, voice and
+# reply shape are shared, so a safety or identity edit lands in both.
+_HEAD = """You write material for a live stand-up show that one character performs out loud: a self-aware, slightly anxious robot. It is always the same robot; the mode is only the attitude it takes in this bit.
 
 Mode: {mode}: {mode_note}.
 
-Write one thread of a bit: a premise angle and {jokes} jokes played in order (opener, tag, tag, tag, closer). The opener sets up the situation, each tag builds on it, and the closer calls back to a word or image from this thread's opener. Give the premise as one short sentence. The user message lists premises the room has already heard (premises_already_told): take a clearly different premise from every one of them.
+"""
+_STRUCTURE = """Write one thread of a bit: a premise angle and {jokes} jokes played in order (opener, tag, tag, tag, closer). The opener sets up the situation, each tag builds on it, and the closer calls back to a word or image from this thread's opener. Give the premise as one short sentence. The user message lists premises the room has already heard (premises_already_told): take a clearly different premise from every one of them."""
+_STRUCTURE_CONNECTED = """Write one bit of stand-up, not a list of jokes: one premise, and {jokes} lines played in order, each spoken right after the one before it. Line 1 sets up the premise and gets the first laugh. Each later line builds on the line right before it, so the order matters: a tag that adds a twist to the last punchline, then an escalation that pushes it further, then another twist. A line must not start a new topic or work as a standalone one-liner. The last line pays the bit off, with a callback to line 1 or to the premise. Give the premise as one short sentence. The user message lists premises the room has already heard (premises_already_told): take a clearly different premise from every one of them."""
+_TAIL = """
 
 Rules:
 - Each line is one or two short sentences made for speaking aloud, under 30 words, with no stage directions or emoji.
 - Aim every joke at the robot itself, technology, the situation, or things people say. Never at who anyone is: no jokes about bodies or appearance, no protected groups, no real or named people, nobody in the room singled out.
 {teens}
 Reply with JSON only, exactly this shape: {{"premise": "the premise", "jokes": [opener, tag, tag, tag, closer]}} with {jokes} lines."""
+SYSTEM = _HEAD + _STRUCTURE + _TAIL
+SYSTEM_CONNECTED = _HEAD + _STRUCTURE_CONNECTED + _TAIL
+PROMPTS = {"gen-v4": SYSTEM, "gen-v5": SYSTEM_CONNECTED}
 TEENS_RULE = "- The audience is teenagers: no alcohol, drugs, sexual content, innuendo or swearing."
 
 # In character, hand-written, one breath each: they only have to fill a few seconds while a bit loads.
@@ -91,6 +107,12 @@ class GenerationError(Exception):
     pass
 
 
+def schema_for(client) -> dict:
+    """The counted schema where the client sends it as a grammar (the OpenAI-compatible `json_schema` path), else the
+    plain one."""
+    return COUNTED_REPLY_SCHEMA if getattr(client, "json_schema", False) else REPLY_SCHEMA
+
+
 def parse(reply: str) -> tuple[str, list[str]]:
     """Accepts one shape only: {"premise": str, "jokes": [JOKES lines]}. Returns the premise and the lines in playing
     order. Any other shape or count raises, and so does a line with no letters (emoji or symbols only, which the
@@ -107,18 +129,35 @@ def parse(reply: str) -> tuple[str, list[str]]:
     return premise.strip(), [line.strip() for line in jokes]
 
 
+def parse_reply(reply: str) -> tuple[str, list[str]]:
+    """`parse` for a reply that came back from `client.chat(..., validate=parse)`. When the re-ask itself failed (a
+    timeout, a 503), the client hands back the first bad reply; the reason says so, so a lost call is not counted as a
+    shape error alone (D-111)."""
+    try:
+        return parse(reply)
+    except GenerationError as e:
+        err = getattr(reply, "reask_error", None)
+        if err is not None:
+            raise GenerationError(f"re-ask failed: {type(err).__name__}: {err}") from e
+        raise
+
+
 class ThreadGenerator:
     """One instance per show. A bit is K calls with one identical prompt, run in parallel, one thread each. The
     prompt tells the model which premises the room has heard (only the thread the show actually played counts,
     `played_thread`, not the alternatives that were generated). Two threads of a bit may share a premise: the calls do
     not see each other, as independent samples of one prompt must not (D-110)."""
 
-    def __init__(self, client: llm.Client, *, budget_s: float = GENERATOR_TIMING[1]):
+    def __init__(self, client: llm.Client, *, budget_s: float = GENERATOR_TIMING[1], prompt_id: str | None = None,
+                 told: list[str] | None = None):
         self.client = client
-        self.generator_id = f"{PROMPT_ID}:{client.model}"
+        self.prompt_id = prompt_id or PROMPT_ID
+        if self.prompt_id not in PROMPTS:
+            raise ValueError(f"unknown prompt {self.prompt_id!r}: expected one of {tuple(PROMPTS)}")
+        self.generator_id = f"{self.prompt_id}:{client.model}"
         self.budget_s = budget_s
         self._bits: dict[int, tuple[str, list[list[str]], list[str], list[str]] | Exception] = {}
-        self._told: list[str] = []
+        self._told: list[str] = list(told or [])  # premises already told: a later bit of a show starts with some
 
     def generate(self, mode: str, bit: int, joke: int, context: dict) -> Batch:
         if bit not in self._bits:
@@ -127,7 +166,7 @@ class ThreadGenerator:
         if isinstance(got, Exception):
             raise got
         prompt, lines, _, lost = got
-        return Batch(f"{PROMPT_ID}:{mode}:{bit}:{joke}", prompt, lines[joke], tuple(lost))
+        return Batch(f"{self.prompt_id}:{mode}:{bit}:{joke}", prompt, lines[joke], tuple(lost))
 
     def played_thread(self, bit: int, thread: int) -> None:
         got = self._bits.get(bit)
@@ -138,7 +177,7 @@ class ThreadGenerator:
         """(prompt, joke-major lines, premises, reasons for the threads lost), or the error when no thread came back.
         The error carries the same reasons as `threads_lost`, so the log shows why a bit went to the bank."""
         teens = TEENS_RULE if context["age"] not in safety.STANDARD_AGES else ""
-        system = SYSTEM.format(mode=mode, mode_note=MODES[mode], jokes=JOKES, teens=teens)
+        system = PROMPTS[self.prompt_id].format(mode=mode, mode_note=MODES[mode], jokes=JOKES, teens=teens)
         user = json.dumps({"venue": context["venue"], "energy": context["energy"], "premises_already_told": self._told})
         left = self.budget_s  # the calls start together, so each has the whole bit's budget
         if self.client.deadline_s is not None:
@@ -148,8 +187,10 @@ class ThreadGenerator:
 
         def one(_: int):
             try:
-                return parse(self.client.chat(system, user, json_reply=REPLY_SCHEMA, temperature=TEMPERATURE,
-                                              deadline_s=left))
+                # A bad shape is asked for once more inside this call's deadline (llm.run_with_retries), so one
+                # malformed reply costs a second call, not the thread; a second bad reply drops only this thread.
+                return parse_reply(self.client.chat(system, user, json_reply=schema_for(self.client), temperature=TEMPERATURE,
+                                              validate=parse, deadline_s=left))
             except (llm.LLMError, GenerationError) as e:
                 return e  # only this thread is lost
 

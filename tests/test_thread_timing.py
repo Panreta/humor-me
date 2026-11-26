@@ -112,6 +112,8 @@ def test_parallel_calls_are_not_flagged_and_server_side_queueing_is():
     # One Ollama slot: all three requests are sent at once, but the server answers them one after another, so the
     # client sees 1x, 2x and 3x one call. The wall time of the bit is the longest of them, as it would be in parallel.
     raw["bits"][0]["wall_s"] = 3.0
+    # the instant fake gives microsecond call times whose ratio is noise, so pin the second bit to equal ones
+    raw["bits"][1]["calls"] = [{"start_s": 0.0, "seconds": 1.0, "ok": True, "reason": None}] * 3
     raw["bits"][0]["calls"] = [{"start_s": 0.0, "seconds": float(k), "ok": True, "reason": None} for k in (1, 2, 3)]
     s = tt.summarize(raw)
     assert s["bits_queued"] == 1 and s["spread_median"] is not None
@@ -162,3 +164,40 @@ def test_a_hosted_writer_is_refused(monkeypatch):
     monkeypatch.setenv("GEMINI_BASE_URL", "http://g/v1")
     with pytest.raises(SystemExit):
         tt.run(digest_=tt.digest())
+
+
+def test_bit_wall_time_is_split_by_whether_a_bit_re_asked_a_bad_shape():
+    seen = {"n": 0}
+    lock = threading.Lock()
+
+    def one_bad(request):
+        with lock:
+            seen["n"] += 1
+            n = seen["n"]
+        return reply("not json") if n == 2 else reply(GOOD)  # warm-up is call 1; the first call of bit 0 is bad once
+    c = llm.Client("http://local/v1", "", "bonsai-2:4b", 10.0, retries=1, deadline_s=12.0, local=True,
+                   extra_body=llm.OLLAMA_NO_THINK, json_schema=True, transport=httpx.MockTransport(one_bad))
+    s = tt.summarize(tt.measure(c, tt.prompts(3), ps()))
+    assert s["bits_reasked"] == 1 and [b["reasked"] for b in s["bits"]] == [True, False, False]
+    assert all(s[k] is not None for k in ("bit_p50_s_reasked", "bit_p95_s_reasked", "bit_p50_s_no_reask", "bit_p95_s_no_reask"))
+    assert all(b["threads"] == 3 for b in s["bits"])  # the re-ask saved the thread
+    assert "re-asked" in tt.table(s) or "re-ask" in tt.table(s)
+
+
+def test_a_re_ask_that_times_out_is_a_call_failure_reason_not_a_shape_error():
+    n = {"i": 0}
+    lock = threading.Lock()
+
+    def handler(request):
+        with lock:
+            n["i"] += 1
+            i = n["i"]
+        if i == 2:
+            return reply("not json")
+        if i == 3:
+            raise httpx.ReadTimeout("slow")
+        return reply(GOOD)
+    c = llm.Client("http://local/v1", "", "bonsai-2:4b", 10.0, retries=1, deadline_s=12.0, local=True,
+                   extra_body=llm.OLLAMA_NO_THINK, json_schema=True, transport=httpx.MockTransport(handler), sleep=lambda s: None)
+    s = tt.summarize(tt.measure(c, tt.prompts(1), ps()))
+    assert any("re-ask failed" in r for r in s["failure_reasons"]) and not any("malformed" in r for r in s["failure_reasons"])

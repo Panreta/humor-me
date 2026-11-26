@@ -494,6 +494,162 @@ def test_a_bit_that_got_fewer_threads_still_plays_one_through_the_show(tmp_path)
     assert all(len(r["items"]) == 1 for r in rows if r["event"] == "candidates")
 
 
+# --- D-111: the counted schema, the re-ask, and the connected prompt as a candidate ---
+
+def per_call_server(bad_for, bad_reply="not json", delay_s=0.0, **options):
+    """A client whose requests are answered by the pool thread that made them: a thread whose index is in `bad_for`
+    gets `bad_reply` on its first `bad_for[index]` requests, then a good thread. Returns (client, request bodies)."""
+    seen, lock, counts, ident = [], threading.Lock(), {}, {}
+    barrier = threading.Barrier(3, timeout=5)  # the 3 first calls overlap, so each runs on its own pool thread
+
+    def handler(request):
+        with lock:
+            seen.append(json.loads(request.content))
+            first = len(seen) <= 3
+            who = ident.setdefault(threading.get_ident(), str(len(ident)))
+            counts[who] = counts.get(who, 0) + 1
+            n = counts[who]
+        if first:
+            barrier.wait()
+        if delay_s:
+            time.sleep(delay_s)
+        bad = who in bad_for and n <= bad_for[who]
+        return httpx.Response(200, json=completion(bad_reply if bad else thread_reply(tag=f"call{who}", premise=f"p{who}")))
+    return llm.Client("http://fake", "k", "m", transport=httpx.MockTransport(handler), sleep=lambda s: None,
+                      **options), seen
+
+
+def test_the_counted_schema_is_sent_on_the_ollama_path_and_only_there():
+    c = lambda **o: llm.Client("http://fake", "", "m", transport=httpx.MockTransport(lambda r: httpx.Response(200, json=completion(thread_reply()))), **o)
+    ollama, plain = c(json_schema=True, local=True), c()
+    sent = []
+    for cl in (ollama, plain):
+        inner = cl._once
+        cl._once = lambda system, user, json_reply, temperature, timeout, inner=inner: (sent.append(json_reply), inner(system, user, json_reply, temperature, timeout))[1]
+        generate.ThreadGenerator(cl).generate("cynic", 0, 0, CTX)
+    assert sent[:3] == [generate.COUNTED_REPLY_SCHEMA] * 3 and sent[3:] == [generate.REPLY_SCHEMA] * 3
+    jokes = generate.COUNTED_REPLY_SCHEMA["properties"]["jokes"]
+    assert (jokes["minItems"], jokes["maxItems"]) == (generate.JOKES, generate.JOKES) == (5, 5)
+    assert "minItems" not in generate.REPLY_SCHEMA["properties"]["jokes"]
+    assert generate.REPLY_SCHEMA["properties"]["jokes"] == {"type": "array", "items": {"type": "string"}}  # the plain one is unchanged
+
+
+def test_the_ollama_request_body_carries_the_counted_schema_in_its_response_format():
+    c, seen = per_call_server({}, json_schema=True, local=True)
+    generate.ThreadGenerator(c).generate("cynic", 0, 0, CTX)
+    for body in seen:
+        schema = body["response_format"]["json_schema"]["schema"]
+        assert body["response_format"]["type"] == "json_schema"
+        assert (schema["properties"]["jokes"]["minItems"], schema["properties"]["jokes"]["maxItems"]) == (5, 5)
+    c, seen = per_call_server({})  # an OpenAI-compatible endpoint without json_schema gets json_object, as before
+    generate.ThreadGenerator(c).generate("cynic", 0, 0, CTX)
+    assert all(b["response_format"] == {"type": "json_object"} for b in seen)
+
+
+def test_a_bad_shape_is_asked_for_once_more_and_the_thread_is_kept():
+    for bad in ("not json", json.dumps({"premise": "p", "jokes": ["a"] * 4}), json.dumps({"premise": "p", "jokes": ["a"] * 6}),
+                json.dumps({"premise": "p", "jokes": ["one string with all five lines packed together"]}),  # the show's [1, 1, 1] shape
+                json.dumps({"premise": "p", "jokes": "one string, not an array"})):
+        c, seen = per_call_server({"0": 1}, bad_reply=bad, retries=2)
+        g = generate.ThreadGenerator(c)
+        batches = [g.generate("cynic", 0, j, CTX) for j in range(5)]
+        assert [len(b.texts) for b in batches] == [3] * 5 and batches[0].threads_lost == ()
+        assert (len(seen), c.bad_replies, c.retried) == (4, 1, 0)  # one extra call, counted, and not a provider retry
+
+
+def test_a_second_bad_reply_drops_only_that_thread_and_says_why():
+    c, seen = per_call_server({"0": 2}, retries=2)
+    g = generate.ThreadGenerator(c)
+    batches = [g.generate("cynic", 0, j, CTX) for j in range(5)]
+    assert [len(b.texts) for b in batches] == [2] * 5
+    assert (len(seen), c.bad_replies) == (4, 2)  # 3 first calls and exactly one re-ask, never a third try
+    assert len(batches[0].threads_lost) == 1 and batches[0].threads_lost[0].startswith("GenerationError: malformed reply")
+    assert "line" not in batches[0].threads_lost[0]  # a reason, not text
+
+
+def test_a_re_ask_that_fails_is_reported_as_that_failure_not_as_a_shape_error():
+    seen, lock, ident = [], threading.Lock(), {}
+    barrier = threading.Barrier(3, timeout=5)
+
+    def handler(request):
+        with lock:
+            who = ident.setdefault(threading.get_ident(), str(len(ident)))
+            seen.append(who)
+            n = seen.count(who)
+            first = len(seen) <= 3
+        if first:
+            barrier.wait()
+        if who == "0":
+            if n == 1:
+                return httpx.Response(200, json=completion("not json"))
+            raise httpx.ReadTimeout("slow")  # the re-ask times out
+        return httpx.Response(200, json=completion(thread_reply(tag=f"call{who}", premise=f"p{who}")))
+    c = llm.Client("http://fake", "k", "m", transport=httpx.MockTransport(handler), sleep=lambda s: None, retries=1)
+    g = generate.ThreadGenerator(c)
+    batch = g.generate("cynic", 0, 0, CTX)
+    assert len(batch.texts) == 2 and len(batch.threads_lost) == 1
+    assert batch.threads_lost[0] == "GenerationError: re-ask failed: LLMError: transport: ReadTimeout"
+    assert c.bad_replies == 1 and c.failed == 1
+    # a second bad reply (no failure) keeps the shape reason
+    c2, _ = per_call_server({"0": 2}, retries=2)
+    lost = generate.ThreadGenerator(c2).generate("cynic", 0, 0, CTX).threads_lost
+    assert len(lost) == 1 and "re-ask failed" not in lost[0] and "malformed reply" in lost[0]
+    # the filter, which only reads the text, still gets a plain string back
+    bad = llm.BadReply("x", llm.LLMError("http 503", 503))
+    assert isinstance(bad, str) and bad == "x" and bad.reask_error.status == 503
+
+
+def test_the_premises_already_told_can_be_given_at_construction():
+    c, seen = per_call_server({})
+    generate.ThreadGenerator(c, told=["a one", "a two"]).generate("cynic", 0, 0, CTX)
+    assert all(user_of["premises_already_told"] == ["a one", "a two"] for user_of in (json.loads(b["messages"][1]["content"]) for b in seen))
+    told = ["x"]
+    g = generate.ThreadGenerator(c, told=told)
+    g.played_thread(0, 0)
+    assert told == ["x"]  # the caller's list is copied, not changed
+
+
+def test_the_reask_stays_inside_the_bits_deadline():
+    c, seen = per_call_server({"0": 1, "1": 1, "2": 1}, delay_s=0.3, retries=2)
+    g = generate.ThreadGenerator(c, budget_s=0.5)  # the first reply lands at 0.3 s: a second 0.3 s call cannot fit
+    start = time.monotonic()
+    with pytest.raises(generate.GenerationError) as e:
+        g.generate("cynic", 0, 0, CTX)
+    assert len(seen) == 3 and len(e.value.threads_lost) == 3 and time.monotonic() - start < 1.0
+    c, seen = per_call_server({"0": 1}, delay_s=0.05, retries=2)
+    assert len(generate.ThreadGenerator(c, budget_s=5.0).generate("cynic", 0, 0, CTX).texts) == 3 and len(seen) == 4
+
+
+def test_the_live_prompt_is_still_gen_v4_and_byte_for_byte_the_one_exp_26_timed():
+    import hashlib
+    assert generate.PROMPT_ID == "gen-v4" and generate.PROMPTS["gen-v4"] is generate.SYSTEM
+    assert hashlib.sha256(generate.SYSTEM.encode()).hexdigest()[:16] == "c0941a33c8dbdda8"  # moves only with a decision
+    c, seen = per_call_server({})
+    g = generate.ThreadGenerator(c)
+    g.generate("cynic", 0, 0, CTX)
+    assert g.prompt_id == "gen-v4" and g.generator_id == "gen-v4:m"
+    assert seen[0]["messages"][0]["content"] == generate.SYSTEM.format(
+        mode="cynic", mode_note=generate.MODES["cynic"], jokes=5, teens="")
+    assert g.generate("cynic", 0, 0, CTX).prompt_id == "gen-v4:cynic:0:0"
+
+
+def test_the_connected_prompt_changes_only_the_structure_and_is_used_when_asked_for():
+    v4, v5 = generate.SYSTEM, generate.SYSTEM_CONNECTED
+    assert v4 != v5 and generate.PROMPTS["gen-v5"] is v5
+    assert v4.replace(generate._STRUCTURE, "@") == v5.replace(generate._STRUCTURE_CONNECTED, "@")  # the rest is shared
+    for must in ("one premise", "builds on the line right before", "callback to line 1", "must not start a new topic",
+                 "slightly anxious robot", "bodies or appearance", "{teens}", "{mode}"):
+        assert must in v5
+    c, seen = per_call_server({})
+    g = generate.ThreadGenerator(c, prompt_id="gen-v5")
+    batch = g.generate("wordsmith", 0, 0, {**CTX, "age": "teens"})
+    system = seen[0]["messages"][0]["content"]
+    assert system == v5.format(mode="wordsmith", mode_note=generate.MODES["wordsmith"], jokes=5, teens=generate.TEENS_RULE)
+    assert batch.prompt_id == "gen-v5:wordsmith:0:0" and g.generator_id == "gen-v5:m" and "teenagers" in system
+    with pytest.raises(ValueError):
+        generate.ThreadGenerator(c, prompt_id="gen-v9")
+
+
 # --- the show around it ---
 
 class FakeVoice:
