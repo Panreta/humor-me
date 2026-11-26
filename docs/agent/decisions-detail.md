@@ -1359,3 +1359,35 @@ Writer time per bit: A p50 4.3 s, p95 7.4 s; B p50 4.4 s, p95 7.6 s. Arm B had 1
 **Reading.** The repetition bar passed by a wide margin: the share of bits about the robot's own hardware fell from 88% to 12%, and the paired CI is far from 0. The funniness bar failed as defined: B needed 10 wins of 20 and got 6; the user preferred the material-off bit more often (A 9, B 6, 5 ties). With 20 pairs this does not show B is worse (6 against 9 is well inside coin-flip noise), only that the pre-set bar was not met, and under the rule a failed bar means keep off. Nothing was rescued by (b), which is reported and not gated: B was picked as more like a specific character in 10 of 20 (A 7, ties 3), an interval of 30% to 70%, so no direction. The word-list cross-check agrees on the direction (90% to 42%) but is far less extreme than the judge's 12%, so the word list flags many B bits the judge does not (probably battery or power words used in passing); the bar rides on the judge, which labels the bit's premise and lines. Character-topic bits stayed more hardware-heavy (20%) than everyday ones (8%) even with material on, on 15 and 25 bits.
 
 **Outcome.** Keep `MATERIAL` off. Not run: a variant with fewer or softer facts, or everyday topics only (character-topic bits are where hardware survives). Whether to try one is the user's call. Judgment call, not measured: that the funniness loss comes from the facts rather than the topics (the run did not separate them).
+
+
+## <a id="d-118"></a>D-118 · 2026-11-26 — Try the topic alone, with no robot facts, against Exp 33's old bits (Exp 34) (user)
+The user's hypothesis after Exp 33 failed on funniness: the two robot facts make the bit stiff and pull it back toward hardware, so give the writer a topic only. Result: pending, the user runs Exp 34 on this branch.
+
+**This is the second attempt at the same bars after Exp 33 failed.** Under no real difference, one attempt reaches 10 wins of 20 about 59% of the time (D-117's figure, ties ignored), so two attempts reach it at least once about 83% of the time (1 - 0.41 squared). A pass here is weak evidence of "funnier", and weaker than the same pass would have been on a first try. 20 pairs kept (user choice, 2026-11-26, over 30); 20 pairs only detect large differences.
+
+| Option | For | Against | Choice |
+|---|---|---|---|
+| A. Topic only, no facts (arm C) | Tests the user's hypothesis directly; the topics are the part that fixed the repeat; cheapest change | If the facts were what made the bit specific, "more like a character" falls | Chosen now (user) |
+| B. Fewer facts (1) or softer facts | Keeps some voice | Two things changed from D-117 at once if the wording also moves; does not isolate the cause | Not run |
+| C. Everyday topics only (drop robot-life topics) | Robot-life topics keep the most hardware (20% in Exp 33) | Loses the robot's own life as a subject; also confounded with the facts | Not run |
+| D. Leave it off | No more risk of a lucky pass | The repeat problem stays (28% of live jokes on hardware) | Not chosen |
+
+**Design.** `MATERIAL` selects the variant: `1` (or `true`, `yes`, `on`, `full`) is D-117 unchanged, `topic` is the new one, anything else is off (still the default). `ShowMaterial(variant=...)` draws the same topics as before; in the topic variant `facts` is empty and `sheet_id` is null.
+- **Request.** User JSON has `venue`, `energy`, `premises_already_told` and `topic`, with no `robot_facts` key. The system prompt gets `TOPIC_PARAGRAPH`, a separate fixed paragraph that mentions only the topic and keeps the "not about your own hardware" sentence. D-117's `MATERIAL_PARAGRAPH` is byte-identical (a test holds a copy). Generator id suffix `+mat-topic-v1` (D-117's stays `+mat-v1`).
+- **Same as D-117.** Topic list, character topics 1 bit in 3 (`CHARACTER_EVERY = 3`), "used means played", the draw order for one seed (facts are still shuffled, never drawn, so the same seed gives the same topic order).
+- **Log row.** The `material` row gets an optional `variant` (`full` or `topic`; a D-117 row has none and reads as `full`), with `facts: []` for topic. Schema stays v2.
+
+**Exp 34 (`sim/material.py --exp 34`, offline, the user runs it).** Arm C = topic only. Same 40 slots (5 shows x 8 bits), same modes and rooms, same writer (bonsai-2:4b on Ollama), and the same material seeds as Exp 33, so C's topics are exactly B's topics from Exp 33: C and B differ only by the facts.
+- **Arm A is not rewritten.** Exp 33's 40 material-off bits are read from `data/material/run-94cc8faa/bits/*-A.json` (gitignored; that folder name is Exp 33's digest and still matches the code). The run refuses to start if the folder is missing (a code change moved its digest), a bit is missing, or a stored bit does not match its slot (slot id, arm, mode, no topic). Arm A's judge verdicts are reused from Exp 33's judge cache too, so A is labeled once.
+- **Metric 1 (gates).** Hardware share by the same Claude Haiku judge with the same yes/no question, blind to the arm; word-list share beside it. **Bar: C at most 15% AND the paired bootstrap 95% CI of (C - A), paired by slot, entirely below 0.**
+- **Metric 2 (gates).** 20 new blind pairs, C against A, same slot, sides randomized by pair seed 34 (Exp 33 used 32), the same two questions. **Bar for (a) funnier: C wins at least 10 of 20; a tie is not a win.** (b) is reported with an interval and not gated. Pairs are stored under `data/material/run-<digest>/review.json` (gitignored), as in Exp 33.
+- **Adopt** (make `MATERIAL` default to `topic`, in the same PR) only when both bars pass; that flip happens after the user runs Exp 34, not before.
+- **Record** `reports/metrics/material_topic.json` via `sim.cache.run_or_load`, seed string `exp34` (the slots keep Exp 33's seed so A matches).
+- **Commands (user).** `python -m sim.material run --exp 34 --env-file backend/.env`, then `python -m sim.material review --exp 34`, then `python -m sim.material score --exp 34 --record`.
+
+**What is made up.** No `audience.yaml` value is involved (no sim room reward). Slot modes and rooms are seeded draws; the judge's question and the 15% bar are judgment calls carried over from D-117.
+
+**Judgment calls, not measured.** The wording of `TOPIC_PARAGRAPH`; keeping the hardware sentence in it; that the facts (not the topics) are what cost the laughs (the hypothesis this run tests, with only 20 pairs).
+
+**Result:** pending. The user runs Exp 34 on this branch; the table and the outcome go in this entry in the same PR.

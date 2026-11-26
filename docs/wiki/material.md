@@ -1,7 +1,7 @@
 # Material: topics and character facts
 
 **Where it fits:** the writer's input, before the safety filter. Each bit gets one topic and two facts about the robot, so the jokes have something to be about.
-**Used in:** `backend/app/material.py` and the `MATERIAL` setting, Exp 33 in the [live decision notebook](../../notebooks/decisions-live.ipynb), decision D-117.
+**Used in:** `backend/app/material.py` and the `MATERIAL` setting, Exp 33 in the [live decision notebook](../../notebooks/decisions-live.ipynb), decisions D-117 and D-118.
 
 ## The problem
 
@@ -24,10 +24,14 @@ A comedian does not walk on stage with "be funny". They bring a point of view, a
 
 A topic or fact counts as used only when its bit is actually played. A bit written on a wrong guess of the next mode is thrown away without using anything up (see D-115). Teen rooms skip the few topics marked adult. The writer is also told not to build the bit on its own hardware. Every played bit logs its topic and facts in a `material` row.
 
+## Topic only (D-118)
+
+Exp 33 left a question: did the facts make the bit stiff? `MATERIAL=topic` gives each bit a topic and no facts, with its own short instruction to the writer. `MATERIAL=1` still means topic plus two facts. Exp 34 tests the topic-only version against Exp 33's old bits, with the same bars. It is a second try at bars the first try missed, so a pass counts for less. Off is still the default until it passes.
+
 ## What is not done yet
 
 Typed facts about tonight, a few news headlines and the day's stock move, all checked for safety and approved by the operator before the show, come in a later PR (D-117, option B).
 
 ## How we test it
 
-Exp 33 writes 5 shows with and without material and compares them. The bars: hardware share of at most 15% and clearly below the old prompt's, and the new bit picked as funnier in at least 10 of 20 blind pairs. 20 pairs only detect large differences. The setting stays off until both pass. Result: hardware bits fell from 88% to 12% (bar met), but the new bit won only 6 of 20 funniness pairs (bar 10), so it stays off. See [D-117](../decisions.md).
+Exp 33 writes 5 shows with and without material and compares them. The bars: hardware share of at most 15% and clearly below the old prompt's, and the new bit picked as funnier in at least 10 of 20 blind pairs. 20 pairs only detect large differences. The setting stays off until both pass. Result: hardware bits fell from 88% to 12% (bar met), but the new bit won only 6 of 20 funniness pairs (bar 10), so it stays off. See [D-117](../decisions.md). Exp 34 (D-118) is the topic-only retry; the user runs it.

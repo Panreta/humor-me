@@ -43,6 +43,7 @@ laughs. A crowd-work exchange (banter with the audience) counts as its own bit.
 |---|---|
 | **Core identity** | The fixed character: a self-aware, slightly anxious robot (invariant 3) |
 | **Character sheet** | A list of specific facts about the one robot (its muted calls, its wish for a houseplant); each bit gets 2, the least used this show first ([material](material.md), D-117) |
+| **Topic only** | The `MATERIAL=topic` setting: each bit gets a topic and no robot facts, with its own instruction to the writer; tested against the old bits in Exp 34 ([material](material.md), D-118) |
 | **Topic list** | A list of everyday situations; each bit gets one that no show on this laptop has used yet, and about 1 bit in 3 takes a robot-life topic ([material](material.md), D-117) |
 | **Mode (persona)** | One of six comedic attitudes from HumorGen: Neurotic, Cynic, Observer, Wordsmith, Optimist, Absurdist. Modes of the one identity, not separate characters |
 | **Set planner** | Before the show: outlines 6–10 bit specs (premise, mode, length, hooks) |

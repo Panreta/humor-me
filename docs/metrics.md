@@ -946,3 +946,22 @@ Decision: [D-117](agent/decisions-detail.md#d-117). Raw: `reports/metrics/materi
 - The word list finds 42% with material where the judge finds 12%; the bar rests on the judge, which reads each bit's premise and lines.
 - 1 bad reply with material, 0 without; time per bit is the same (median 4.3 s without, 4.4 s with). No topic was reused (40 distinct).
 - Not tested: whether the facts or the topics cost the laughs (the run did not separate them).
+
+
+## Topics only, no robot facts (Exp 34, 2026-11-26)
+
+Decision: [D-118](agent/decisions-detail.md#d-118). Raw: `reports/metrics/material_topic.json` (appears once the user runs it). Code: `sim/material.py --exp 34`. Setup: a topic per bit, no robot facts (gen-v5 + topic, arm C) against Exp 33's material-off bits (gen-v5, arm A), the same 40 slots. Arm A is read from Exp 33's stored bits, not rewritten. No `audience.yaml` value is involved.
+
+**Answer: pending.** Exp 33 fixed the repeat problem but the facts may have made the bit stiff, so this tries the topic alone. The user runs it.
+
+**This is a second attempt at the same bars.** With no real difference, one attempt reaches 10 wins of 20 about 59% of the time, so two attempts reach it at least once about 83% of the time. A pass is weak evidence. 20 pairs only catch big differences.
+
+| Check | Bar |
+|---|---|
+| Bits about the robot's hardware, topic only (gen-v5 + topic) | at most 15% |
+| Drop against Exp 33's material-off bits, slot by slot | 95% interval entirely below 0 |
+| Same count by word list (cross-check) | beside the bar |
+| (a) Funnier: topic-only wins, 20 new blind pairs | at least 10 of 20; a tie is not a win |
+| (b) More like a specific character | beside the bar, with a 95% interval |
+
+Both bars must pass to make `topic` the default. Results go here after the run.
