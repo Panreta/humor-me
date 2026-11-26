@@ -11,7 +11,7 @@ bit with no further calls, only when no thread came back, and the show then fall
 import dataclasses
 import json
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 
 from app import llm, safety
 from app.bank import BankGenerator
@@ -83,6 +83,10 @@ WARMUP_TIMEOUT_S = 300.0
 WRITER_CONTEXT = 8192  # the context Exp 24 measured the local writers at (D-97's gate); a test holds it to the harness's
 
 
+# Seconds a call may outlive the bit's budget before the bit stops waiting for it (it still runs to its own timeout).
+HANG_GRACE_S = 2.0
+
+
 class GenerationError(Exception):
     pass
 
@@ -113,7 +117,7 @@ class ThreadGenerator:
         self.client = client
         self.generator_id = f"{PROMPT_ID}:{client.model}"
         self.budget_s = budget_s
-        self._bits: dict[int, tuple[str, list[list[str]], list[str]] | Exception] = {}
+        self._bits: dict[int, tuple[str, list[list[str]], list[str], list[str]] | Exception] = {}
         self._told: list[str] = []
 
     def generate(self, mode: str, bit: int, joke: int, context: dict) -> Batch:
@@ -122,15 +126,17 @@ class ThreadGenerator:
         got = self._bits[bit]
         if isinstance(got, Exception):
             raise got
-        prompt, lines, _ = got
-        return Batch(f"{PROMPT_ID}:{mode}:{bit}:{joke}", prompt, lines[joke])
+        prompt, lines, _, lost = got
+        return Batch(f"{PROMPT_ID}:{mode}:{bit}:{joke}", prompt, lines[joke], tuple(lost))
 
     def played_thread(self, bit: int, thread: int) -> None:
         got = self._bits.get(bit)
         if not isinstance(got, Exception) and got and thread < len(got[2]):
             self._told.append(got[2][thread])
 
-    def _fetch(self, mode: str, context: dict) -> tuple[str, list[list[str]], list[str]] | Exception:
+    def _fetch(self, mode: str, context: dict) -> tuple[str, list[list[str]], list[str], list[str]] | Exception:
+        """(prompt, joke-major lines, premises, reasons for the threads lost), or the error when no thread came back.
+        The error carries the same reasons as `threads_lost`, so the log shows why a bit went to the bank."""
         teens = TEENS_RULE if context["age"] not in safety.STANDARD_AGES else ""
         system = SYSTEM.format(mode=mode, mode_note=MODES[mode], jokes=JOKES, teens=teens)
         user = json.dumps({"venue": context["venue"], "energy": context["energy"], "premises_already_told": self._told})
@@ -138,7 +144,7 @@ class ThreadGenerator:
         if self.client.deadline_s is not None:
             left = min(left, self.client.deadline_s)
         if left < llm.MIN_ATTEMPT_S:
-            return GenerationError("no thread written: no time left for a call")
+            return _no_thread(["GenerationError: no time left for a call"])
 
         def one(_: int):
             try:
@@ -147,14 +153,35 @@ class ThreadGenerator:
             except (llm.LLMError, GenerationError) as e:
                 return e  # only this thread is lost
 
-        with ThreadPoolExecutor(K) as pool:
-            got = list(pool.map(one, range(K)))  # by call index, not completion order
+        pool = ThreadPoolExecutor(K)
+        futures = [pool.submit(one, i) for i in range(K)]  # read back by call index, not completion order
+        done, _ = wait(futures, timeout=left + HANG_GRACE_S)
+        pool.shutdown(wait=False, cancel_futures=True)  # a client that ignores its timeout cannot hold the bit
+        got: list = []
+        for f in futures:
+            if f not in done:
+                got.append(GenerationError("a call outlived the bit's budget"))
+                continue
+            try:
+                got.append(f.result())
+            except Exception as e:  # noqa: BLE001 - not an LLM or shape error, but still only this thread
+                got.append(e)
         ok = [g for g in got if not isinstance(g, Exception)]
+        lost = [_reason(g) for g in got if isinstance(g, Exception)]
         if not ok:
-            err = GenerationError(f"no thread written: {type(got[-1]).__name__}: {got[-1]}")
-            err.__cause__ = got[-1]
-            return err
-        return f"{system}\n\n{user}", [[t[1][j] for t in ok] for j in range(JOKES)], [t[0] for t in ok]
+            return _no_thread(lost)
+        return f"{system}\n\n{user}", [[t[1][j] for t in ok] for j in range(JOKES)], [t[0] for t in ok], lost
+
+
+def _reason(e: Exception) -> str:
+    """Why a call produced no thread: the error class and a short message, never joke text (messages hold counts)."""
+    return f"{type(e).__name__}: {e}"[:100]
+
+
+def _no_thread(lost: list[str]) -> GenerationError:
+    err = GenerationError(f"no thread written: {lost[-1]}")
+    err.threads_lost = lost
+    return err
 
 
 def _ollama_json(url: str, timeout: float = 5.0) -> dict:

@@ -329,8 +329,13 @@ def test_a_failed_or_malformed_call_drops_only_its_thread():
         batches = [g.generate("cynic", 0, j, CTX) for j in range(5)]
         assert len(seen) == 3 and [len(b.texts) for b in batches] == [2] * 5
         assert len(g._bits[0][2]) == 2  # premises line up with the threads that came back
-        g.played_thread(0, 1)
-        assert len(g._told) == 1
+        premise_of = {"a": "pa", "c": "pc"}  # the premise each surviving call wrote, keyed by its lines' tag
+        for thread in (0, 1):
+            g.played_thread(0, thread)
+            assert g._told[-1] == premise_of[batches[0].texts[thread].split()[0]]  # the played thread's, not another's
+        assert len(g._told) == 2
+        assert len(batches[0].threads_lost) == 1 and "line 0" not in batches[0].threads_lost[0]  # a reason, no text
+        assert batches[4].threads_lost == batches[0].threads_lost
 
 
 def test_with_no_thread_every_joke_raises_and_no_further_call_is_made():
@@ -343,6 +348,9 @@ def test_with_no_thread_every_joke_raises_and_no_further_call_is_made():
         assert len(seen) == 3
         g.played_thread(0, 0)
         assert g._told == []
+        with pytest.raises(generate.GenerationError) as e:
+            g.generate("cynic", 0, 0, CTX)
+        assert len(e.value.threads_lost) == 3 and all(isinstance(x, str) for x in e.value.threads_lost)
 
 
 class SpyClient:
@@ -386,8 +394,28 @@ def test_a_slow_server_ends_the_bit_at_the_shared_deadline_with_no_further_call(
         with pytest.raises(generate.GenerationError):
             g.generate("cynic", 0, joke, CTX)
     assert time.monotonic() - start < 1.6  # each call is cut at the 0.8 s the bit has, retries included
-    count = len(seen)
-    assert len(seen) == count
+    assert len(seen) == 3  # one attempt per call: a retry would be cut off before it started
+    time.sleep(1.0)  # past the bit's 0.8 s and every call's own deadline: nothing may start later
+    assert len(seen) == 3
+    for joke in range(5):
+        with pytest.raises(generate.GenerationError):
+            g.generate("cynic", 0, joke, CTX)
+    assert len(seen) == 3  # the failure is cached for the bit's other jokes
+
+
+def test_a_call_that_ignores_its_timeout_cannot_hold_the_bit_past_the_budget(monkeypatch):
+    monkeypatch.setattr(generate, "HANG_GRACE_S", 0.3)
+
+    class Hung(SpyClient):
+        def chat(self, system, user, **kw):
+            time.sleep(3.0)  # a client bug: it never honours deadline_s
+            return thread_reply()
+    g = generate.ThreadGenerator(Hung(), budget_s=0.5)
+    start = time.monotonic()
+    with pytest.raises(generate.GenerationError) as e:
+        g.generate("cynic", 0, 0, CTX)
+    assert time.monotonic() - start < 1.5 and len(e.value.threads_lost) == 3
+    assert all("outlived" in x for x in e.value.threads_lost)
 
 
 def test_client_counters_stay_exact_when_calls_run_on_many_threads():
@@ -452,6 +480,15 @@ def test_a_bit_that_got_fewer_threads_still_plays_one_through_the_show(tmp_path)
         assert len(plays) == 5 and len({thread_of(r["text"]) for r in plays}) == 1
         assert [r["pick_prob"] for r in plays] == [0.5] * 5
     assert all(len(r["items"]) == 2 for r in rows if r["event"] == "candidates")  # the log shows how many threads it got
+    rows, _ = show(tmp_path / "lost", Gen(threads=2, lost=["LLMError: transport: ReadTimeout"]), Filter(), n_bits=1)
+    cand = [r for r in rows if r["event"] == "candidates"]
+    assert len(cand) == 5 and all(r["threads_lost"] == ["LLMError: transport: ReadTimeout"] for r in cand)
+    rows, _ = show(tmp_path / "all_lost", Gen(fail=True, lost=["LLMError: a", "LLMError: b", "GenerationError: c"]),
+                   Filter(), fallback=BankGenerator(), n_bits=1)
+    cand = [r for r in rows if r["event"] == "candidates"]
+    assert cand and all(r["threads_lost"] == ["LLMError: a", "LLMError: b", "GenerationError: c"] for r in cand)
+    rows, _ = show(tmp_path / "none", Gen(), Filter(), n_bits=1)
+    assert all(r["threads_lost"] == [] for r in rows if r["event"] == "candidates")  # always present, empty when none
     rows, _ = show(tmp_path / "one", Gen(threads=1), Filter(), n_bits=1)
     assert [r["pick_prob"] for r in rows if r["event"] == "joke_played"] == [1.0] * 5
     assert all(len(r["items"]) == 1 for r in rows if r["event"] == "candidates")
@@ -515,16 +552,19 @@ class Filter:
 
 
 class Gen:
-    def __init__(self, tag="ok", fail=False, delay=0.0, threads=3):
+    def __init__(self, tag="ok", fail=False, delay=0.0, threads=3, lost=()):
         self.generator_id, self.tag, self.fail, self.delay, self.calls = f"gen-{tag}", tag, fail, delay, 0
+        self.lost = tuple(lost)  # the reasons its dropped threads are logged with
         self.threads = threads  # how many threads the bit got: a bit whose other calls failed has fewer
 
     def generate(self, mode, bit, joke, context):
         self.calls += 1
         time.sleep(self.delay)
         if self.fail:
-            raise llm.LLMError("http 503", 503)
-        return generate.Batch("p", f"prompt {bit}", [f"{self.tag} {bit}.{joke}.{i}" for i in range(self.threads)])
+            err = llm.LLMError("http 503", 503)
+            err.threads_lost = list(self.lost)
+            raise err
+        return generate.Batch("p", f"prompt {bit}", [f"{self.tag} {bit}.{joke}.{i}" for i in range(self.threads)], self.lost)
 
 
 def show(tmp_path, gen, flt, voice=None, fallback=None, bridges=None, n_bits=3, seed=0):

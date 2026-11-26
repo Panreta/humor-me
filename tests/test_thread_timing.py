@@ -102,15 +102,25 @@ def test_a_writer_pushed_off_the_gpu_by_the_parallel_calls_fails_the_bar(share, 
     assert s["placement_after_warmup"]["gpu_share"] == 1.0 and s["placement_after_run"]["context_length"] == context
 
 
-def test_overlapping_calls_are_counted_as_concurrent_and_serial_ones_are_not():
+def test_parallel_calls_are_not_flagged_and_server_side_queueing_is():
     def slow(request):
         time.sleep(0.15)
         return reply(GOOD)
     s = tt.summarize(tt.measure(writer(slow), tt.prompts(2), ps()))
-    assert s["bits_concurrent"] == 2 and all(b["wall_s"] < 0.4 for b in s["bits"])
-    raw = tt.measure(writer(lambda request: reply(GOOD)), tt.prompts(1), ps())
-    raw["bits"][0]["wall_s"], raw["bits"][0]["calls"] = 0.9, [{"start_s": 0.3 * i, "seconds": 0.3, "ok": True, "reason": None} for i in range(3)]
-    assert tt.summarize(raw)["bits_concurrent"] == 0  # wall time equals the calls' sum: they ran one after another
+    assert s["bits_queued"] == 0 and s["spread_median"] < 1.6 and all(b["wall_s"] < 0.4 for b in s["bits"])
+    raw = tt.measure(writer(lambda request: reply(GOOD)), tt.prompts(2), ps())
+    # One Ollama slot: all three requests are sent at once, but the server answers them one after another, so the
+    # client sees 1x, 2x and 3x one call. The wall time of the bit is the longest of them, as it would be in parallel.
+    raw["bits"][0]["wall_s"] = 3.0
+    raw["bits"][0]["calls"] = [{"start_s": 0.0, "seconds": float(k), "ok": True, "reason": None} for k in (1, 2, 3)]
+    s = tt.summarize(raw)
+    assert s["bits_queued"] == 1 and s["spread_median"] is not None
+    assert tt.spread(raw["bits"][0]) == 3.0 and tt.spread({"calls": [{"seconds": 1.0, "ok": True}]}) is None
+
+
+def test_call_p50_is_reported_beside_exp_24s():
+    s = tt.summarize(tt.measure(writer(lambda request: reply(GOOD)), tt.prompts(1), ps()))
+    assert s["exp24_call_p50_s"] == pytest.approx(5.156, abs=0.01)
 
 
 def test_percentiles_are_nearest_rank_and_a_failed_call_counts_as_infinite_latency():
@@ -132,6 +142,18 @@ def test_the_digest_follows_the_prompt_and_a_stale_call_is_refused(monkeypatch):
     with pytest.raises(AssertionError):
         tt.run(digest_=before)
     assert tt.params()["n_bits"] == 20
+
+
+def test_the_digest_also_follows_the_model_the_request_flags_and_the_timing(monkeypatch):
+    before = tt.digest()
+    monkeypatch.setenv("JOKE_WRITER_MODEL", "other:4b")
+    assert tt.digest() != before
+    monkeypatch.delenv("JOKE_WRITER_MODEL")
+    for name, value in (("OLLAMA_NO_THINK", {"reasoning_effort": "low"}), ("RETRIES", 5), ("WRITER_CONTEXT", 4096),
+                        ("GENERATOR_TIMING", (10.0, 20.0)), ("HANG_GRACE_S", 9.0)):
+        with monkeypatch.context() as m:
+            m.setattr(llm if name == "OLLAMA_NO_THINK" else generate, name, value)
+            assert tt.digest() != before, name
 
 
 def test_a_hosted_writer_is_refused(monkeypatch):

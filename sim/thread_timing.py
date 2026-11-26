@@ -10,8 +10,8 @@ so only whether two threads of a bit share one is kept.
 
 Bar, fixed before any run: at most 1 of 20 bits loses a thread (a call that timed out or failed), no bit has zero
 threads, and the writer is still 100% on the GPU at context 8192 after the run (parallel calls take more KV cache).
-Reported beside it, with no bar: bit wall time p50/p95, per-call p50/p95, how many bits ran their calls concurrently,
-and how many bits have two threads with the same premise (calls do not see each other, so it can happen).
+Reported beside it, with no bar: bit wall time p50/p95, per-call p50/p95 next to Exp 24's single-call p50, how many bits queued their calls
+(slowest call at least twice the fastest: the server ran them one after another), and how many bits have two threads with the same premise (calls do not see each other, so it can happen).
 """
 import argparse
 import hashlib
@@ -34,7 +34,9 @@ NAME = "thread_timing"
 N_BITS = 20
 SEED = "exp26"  # Exp 24's prompts use the integer seed 24 and ids p00 to p64
 MAX_LOST_BITS = 1
-CONCURRENT_BELOW = 0.75  # a bit ran its calls concurrently when its wall time is under this share of the calls' summed time
+# Client-side call times include Ollama's queue wait. With one slot the three calls last about 1x, 2x and 3x one
+# call, so the slowest is about 3 times the fastest; run in parallel they last about the same. Two is the midpoint.
+QUEUED_SPREAD = 2.0
 
 
 def prompts(n: int = N_BITS, seed: str = SEED) -> list[dict]:
@@ -45,12 +47,18 @@ def prompts(n: int = N_BITS, seed: str = SEED) -> list[dict]:
                  random.Random(f"{seed}:{i}"))} for i in range(n)]
 
 
+def writer_model() -> str:
+    return llm.setting("JOKE_WRITER_MODEL") or llm.OLLAMA_MODEL
+
+
 def digest() -> str:
-    """What the timed bit is made of: a changed prompt, timing or request starts a new record."""
+    """What the timed bit is made of: a changed prompt, model, request flag, timing or retry constant starts a new
+    record. Code changes elsewhere (the generator's logic, the client) are NOT covered: rerun with `--rerun` after one."""
     parts = [generate.PROMPT_ID, generate.SYSTEM, generate.TEENS_RULE, json.dumps(generate.MODES, sort_keys=True),
              json.dumps(generate.REPLY_SCHEMA, sort_keys=True),
              str((generate.K, generate.JOKES, generate.TEMPERATURE, generate.GENERATOR_TIMING, generate.RETRIES,
-                  generate.WRITER_CONTEXT)), json.dumps(llm.OLLAMA_NO_THINK, sort_keys=True), SEED]
+                  generate.WRITER_CONTEXT, generate.HANG_GRACE_S, llm.MIN_ATTEMPT_S)),
+             writer_model(), json.dumps(llm.OLLAMA_NO_THINK, sort_keys=True), "json_schema=True", SEED, str(N_BITS)]
     return hashlib.sha256("\x00".join(parts).encode()).hexdigest()[:8]
 
 
@@ -123,6 +131,22 @@ def measure(client, bits: list[dict], http=None) -> dict:
             "bits": timed}
 
 
+def spread(bit: dict) -> float | None:
+    """Slowest over fastest delivered call of a bit; None with fewer than two calls that answered."""
+    secs = [c["seconds"] for c in bit["calls"] if c["ok"]]
+    return max(secs) / min(secs) if len(secs) >= 2 and min(secs) > 0 else None
+
+
+def exp24_call_p50() -> float | None:
+    """Exp 24's single-call p50 for bonsai (one call, 3 threads), the yardstick for a one-thread call. None when the
+    record is absent."""
+    try:
+        data = json.loads((cache.METRICS / "model_comparison.json").read_text(encoding="utf-8"))
+        return data["results"]["models"]["bonsai-2-4b"]["latency_p50_s"]
+    except (OSError, ValueError, KeyError):
+        return None
+
+
 def summarize(raw: dict) -> dict:
     bits = raw["bits"]
     walls = [b["wall_s"] for b in bits]
@@ -130,7 +154,9 @@ def summarize(raw: dict) -> dict:
     lat = [c["seconds"] if c["ok"] else float("inf") for c in calls]
     lost = [b["prompt"] for b in bits if b["threads"] < generate.K]
     zero = [b["prompt"] for b in bits if b["threads"] == 0]
-    concurrent = sum(1 for b in bits if b["calls"] and b["wall_s"] < CONCURRENT_BELOW * sum(c["seconds"] for c in b["calls"]))
+    spreads = [spread(b) for b in bits]
+    spreads = [x for x in spreads if x is not None]
+    queued = sum(x >= QUEUED_SPREAD for x in spreads)
     reasons: dict[str, int] = {}
     for c in calls:
         if not c["ok"]:
@@ -142,7 +168,8 @@ def summarize(raw: dict) -> dict:
     return {**raw, "n": len(bits), "bits_losing_a_thread": len(lost), "bits_with_zero_threads": len(zero),
             "bit_p50_s": cg.percentile(walls, 50), "bit_p95_s": cg.percentile(walls, 95),
             "call_p50_s": cg.percentile(lat, 50), "call_p95_s": cg.percentile(lat, 95),
-            "failure_reasons": reasons, "bits_concurrent": concurrent,
+            "failure_reasons": reasons, "bits_queued": queued,
+            "spread_median": cg.percentile(spreads, 50), "exp24_call_p50_s": exp24_call_p50(),
             "bits_same_premise": sum(b["same_premise"] for b in bits), "writer_on_gpu": on_gpu,
             "bar": {"max_lost_bits": MAX_LOST_BITS, "lost_ok": len(lost) <= MAX_LOST_BITS, "zero_ok": not zero,
                     "gpu_ok": on_gpu}}
@@ -171,8 +198,8 @@ def table(res: dict) -> str:
             f"| Bits with no thread | {res['bits_with_zero_threads']} | 0 |",
             f"| Writer 100% on the GPU at context {generate.WRITER_CONTEXT} | {'yes' if res['writer_on_gpu'] else 'no'} | yes |",
             f"| Bit wall time p50 / p95 | {cg.fmt(res['bit_p50_s'])} s / {cg.fmt(res['bit_p95_s'])} s | beside the bar |",
-            f"| Call p50 / p95 | {cg.fmt(res['call_p50_s'])} s / {cg.fmt(res['call_p95_s'])} s | beside the bar |",
-            f"| Bits whose calls ran concurrently | {res['bits_concurrent']} of {res['n']} | beside the bar |",
+            f"| Call p50 / p95 (Exp 24's one-call p50: {cg.fmt(res['exp24_call_p50_s'])} s) | {cg.fmt(res['call_p50_s'])} s / {cg.fmt(res['call_p95_s'])} s | beside the bar |",
+            f"| Bits that queued (slowest call at least {QUEUED_SPREAD:.0f}x the fastest); median ratio {cg.fmt(res['spread_median'])} | {res['bits_queued']} of {res['n']} | beside the bar |",
             f"| Bits with two threads on the same premise | {res['bits_same_premise']} of {res['n']} | beside the bar |"]
     return "\n".join(rows)
 

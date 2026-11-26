@@ -1,14 +1,22 @@
 """FROZEN gen-v3: the one-call generator (3 threads in one reply) that Exp 24's stored run was made with.
 Nothing here may change: `sim.compare_generators` hashes these names (`gen_digest`, `2a512264`) and its `score`
 asserts the hash still matches the stored calls. The show itself runs gen-v4 (app.generate, D-110); this module is
-only for the Exp 24 harness (`sim.compare_generators`, `sim.screen_local`). Shared pieces (modes, teens rule, the
-filter's timing, the error class) come from app.generate and are hashed too, so a change there is caught as well.
+only for the Exp 24 harness (`sim.compare_generators`, `sim.screen_local`). The modes, teens rule and filter timing are copied here
+by value, so editing the live ones cannot change what Exp 24 ran. The harness also hashes the live safety filter's
+`safety.PROMPT_ID` and `safety.SYSTEM`: that filter is shared on purpose, so editing it starts a new comparison. Only the
+error class is imported, so `except generate.GenerationError` in the harness and the show catch the same thing.
 """
 import json
 
 from app import llm, safety
-from app.generate import FILTER_RETRIES, FILTER_TIMING, MODES, TEENS_RULE, GenerationError  # noqa: F401 - the harness reads them here
+from app.generate import GenerationError  # the one error class the harness and the show both catch
 from app.show import Batch
+
+# Copied from app.generate as Exp 24 ran them (tests/test_compare_generators.py holds the digest).
+MODES = {'neurotic': 'anxious and over-analytical: spirals about small things, rehearses worst cases', 'cynic': 'dry and deadpan: unimpressed, resigned, finds the system faintly absurd', 'observer': 'an observational comic: notices the small odd detail of everyday situations and says it plainly', 'wordsmith': 'built on wordplay: puns, double meanings, a phrase taken too literally', 'optimist': 'relentlessly cheerful about things going badly, which is the joke', 'absurdist': 'starts from a normal situation and commits to an escalating, illogical idea'}
+TEENS_RULE = '- The audience is teenagers: no alcohol, drugs, sexual content, innuendo or swearing.'
+FILTER_TIMING = (12.0, 25.0)
+FILTER_RETRIES = 3
 
 K = 3
 JOKES = 5

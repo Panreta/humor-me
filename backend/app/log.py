@@ -101,6 +101,9 @@ def validate(record: dict) -> None:
             raise ValueError("candidates.items must be a list")
         for i, item in enumerate(record["items"]):
             _need_keys(f"candidates.items[{i}]", item, ITEM_KEYS)
+        lost = record.get("threads_lost", [])  # optional (D-110): absent in older logs
+        if not isinstance(lost, list) or not all(isinstance(x, str) for x in lost):
+            raise ValueError("candidates.threads_lost must be a list of strings")
     if event == "reaction":
         level, key = record["level"], record["key"]
         if level is not None and not (_is_int(level) and 0 <= level <= 3):
