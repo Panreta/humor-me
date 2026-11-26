@@ -101,11 +101,25 @@ class _Plan:
     bank: Callable[[], Awaitable[None]] | None = None  # consults the bank once; None when there is none or it ran
     render: asyncio.Task | None = None  # the render of options[0], started ahead of its turn
     threads_lost: list[str] = field(default_factory=list)  # logged in the joke's `candidates` row
+    render_timing: dict = field(default_factory=dict)  # what the render of options[0] measured; see `_render`
+    ready_from: float | None = None  # on a bit's first plan: when the bit was ready, until its first line is logged
 
 
-async def _render(tts, text: str, clock):
+def _synthesize(tts, text: str):
+    wav = tts.synthesize(text)
+    # Read on the worker thread that ran `synthesize`: a voice that serialises (SerialTTS) says how long this call
+    # waited for it, so a render's queue time and its synthesis time can be told apart. None when it cannot say.
+    queued = getattr(tts, "last_queue_s", None)
+    return wav, None if queued is None else queued()
+
+
+async def _render(tts, text: str, clock, timing: dict | None = None):
+    """(wav, seconds from asking to audio). `timing`, when given, gets `queue_s` (the part spent waiting for a serial
+    voice, None when the voice cannot say) so `_prepare` can log it."""
     asked = clock.now()
-    wav = await asyncio.to_thread(tts.synthesize, text)  # keeps the event loop free
+    wav, queued = await asyncio.to_thread(_synthesize, tts, text)  # keeps the event loop free
+    if timing is not None:
+        timing["queue_s"] = queued
     return wav, clock.now() - asked
 
 
@@ -142,6 +156,7 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
     The bit plays one thread; a joke whose candidate in that thread was rejected takes another thread's passing
     candidate, and a joke with none falls back to the hand-checked bank (rules only)."""
     age = context["age"]
+    started = clock.now()  # every duration below is on the show clock, the timebase of the audio times in the log
     batches: list[Batch | None] = []
     reasons: list[str] = []
     lost: dict[int, list[str]] = {}
@@ -153,6 +168,7 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
             batches.append(None)
             reasons.append(f"generation failed: {type(e).__name__}: {e}")
             lost[joke] = list(getattr(e, "threads_lost", []))
+    generated = clock.now()
     if prefetch := getattr(safety, "prefetch", None):  # the LLM layer judges the whole bit in one call
         await asyncio.to_thread(prefetch, [t for b in batches if b for t in b.texts], age)
     judged = [[_judge(safety.check, t, age) for t in b.texts] if b else [] for b in batches]
@@ -160,10 +176,12 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
     for joke, batch in enumerate(batches):
         if batch and not passing[joke]:
             reasons[joke] = "every candidate rejected"
+    judged_at = clock.now()
     picked = _pick_thread(batches, passing, selector)
     if picked and (told := getattr(generator, "played_thread", None)):
         told(bit, picked[0])  # so the next bit is not told a premise the room never heard
     plans: list[_Plan] = []
+    bank_s, bank_fallbacks = 0.0, 0
     for joke, batch in enumerate(batches):
         items, ok = judged[joke], passing[joke]
         if not ok and not fallback:
@@ -182,13 +200,30 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
                                       selector=selector)
             if not plan.options:
                 _log.warning("bit %s joke %s: %s; using %s", bit, joke, reasons[joke], fallback.generator_id)
+                bank_fallbacks += 1
+                consulted = clock.now()
                 await plan.bank()
+                bank_s += max(0.0, clock.now() - consulted)
         plans.append(plan)
+    rendering = clock.now()
     _start_render(plans, 0, tts, clock, spawn)
     if first := next((p for p in plans if p.render), None):
         # The bit is ready only when its first line is audio, or the bridge ends into a render wait. A failed render
         # is handled when the line is spoken, so it is only waited for here.
         await asyncio.gather(first.render, return_exceptions=True)
+    ready = clock.now()
+    def span(a, b):  # the wall clock can step back (NTP); a bad stage must not fail the row and the bit
+        return max(0.0, b - a)
+    render_wait = span(rendering, ready)
+    queued = first.render_timing.get("queue_s") if first else None
+    # generate + safety + bank + render wait add up to ready - started; the rest (picking a thread) takes no time worth a field
+    ready = max(ready, started)
+    log.write("prep", bit=bit, started_at=started, generate_s=span(started, generated), safety_s=span(generated, judged_at),
+              bank_s=bank_s, render_wait_s=render_wait, render_queue_s=queued,
+              render_s=None if queued is None else max(0.0, render_wait - queued), ready_at=ready,
+              bank_fallbacks=bank_fallbacks)
+    if plans:
+        plans[0].ready_from = ready
     return plans
 
 
@@ -214,7 +249,7 @@ def _start_render(plans, joke, tts, clock, spawn) -> None:
     """Render the next playable line from `joke` on, so its audio is ready when the current one ends."""
     plan = next((p for p in plans[joke:] if p.options), None)
     if plan and plan.render is None:
-        plan.render = spawn(_render(tts, plan.items[plan.options[0][0]]["text"], clock))
+        plan.render = spawn(_render(tts, plan.items[plan.options[0][0]]["text"], clock, plan.render_timing))
 
 
 async def _speak(plan: _Plan, tts, clock):
@@ -254,8 +289,14 @@ async def _joke(bit, joke, plans, *, tts, player, source, clock, log, config, sp
     await player.play(wav, text)
     end = clock.now()
     spoiled = overlaps(start, end, pauses.intervals())  # no await since `end`, so a later pause cannot be missed
+    # How long the room waited after the bit was ready, because a bridge line (or a pause) was still going. Only the
+    # bit's first played line carries it: after that nothing is waiting on the bit.
+    overhang = {}
+    if (ready := plans[0].ready_from) is not None:
+        plans[0].ready_from = None
+        overhang = {"bridge_overhang_s": max(0.0, start - ready)}
     log.write("joke_played", bit=bit, joke=joke, chosen=chosen, pick_prob=prob, text=text,
-              tts_seconds=tts_seconds, audio_seconds=wav_seconds(wav), audio_start_at=start, audio_end_at=end)
+              tts_seconds=tts_seconds, audio_seconds=wav_seconds(wav), audio_start_at=start, audio_end_at=end, **overhang)
     level, key, latency = await source.reaction(bit, joke, config.timeout_s)
     log.write("reaction", bit=bit, joke=joke, source=source.source, level=level, key=key, latency_s=latency)
     before = clock.now()

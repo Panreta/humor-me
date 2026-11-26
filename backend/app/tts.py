@@ -1,6 +1,7 @@
 """Text to speech for the show loop. Kokoro runs locally, so the demo needs no network or quota."""
 import io
 import threading
+import time
 import wave
 
 import numpy as np
@@ -47,8 +48,15 @@ class SerialTTS:
     the process shares, not on a show."""
 
     def __init__(self, engine):
-        self.engine, self._lock = engine, threading.Lock()
+        self.engine, self._lock, self._local = engine, threading.Lock(), threading.local()
 
     def synthesize(self, text: str) -> bytes:
+        asked = time.perf_counter()
         with self._lock:
+            self._local.queued = time.perf_counter() - asked
             return self.engine.synthesize(text)
+
+    def last_queue_s(self) -> float | None:
+        """Seconds the calling thread's last `synthesize` waited for the lock (the part of a render that is not
+        synthesis); read it on the thread that made the call."""
+        return getattr(self._local, "queued", None)

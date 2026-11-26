@@ -6,7 +6,7 @@ import pathlib
 import time
 import uuid
 
-SCHEMA = 2  # v2 adds the `bridge`, `cache`, `pause` and `resume` events; a v1 log has none and replays unchanged
+SCHEMA = 2  # v2 adds the `bridge`, `cache`, `pause`, `resume` and `prep` events; a v1 log has none and replays unchanged
 READABLE = (1, 2)
 SESSIONS = pathlib.Path(__file__).resolve().parents[2] / "data" / "sessions"
 
@@ -17,6 +17,8 @@ EVENTS = {
     "candidates": ("bit", "joke", "prompt_id", "prompt", "generator_id", "items"),
     "joke_played": ("bit", "joke", "chosen", "pick_prob", "text", "tts_seconds", "audio_seconds",
                     "audio_start_at", "audio_end_at"),
+    # Where a bit's wait went (D-113): stage durations on the show clock, written when the bit is ready to play.
+    "prep": ("bit", "started_at", "generate_s", "safety_s", "render_wait_s", "ready_at", "bank_fallbacks"),
     "bridge": ("bit", "text", "tts_seconds", "audio_start_at", "audio_end_at"),
     "cache": ("bits",),  # the cached bits the show could draw on, written right after show_start (D-91)
     "reaction": ("bit", "joke", "source", "level", "key", "latency_s"),
@@ -35,6 +37,9 @@ CHOICES = {
 }
 # Optional fields: checked only when present, so a log written before they existed stays valid.
 OPTIONAL_CHOICES = {("bridge", "kind"): ("filler", "cached")}
+# Optional numbers of a `prep` row (null when the voice cannot split the render into queue and synthesis)
+PREP_OPTIONAL = ("bank_s", "render_queue_s", "render_s")
+PREP_DURATIONS = ("generate_s", "safety_s", "render_wait_s", *PREP_OPTIONAL)
 CACHED_SOURCE = ("session", "bit", "joke")  # where a cached line came from; a bridge row of kind "cached" needs it
 
 
@@ -51,6 +56,10 @@ KEY_LEVELS = {"W": 3, "K": 2, "Space": 1, "D": 0}
 
 def _is_int(value) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)  # True == 1 must not pass as a level
+
+
+def _is_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def _need_keys(where: str, obj, keys) -> None:
@@ -73,7 +82,7 @@ def validate(record: dict) -> None:
     event = record["event"]
     if not isinstance(event, str) or event not in EVENTS:
         raise ValueError(f"unknown event {event!r}")
-    if event in ("bridge", "cache", "pause", "resume") and record["schema"] < 2:
+    if event in ("prep", "bridge", "cache", "pause", "resume") and record["schema"] < 2:
         raise ValueError(f"a schema 1 log has no {event} event")
     _need_keys(event, record, EVENTS[event])
     for (name, field), allowed in CHOICES.items():
@@ -101,6 +110,22 @@ def validate(record: dict) -> None:
                 raise ValueError(f"cache.{key} must be a non-negative integer")
         if record.get("skip_heard") is not None and not isinstance(record["skip_heard"], bool):
             raise ValueError("cache.skip_heard must be a boolean")
+    if event == "prep":
+        for key in PREP_DURATIONS:
+            if key in PREP_OPTIONAL and record.get(key) is None:
+                continue
+            if not _is_number(record[key]) or record[key] < 0:
+                raise ValueError(f"prep.{key} must be a non-negative number, got {record[key]!r}")
+        for key in ("started_at", "ready_at"):
+            if not _is_number(record[key]):
+                raise ValueError(f"prep.{key} must be a number, got {record[key]!r}")
+        if record["ready_at"] < record["started_at"]:
+            raise ValueError("prep.ready_at is before prep.started_at")
+        if not (_is_int(record["bank_fallbacks"]) and record["bank_fallbacks"] >= 0):
+            raise ValueError("prep.bank_fallbacks must be a non-negative integer")
+    if event == "joke_played" and record.get("bridge_overhang_s") is not None:  # optional (D-113): the bit's first line
+        if not _is_number(record["bridge_overhang_s"]) or record["bridge_overhang_s"] < 0:
+            raise ValueError("joke_played.bridge_overhang_s must be a non-negative number")
     if event == "candidates":
         if not isinstance(record["items"], list):
             raise ValueError("candidates.items must be a list")
