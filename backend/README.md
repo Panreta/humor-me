@@ -204,6 +204,10 @@ python -m sim.stage_timing <session id> [<session id> ...] [--dir data/sessions]
 
 Bit 0 is shown apart; bits with a pause in their wait or a failed first render are dropped. The last line names the biggest stage and the fix it points to, or says "inconclusive" (the rule needs 2 shows and 16 bits and an interval above 0; see `sim/stage_timing.py`). Shows from before D-113 have no `prep` rows and are listed without stages.
 
+## Show ledger (Exp 32)
+
+After each show: `python -m sim.show_ledger --record` (re-records when any log is new), `python -m sim.show_ledger export` to refresh the played bits in `reports/show_bits/`, then `python scripts/run_notebook.py notebooks/decision-plot.ipynb` for the chart. Plain `python -m sim.show_ledger` only prints. The record holds numbers and per-bit hashes; `export` writes generated lines only (never anything said by people in the room). Setups, ratings and what counts as quality evidence: [metrics.md](../docs/metrics.md#show-ledger-how-each-setup-did-exp-32-2026-11-26), D-116.
+
 ## Pick a provider first
 
 Comedy timing needs the next line within ~1 s of a laugh ending, so measure time-to-first-token:
