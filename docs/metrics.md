@@ -805,6 +805,10 @@ Judge against user: judge "connected" and user "one bit" 2, judge "connected" an
 
 **Read it:** the judge's +0.222 cannot be trusted, so gen-v4 stays live and gen-v5 is not adopted. **Caveat:** 5 of 20 prompts dropped out because a cluster of read timeouts (9 threads in each arm) hit both arms in a slow stretch. Judge-called connected threads: 34 of 51 for A, 45 of 51 for B.
 
+## Judge v2 on a fresh sample (Exp 30, 2026-11-25)
+
+**Not run yet.** `python -m sim.judge_calibration run`, `review`, `score` (see `backend/README.md`); numbers will land in `reports/metrics/judge_calibration.json` (counts only). Decision: [D-114](agent/decisions-detail.md#d-114). Judge v1 and judge v2 label 20 fresh threads, 10 per arm, next to the user's blind labels. Rule fixed before the run: keep v2 if it agrees with the user more than v1 does (a tie keeps v1); the kept judge re-scores Exp 27 only if it disagrees with the user on under 40%. With 20 labels, two equal judges still give v2 about 44% of the time, so the interval goes next to the point estimate.
+
 ## Bridge lines the listener has heard (Exp 28, 2026-11-25)
 
 `python -m sim.evaluate_heard --record`, from the 25 session logs on this laptop (no model call). Raw: `reports/metrics/heard_bridges.json` (counts and session ids only). Decision: [D-112](agent/decisions-detail.md#d-112).

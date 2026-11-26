@@ -152,6 +152,19 @@ python -m sim.thread_coherence score       # the numbers again with your answers
 
 Then `python scripts/run_notebook.py` and commit the two metrics files. `run` can be stopped and restarted: finished bits and judge verdicts are kept in `data/thread_coherence/run-<digest>/` (gitignored: thread text lives only there, never commit it). The judge costs about 120 Haiku calls, under a cent. Both commands take `--env-file backend/.env` to load the keys. Exp 27's bar and rule are in `sim/thread_coherence.py` and D-111.
 
+## Judge v2 on a fresh sample (Exp 30)
+
+Exp 27's judge agreed with you on 4 of 10 threads (chance), so a second judge (v2) was written from those 10 answers. This checks both on threads neither was written from (D-114). From the repo root with the root venv, Ollama up with `OLLAMA_NUM_PARALLEL=3` and `OLLAMA_CONTEXT_LENGTH=8192`, nothing else loaded, `ANTHROPIC_API_KEY` for the judges (`--env-file` loads it):
+
+```bash
+python -m sim.judge_calibration run --env-file backend/.env   # writes 10 fresh prompts x 2 arms (about 3 min), both judges judge the 20 drawn threads
+python -m sim.judge_calibration review                        # you label 20 threads: y = one bit, n = separate jokes, blind (no verdict, no arm); q saves and quits, rerun resumes
+python -m sim.judge_calibration score                         # agreement of v1 and v2 with you, paired CI, verdict -> reports/metrics/judge_calibration.json
+python -m sim.thread_coherence rescore --judge v2             # only if `score` says rescore_allowed: re-judge Exp 27's stored threads with v2 (about 102 Haiku calls)
+```
+
+Rule, fixed before the run: keep v2 if it agrees with you on more of the 20 than v1 (a tie keeps v1); the kept judge may re-score Exp 27 only if it disagrees with you on under 40% (`rescore` refuses otherwise). Then `python scripts/run_notebook.py` and commit `judge_calibration.json` (and `thread_coherence_rescore.json` if it ran). Threads and your labels live under `data/thread_coherence/calib-<digest>/` (gitignored: never commit).
+
 ## Cached bits run (Exp 23)
 
 After a live show, run three simulated shows on `GENERATOR=llm`, then score them from the repo root. Plain, it prints and saves nothing; `--record` keeps numbers and ids only (`reports/metrics/cached_bits.json`):

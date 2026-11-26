@@ -97,7 +97,7 @@ def test_the_digest_follows_both_prompts_the_model_and_the_judge_and_a_stale_cal
     with monkeypatch.context() as m:
         m.setenv("JOKE_WRITER_MODEL", "other:4b")
         assert tc.digest() != before
-    monkeypatch.setattr(tc, "JUDGE_SYSTEM", tc.JUDGE_SYSTEM + " x")
+    monkeypatch.setitem(tc.JUDGES, "v1", tc.JUDGE_SYSTEM + " x")
     assert tc.judge_digest() != jbefore and tc.digest() == before
     with pytest.raises(AssertionError):
         tc.run(digest_=before, judge_digest_=jbefore)
