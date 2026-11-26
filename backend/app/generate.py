@@ -1,4 +1,4 @@
-"""The LLM generator (gen-v4, D-110): a bit is K threads, each written by its own call; the K calls run in parallel on the
+"""The LLM generator (live prompt gen-v5 since D-111, one thread per call from D-110): a bit is K threads, each written by its own call; the K calls run in parallel on the
 same prompt, which is DPO's pair distribution (independent samples of one prompt). A call returns
 one thread (a premise and JOKES lines); the Batch the show reads is joke-major over the threads that came back, and
 candidate i of every joke belongs to thread i. The show plays one thread through (app.show._pick_thread).
@@ -20,8 +20,9 @@ from app.show import Batch
 K = 3  # threads per bit, one call each: enough for the filter to reject some and the selector to still choose
 JOKES = 5
 TEMPERATURE = 0.9
-# The prompt the show runs. Exp 27 (D-111) tests gen-v5 against it; one line flips the show once it wins.
-PROMPT_ID = "gen-v4"
+# The prompt the show runs. gen-v5 (connected bit) won Exp 27 on the 80 fresh prompts (D-111 addendum, 2026-11-26) and went
+# live; gen-v4 stays in PROMPTS, frozen byte for byte, as the baseline Exp 26 and Exp 27 measured.
+PROMPT_ID = "gen-v5"
 
 # The one reply shape `parse` accepts for a single thread, for providers that can enforce it (Claude structured
 # output, Ollama json_schema). gen-v3's three-threads-in-one-reply generator is frozen in app.generate_v3 (D-110).

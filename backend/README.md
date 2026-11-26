@@ -64,7 +64,7 @@ cd backend
 The mode the director picked is never sent. Presses outside their window are not logged as reactions (replay counts every
 row), only noted by the Python logger. Within a hold the last press wins and each change is a `reaction` row.
 By default the show uses the bank and a bank-only filter (`BankOnlySafety`), which needs no key. `JOKE_SOURCE=llm` switches to the
-real stack (`app/generate.py`, gen-v4, D-110): each bit is 3 model calls at once on the same prompt, one thread of 5 jokes each (so up to 3 candidates per joke; a call that fails drops only its thread; a badly shaped reply is asked for once more first (D-111), and on Ollama the reply schema counts the 5 jokes, and the 3 share one 12 s budget), the safety filter's rules plus one LLM verdict call
+real stack (`app/generate.py`, prompt gen-v5, D-111; one thread per call, D-110): each bit is 3 model calls at once on the same prompt, one thread of 5 jokes each (so up to 3 candidates per joke; a call that fails drops only its thread; a badly shaped reply is asked for once more first (D-111), and on Ollama the reply schema counts the 5 jokes, and the 3 share one 12 s budget), the safety filter's rules plus one LLM verdict call
 per bit (Claude Haiku 5.5 with thinking off by default, D-100; needs `ANTHROPIC_API_KEY`; `SAFETY_CHECK_PROVIDER=gemini` goes back to Flash-Lite), the next line rendered while the current one plays, and filler while a bit loads: cached lines from the best bits of earlier live shows (`app/cache.py`, rules re-checked for this room's age, a teen room only from teen shows, never rated, logged in a `cache` row) at the show open and between bits, then in-character bridge lines (the 10 in `app/generate.py`, `BRIDGES`). By default a cached line is skipped when any show logged on this laptop already played it (D-112), so with one listener only the in-character lines play; `BRIDGE_SKIP_HEARD=0` in `.env` brings the cached lines back for a new audience. The filler lines play in a fresh order each show (a seeded shuffle; still no repeat while an unused one remains). While a bit's last jokes play the show guesses the next bit's mode and writes it ahead (D-115, `PREDICT_NEXT_BIT`, on by default, `0` turns it off): a right guess has the next bit ready at the boundary, a wrong one is discarded; the director's choice and the rewards are the same either way. The log gets a `prediction` row per guessed bit and `speculative` on a kept bit's `prep` row. The `cache` row logs `skip_heard` (the setting), `heard_dropped` (pool lines the rule removed: the pool without it minus the pool with it) and `bridge_seed` (the shuffle seed, so the show replays). A failed call is retried
 twice inside a deadline; a failed generation or a bit whose candidates are all rejected falls back to the hand-checked bank (rules only, no API call), logged in
 `candidates`. A `live` room refuses to start without `app/blocklist.local.txt`.
@@ -164,6 +164,17 @@ python -m sim.thread_coherence rescore --judge v2             # only if `score` 
 ```
 
 Rule, fixed before the run: keep v2 if it agrees with you on more of the 20 than v1 (a tie keeps v1); the kept judge may re-score Exp 27 only if it disagrees with you on under 40% (`rescore` refuses otherwise). Then `python scripts/run_notebook.py` and commit `judge_calibration.json` (and `thread_coherence_rescore.json` if it ran). Threads and your labels live under `data/thread_coherence/calib-<digest>/` (gitignored: never commit).
+
+## Exp 27 extension to 100 prompts (D-111 addendum): done 2026-11-26, passed, gen-v5 live
+
+Exp 30 kept judge v2, and v2 over Exp 27's 20 prompts gave +0.133 with a CI of 0.0 to +0.25 (failed at exactly 0). So the user extends Exp 27 to 100 prompts, with no new labels. Run from the checkout that holds `data/thread_coherence/` (the 20 prompts' bits must be in it; the command stops if not), Ollama up with `OLLAMA_NUM_PARALLEL=3` and `OLLAMA_CONTEXT_LENGTH=8192`, nothing else loaded, `ANTHROPIC_API_KEY` set for the second command.
+
+```bash
+python -m sim.thread_coherence run --n 100 --env-file backend/.env                 # writes only the missing bits (c20 to c99, 80 x 2 arms, about 15 to 25 min), no judge call -> reports/metrics/thread_coherence_n100.json
+python -m sim.thread_coherence rescore --judge v2 --n 100 --env-file backend/.env   # judges all 100 prompts with v2 (c00 to c19 cached, about 470 new Haiku calls, a few cents) -> reports/metrics/thread_coherence_rescore_n100.json
+```
+
+`run` can be stopped and restarted, and rewrites a bit that lost every thread to a timeout by itself, once (no manual step; it lists them as `bits_rewritten`). Bar: v2's paired B - A over the **80 fresh prompts** (c20 to c99), CI lower bound above 0; the pooled 100 is shown beside it and does not decide. There is no review step: v1's spot-check is superseded by v2. Then `python scripts/run_notebook.py` and commit the two metrics files.
 
 ## Cached bits run (Exp 23)
 

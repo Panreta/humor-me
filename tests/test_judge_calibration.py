@@ -527,14 +527,15 @@ def test_a_rescore_made_under_an_earlier_exp_30_record_is_stale_and_blocks_adopt
     stored_calibration(monkeypatch, tmp_path)
     res = tc.rescore("v2", 6, tc.SEED, tc.digest(6), tc.judge_digest("v2"), client=ByJudge())
     assert res["exp30"]["verdict"] == "keep_v2_trusted" and res["exp30"]["agree_v2"] == 18 and res["exp30"]["scored"] == 20
-    cache.save(tc.RESCORE_NAME, tc.rescore_params("v2"), res)
-    assert tc.rescore_status("v2")[0] == "current"
-    assert tc.rescore_status("v1")[0] == "none"
+    monkeypatch.setattr(tc, "N_EXT", 6)  # the decisive n, here the folder the fake wrote
+    cache.save(tc.metric_name(tc.RESCORE_NAME, 6), tc.rescore_params("v2", 6), res)
+    assert tc.rescore_status("v2", 6)[0] == "current"
+    assert tc.rescore_status("v1", 6)[0] == "none"
     cal = jc.stored()
     assert jc.adoptable()["rescore_current"] is True and jc.adoptable()["v2_kept_and_trusted"] is True
     # the user relabels and Exp 30 comes out differently: the saved re-score no longer matches it
     stored_calibration(monkeypatch, tmp_path, v1_right=8, v2_right=19)
-    assert jc.stored() != cal and tc.rescore_status("v2")[0] == "stale"
+    assert jc.stored() != cal and tc.rescore_status("v2", 6)[0] == "stale"
     a = jc.adoptable()
     assert a["rescore_current"] is False and a["adoptable"] is False
 
@@ -547,13 +548,15 @@ def test_adoption_needs_every_condition_and_one_missing_blocks_it(monkeypatch, t
            "adoption_guards": {"user_diff_not_negative": True, "judge_diff_within_user_ci": True}}
     cache.save(jc.NAME, jc.params(), cal)
     prov = tc.exp30_provenance()
-    cache.save(tc.RESCORE_NAME, tc.rescore_params("v2"), {"exp30": prov, "bar_passes": True})
+    n = tc.N_EXT
+    save_rs = lambda r: cache.save(tc.metric_name(tc.RESCORE_NAME, n), tc.rescore_params("v2", n), {"n": n, "bar_over": "fresh", **r})  # noqa: E731
+    save_rs({"exp30": prov, "bar_passes": True})
     assert jc.adoptable()["adoptable"] is True
     for key in ("user_diff_not_negative", "judge_diff_within_user_ci"):
         cache.save(jc.NAME, jc.params(), {**cal, "adoption_guards": {**cal["adoption_guards"], key: False}})
         assert jc.adoptable()["adoptable"] is False
     cache.save(jc.NAME, jc.params(), cal)
-    cache.save(tc.RESCORE_NAME, tc.rescore_params("v2"), {"exp30": prov, "bar_passes": False})
+    save_rs({"exp30": prov, "bar_passes": False})
     assert jc.adoptable()["adoptable"] is False
 
 

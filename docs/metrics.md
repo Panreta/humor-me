@@ -805,9 +805,38 @@ Judge against user: judge "connected" and user "one bit" 2, judge "connected" an
 
 **Read it:** the judge's +0.222 cannot be trusted, so gen-v4 stays live and gen-v5 is not adopted. **Caveat:** 5 of 20 prompts dropped out because a cluster of read timeouts (9 threads in each arm) hit both arms in a slow stretch. Judge-called connected threads: 34 of 51 for A, 45 of 51 for B.
 
+**Update 2026-11-26 (judge v2, five timed-out bits rerun).** Raw: `thread_coherence_rescore.json`. The v1 lines are superseded by judge v2 (D-114): its spot-check is no longer asked for. The original 6-of-10 `inconclusive_judge` record is at commit 079b26b.
+
+| Judge | Prompts | Mean B - A | 95% CI | Bar |
+|---|---|---|---|---|
+| v1 (untrusted, superseded) | 20 | +0.200 | +0.117 to +0.283 | met, not trusted |
+| v2 | 15 (before the rerun) | +0.133 | -0.022 to +0.289 | failed |
+| v2 | 20 | +0.133 | 0.0 to +0.25 | failed at exactly 0 |
+
+Delivered and lost: A 57 and 3, B 60 and 0 (one-sided); bit wall p95 A 12.04 s, B 9.68 s; 0 bad replies. **Read it:** too close to call, so Exp 27 grew to 100 prompts (c00 to c99, no new labels). **Only the 80 new prompts (c20 to c99) decide.** Raw: `thread_coherence_n100.json` and `thread_coherence_rescore_n100.json`.
+
+| Judge v2, connected-line rate gain (new prompt minus old) | Mean | Likely range (95%) | Prompts | Role |
+|---|---|---|---|---|
+| The 80 new prompts | +0.206 | +0.117 to +0.298 | 80 | **decides: passed** (range above 0) |
+| All 100 | +0.192 | +0.115 to +0.268 | 100 | beside it, never decides |
+
+New prompt beat the old on 41 of the 80, lost on 16. Connected threads on the 80: old prompt 51.5%, new prompt 72.1%. Writing (all 100): old prompt delivered 296 threads and lost 4 (timeouts), new delivered 300 and lost 0; typical bit time 5.22 s (old) and 4.59 s (new), slowest tenth about 8.45 s and 6.90 s; the new prompt is not slower. Power of this bar was about 67 to 73% at a true gain of 0.1 and 88 to 91% at 0.13, with a 2 to 4% false alarm (made-up inputs). **Outcome: gen-v5 is adopted** and live; every adoption condition held (D-114). **Caveats:** the judge agrees with the user 75% of the time (15 of 20), the user's own labels showed 70% one-bit for the new prompt against 40% for the old (only 10 labels per prompt), the first 20 prompts were a fourth look so only the 80 decide, and funniness is not measured. Exp 26's timing record is now stale (it timed the old prompt); rerun optional. Decision: [D-111 addendum](agent/decisions-detail.md#d-111).
+
 ## Judge v2 on a fresh sample (Exp 30, 2026-11-25)
 
-**Not run yet.** `python -m sim.judge_calibration run`, `review`, `score` (see `backend/README.md`); numbers will land in `reports/metrics/judge_calibration.json` (counts only). Decision: [D-114](agent/decisions-detail.md#d-114). Judge v1 and judge v2 label 20 fresh threads, 10 per arm, next to the user's blind labels. Rule fixed before the run: keep v2 if it agrees with the user more than v1 does (a tie keeps v1); the kept judge re-scores Exp 27 only if it disagrees with the user on under 40%. With 20 labels, two equal judges still give v2 about 44% of the time, so the interval goes next to the point estimate.
+`python -m sim.judge_calibration run`, `review`, `score`; raw numbers in `reports/metrics/judge_calibration.json` (counts only). Decision: [D-114](agent/decisions-detail.md#d-114). Judge v1 and judge v2 labelled 20 fresh threads, 10 per arm, next to the user's blind labels. Rule fixed before the run: keep v2 if it agrees with the user more than v1 does (a tie keeps v1); the kept judge re-scores Exp 27 only if it disagrees with the user on under 40%.
+
+| Check | Result | Rule |
+|---|---|---|
+| v1 agrees with the user | 14 of 20 (70%) | |
+| v2 agrees with the user | 15 of 20 (75%, interval 53% to 89%) | keep v2 if higher than v1: met |
+| v2 minus v1 | +0.05, CI -0.11 to +0.21 | beside the rule |
+| Kappa, v1 / v2 | 0.35 / 0.48 | beside the rule |
+| Kept judge's disagreement | 25% | under 40% to re-score: met |
+| User called one bit: A / B | 40% / 70% | beside the rule |
+| Verdict | keep_v2_trusted | |
+
+**Read it:** v2 is kept and may re-score Exp 27, but 20 labels cannot tell it from v1 (the interval on the difference spans 0). v2's B - A (+0.20) sits inside the user's own interval, so it does not call B better than the user's labels allow.
 
 ## Bridge lines the listener has heard (Exp 28, 2026-11-25)
 

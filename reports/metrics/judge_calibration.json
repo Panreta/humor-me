@@ -1,0 +1,23 @@
+{"params": {"digest_": "b774a07c", "judge_digest_v1": "00f9662b", "judge_digest_v2": "28456acf", "n_prompts": 10, "seed": "exp30"}, "results": {
+  "n_prompts": 10,
+  "drawn": {"asked": 20, "reviewed_known": 10, "arm_A": 10, "arm_B": 10, "max_from_one_bit": 2, "dropped_as_reviewed": 0, "short": false},
+  "labelled": 20,
+  "scored": 20,
+  "judge_failures": {"v1": 0, "v2": 0},
+  "complete": true,
+  "judges": {"v1": {"agree": 14, "disagree": 6, "agreement": 0.7, "agreement_ci95": [0.4810232237710206, 0.854524726031006], "disagreement": 0.3, "yes_rate": 0.85, "kappa": 0.3548387096774192, "balanced_accuracy": 0.6666666666666666, "confusion": {"judge_yes_user_yes": 11, "judge_yes_user_no": 6, "judge_no_user_yes": 0, "judge_no_user_no": 3}, "confusion_by_arm": {"A": {"judge_yes_user_yes": 4, "judge_yes_user_no": 3, "judge_no_user_yes": 0, "judge_no_user_no": 3}, "B": {"judge_yes_user_yes": 7, "judge_yes_user_no": 3, "judge_no_user_yes": 0, "judge_no_user_no": 0}}, "false_connected_by_arm": {"A": 0.5, "B": 1.0}}, "v2": {"agree": 15, "disagree": 5, "agreement": 0.75, "agreement_ci95": [0.5312949900419365, 0.888139947210597], "disagreement": 0.25, "yes_rate": 0.7, "kappa": 0.47916666666666663, "balanced_accuracy": 0.7323232323232323, "confusion": {"judge_yes_user_yes": 10, "judge_yes_user_no": 4, "judge_no_user_yes": 1, "judge_no_user_no": 5}, "confusion_by_arm": {"A": {"judge_yes_user_yes": 4, "judge_yes_user_no": 2, "judge_no_user_yes": 0, "judge_no_user_no": 4}, "B": {"judge_yes_user_yes": 6, "judge_yes_user_no": 2, "judge_no_user_yes": 1, "judge_no_user_no": 1}}, "false_connected_by_arm": {"A": 0.3333333333333333, "B": 0.6666666666666666}}},
+  "user_yes_rate": 0.55,
+  "paired": {"v2_only_right": 2, "v1_only_right": 1, "mean_diff": 0.05, "ci95": [-0.10526315789473684, 0.21052631578947367], "ci95_thread_level": [-0.1, 0.2]},
+  "user_one_bit_by_arm": {"A": {"n": 10, "one_bit": 4, "share": 0.4}, "B": {"n": 10, "one_bit": 7, "share": 0.7}},
+  "user_one_bit_diff_B_minus_A": {"diff": 0.29999999999999993, "ci95": [-0.19999999999999996, 0.7888888888888889]},
+  "judge_one_bit_by_arm": {"v1": {"A": {"n": 10, "one_bit": 7, "share": 0.7}, "B": {"n": 10, "one_bit": 10, "share": 1.0}}, "v2": {"A": {"n": 10, "one_bit": 6, "share": 0.6}, "B": {"n": 10, "one_bit": 8, "share": 0.8}}},
+  "judge_one_bit_diff_B_minus_A": {"v1": 0.30000000000000004, "v2": 0.20000000000000007},
+  "void_at_share": 0.4,
+  "kept": "v2",
+  "kept_agreement_ci95": [0.5312949900419365, 0.888139947210597],
+  "kept_right_in_each_class": true,
+  "kept_trusted": true,
+  "adoption_guards": {"user_diff_not_negative": true, "judge_diff_within_user_ci": true},
+  "rescore_allowed": true,
+  "verdict": "keep_v2_trusted"
+}}
