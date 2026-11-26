@@ -141,6 +141,8 @@ def validate(record: dict) -> None:
             raise ValueError("material.from must be 'character' or 'everyday'")
         if not isinstance(record["recycled"], bool) or not _is_int(record["seed"]):
             raise ValueError("material.recycled must be a boolean and material.seed an integer")
+        if record.get("variant", "full") not in ("full", "topic"):  # optional (D-118): absent in a D-117 log, which is "full"
+            raise ValueError("material.variant must be 'full' or 'topic'")
     if event == "prediction":
         if not isinstance(record["hit"], bool):
             raise ValueError("prediction.hit must be a boolean")

@@ -173,7 +173,7 @@ def test_material_is_spent_when_the_thread_is_played_not_when_it_is_written():
     g.played_thread(0, 0)
     got = g.material_row(0)
     assert got["topic"] == g.material._topic_plays[0] and got["seed"] == 1 and got["recycled"] is False
-    assert set(got) == {"topic", "from", "facts", "sheet_id", "list_id", "recycled", "seed"}
+    assert set(got) == {"topic", "from", "facts", "sheet_id", "list_id", "recycled", "seed", "variant"}
 
 
 def test_a_discarded_guess_consumes_nothing_and_the_real_bit_draws_the_same():
@@ -271,3 +271,88 @@ def test_the_log_accepts_a_material_row_and_refuses_a_malformed_one():
     del bare["seed"]
     with pytest.raises(ValueError):
         validate(bare)
+
+
+# --- the topic-only variant (D-118) ---
+
+# D-117's paragraph, copied here: Exp 33's record is only valid while it is byte-identical.
+D117_PARAGRAPH = ("The user message gives this bit's topic and two facts about the robot's life. Build the bit on the "
+                  "topic, seen the way this robot sees it; use a fact only where it makes a line funnier. Do not make "
+                  "the bit about the robot's own hardware (battery, processor, memory, shutting down).")
+
+
+def tmat(seed=1, history=None):
+    return material.ShowMaterial(seed, history, facts=FACTS, topics=TOPICS, variant=material.TOPIC)
+
+
+def test_the_d117_paragraph_and_suffix_are_unchanged():
+    assert generate.MATERIAL_PARAGRAPH == D117_PARAGRAPH and generate.MATERIAL_SUFFIX == "+mat-v1"
+    assert generate.TOPIC_PARAGRAPH != generate.MATERIAL_PARAGRAPH and generate.TOPIC_SUFFIX == "+mat-topic-v1"
+
+
+def test_the_topic_variant_draws_the_same_topics_as_full_but_no_facts():
+    full, topic = mat(seed=4), tmat(seed=4)
+    for bit in range(5):
+        f, t = full.draw(bit, "mixed"), topic.draw(bit, "mixed")
+        assert (t["topic"], t["from"], t["recycled"]) == (f["topic"], f["from"], f["recycled"])
+        assert t["facts"] == [] and t["variant"] == "topic" and f["variant"] == "full" and len(f["facts"]) == 2
+        full.played(bit, f)
+        topic.played(bit, t)
+    with pytest.raises(ValueError):
+        material.ShowMaterial(1, variant="facts")
+
+
+def test_topic_only_request_has_no_facts_key_and_its_own_paragraph_and_suffix():
+    w = Writer()
+    g = generate.ThreadGenerator(w, material=tmat())
+    g.generate("cynic", 0, 0, CTX)
+    system, user = w.calls[0]
+    base = generate.PROMPTS[generate.PROMPT_ID].format(mode="cynic", mode_note=generate.MODES["cynic"], jokes=5, teens="")
+    assert system == base + "\n\n" + generate.TOPIC_PARAGRAPH and D117_PARAGRAPH not in system
+    assert set(user) == {"venue", "energy", "premises_already_told", "topic"} and "robot_facts" not in user
+    assert user["topic"] == tmat().draw(0, "mixed")["topic"]
+    assert g.generator_id == f"{generate.PROMPT_ID}+mat-topic-v1:w"
+    assert "fact" not in generate.TOPIC_PARAGRAPH.lower()
+
+
+def test_the_topic_variant_spends_a_topic_when_played_and_logs_empty_facts_and_the_variant():
+    g = generate.ThreadGenerator(Writer(), material=tmat())
+    g.generate("cynic", 0, 0, CTX)
+    assert g.material_row(0) is None
+    g.played_thread(0, 0)
+    row_ = g.material_row(0)
+    assert row_["facts"] == [] and row_["variant"] == "topic" and row_["sheet_id"] is None and row_["list_id"] == "topics-v1"
+    validate(mrow(**row_))
+    assert g.material.draw(1, "mixed")["topic"] != row_["topic"]
+
+
+def test_the_setting_selects_the_variant_and_one_keeps_its_old_meaning():
+    for v in ("1", "true", "YES", " on ", "full"):
+        assert material.variant({"MATERIAL": v}) == "full" and material.enabled({"MATERIAL": v})
+    assert material.variant({"MATERIAL": " Topic "}) == "topic" and material.enabled({"MATERIAL": "topic"})
+    for v in ("0", "", "no", "off", "facts"):
+        assert material.variant({"MATERIAL": v}) is None and not material.enabled({"MATERIAL": v})
+    assert material.variant({}) is None
+
+
+def test_llm_stack_builds_the_variant_the_setting_names(monkeypatch, tmp_path):
+    from app import safety
+    monkeypatch.setattr(safety, "BLOCKLIST_LOCAL", tmp_path / "missing.txt")
+    for name in ("JOKE_WRITER_PROVIDER", "JOKE_WRITER_MODEL", "SAFETY_CHECK_PROVIDER", "SAFETY_CHECK_MODEL", "GEMINI_BASE_URL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("LLM_BASE_URL", "http://x")
+    monkeypatch.setenv("LLM_MODEL", "m")
+    monkeypatch.setenv("MATERIAL", "topic")
+    gen = generate.llm_stack("sim")[0]
+    assert gen.material.variant == "topic" and "+mat-topic-v1" in gen.generator_id
+    monkeypatch.setenv("MATERIAL", "1")
+    gen = generate.llm_stack("sim")[0]
+    assert gen.material.variant == "full" and "+mat-v1" in gen.generator_id and "topic" not in gen.generator_id.split(":")[0]
+
+
+def test_the_log_accepts_a_variant_and_a_d117_row_without_one_and_refuses_another():
+    validate(mrow(variant="topic", facts=[], sheet_id=None))
+    validate(mrow(variant="full"))
+    validate(mrow())
+    with pytest.raises(ValueError):
+        validate(mrow(variant="facts"))

@@ -70,6 +70,10 @@ MATERIAL_PARAGRAPH = ("The user message gives this bit's topic and two facts abo
                       "topic, seen the way this robot sees it; use a fact only where it makes a line funnier. Do not make "
                       "the bit about the robot's own hardware (battery, processor, memory, shutting down).")
 MATERIAL_SUFFIX = "+mat-v1"
+# The topic-only variant (D-118): its own fixed paragraph; MATERIAL_PARAGRAPH above stays byte-identical (Exp 33's record).
+TOPIC_PARAGRAPH = ("The user message gives this bit's topic. Build the bit on the topic, seen the way this robot sees it. "
+                   "Do not make the bit about the robot's own hardware (battery, processor, memory, shutting down).")
+TOPIC_SUFFIX = "+mat-topic-v1"
 TEENS_RULE = "- The audience is teenagers: no alcohol, drugs, sexual content, innuendo or swearing."
 
 # In character, hand-written, one breath each: they only have to fill a few seconds while a bit loads.
@@ -163,7 +167,8 @@ class ThreadGenerator:
         self.prompt_id = prompt_id or PROMPT_ID
         if self.prompt_id not in PROMPTS:
             raise ValueError(f"unknown prompt {self.prompt_id!r}: expected one of {tuple(PROMPTS)}")
-        self.generator_id = f"{self.prompt_id}{MATERIAL_SUFFIX if material else ''}:{client.model}"
+        suffix = "" if not material else TOPIC_SUFFIX if self._topic_only() else MATERIAL_SUFFIX
+        self.generator_id = f"{self.prompt_id}{suffix}:{client.model}"
         self.budget_s = budget_s
         self._bits: dict[int, tuple[str, list[list[str]], list[str], list[str]] | Exception] = {}
         self._told: list[str] = list(told or [])  # premises already told: a later bit of a show starts with some
@@ -227,6 +232,9 @@ class ThreadGenerator:
         drawn = self._spent.get(bit) if self.material else None
         return None if drawn is None else {**drawn, "seed": self.material.seed}
 
+    def _topic_only(self) -> bool:
+        return getattr(self.material, "variant", material_mod.FULL) == material_mod.TOPIC
+
     def _draw(self, bit: int, context: dict) -> dict | None:
         return self.material.draw(bit, context["age"]) if self.material else None
 
@@ -237,8 +245,12 @@ class ThreadGenerator:
         system = PROMPTS[self.prompt_id].format(mode=mode, mode_note=MODES[mode], jokes=JOKES, teens=teens)
         fields = {"venue": context["venue"], "energy": context["energy"], "premises_already_told": self._told}
         if draw:
-            system += "\n\n" + MATERIAL_PARAGRAPH
-            fields |= {"topic": draw["topic"], "robot_facts": draw["facts"]}
+            fields["topic"] = draw["topic"]
+            if self._topic_only():
+                system += "\n\n" + TOPIC_PARAGRAPH
+            else:
+                system += "\n\n" + MATERIAL_PARAGRAPH
+                fields["robot_facts"] = draw["facts"]
         user = json.dumps(fields)
         left = self.budget_s  # the calls start together, so each has the whole bit's budget
         if self.client.deadline_s is not None:
@@ -366,10 +378,14 @@ def writer_client() -> llm.Client:
     return llm.from_env(GENERATOR_TIMING[0], role="joke_writer", retries=RETRIES, deadline_s=GENERATOR_TIMING[1])
 
 
+def _show_material() -> "material_mod.ShowMaterial | None":
+    return (material_mod.ShowMaterial(variant=v) if (v := material_mod.variant()) else None)
+
+
 def llm_stack(room: str):
     """(generator, safety, fallback, bridge lines) for a show on the real model. Raises SafetyNotReady for a live
     room without the slur list. The deadlines keep a failing provider inside the bridge lines' cover."""
     safety.require_ready(room)
-    return (ThreadGenerator(writer_client(), material=material_mod.ShowMaterial() if material_mod.enabled() else None),
+    return (ThreadGenerator(writer_client(), material=_show_material()),
             LiveSafety(llm.from_env(FILTER_TIMING[0], role="safety_check", retries=FILTER_RETRIES, deadline_s=FILTER_TIMING[1])),
             BankGenerator(), list(BRIDGES))
