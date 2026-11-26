@@ -2,6 +2,7 @@
 import json
 
 from app.log import KEY_LEVELS
+from app.tonight import MAX_FACT_CHARS, MAX_GIST_CHARS, MAX_GISTS, MAX_TONIGHT_FACTS
 from sim.env import AGES, ENERGIES, VENUES
 
 
@@ -14,6 +15,26 @@ def _int(msg: dict, field: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ProtocolError(f"{field} must be a non-negative integer")
     return value
+
+
+def _texts(value, field: str, most: int, longest: int) -> list[str]:
+    if not isinstance(value, list) or len(value) > most or not all(isinstance(t, str) and len(t) <= longest for t in value):
+        raise ProtocolError(f"tonight.{field} must be a list of at most {most} strings of at most {longest} characters")
+    return [t.strip() for t in value if t.strip()]
+
+
+def parse_tonight(raw) -> dict | None:
+    """The operator's approved context ({facts, market, gists}), or None when the message carries none. Shape only: the
+    server checks the content (app.tonight.make_context)."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ProtocolError("tonight must be an object")
+    market = raw.get("market")
+    if market is not None and not (isinstance(market, str) and len(market) <= 160):
+        raise ProtocolError("tonight.market must be a string of at most 160 characters or null")
+    return {"facts": _texts(raw.get("facts", []), "facts", MAX_TONIGHT_FACTS, MAX_FACT_CHARS), "market": market,
+            "gists": _texts(raw.get("gists", []), "gists", MAX_GISTS, MAX_GIST_CHARS)}
 
 
 def check_pause(kind: str, *, running: bool, paused: bool) -> None:
@@ -84,5 +105,6 @@ def parse(frame: dict) -> dict:
         if not isinstance(consent, bool):
             raise ProtocolError("consent must be true or false")
         return {"type": kind, "context": {f: context[f] for f in ("venue", "energy", "age")}, "room": msg["room"],
-                "operator": operator, "consent": consent}
+                "operator": operator, "consent": consent,
+                **({} if (tonight := parse_tonight(msg.get("tonight"))) is None else {"tonight": tonight})}
     raise ProtocolError(f"unknown message type {kind!r}")

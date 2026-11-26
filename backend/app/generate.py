@@ -14,6 +14,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, wait
 
 from app import llm, safety
+from app import tonight as tonight_mod
 from app.bank import BankGenerator
 from app.show import Batch
 
@@ -149,6 +150,8 @@ class ThreadGenerator:
     `played_thread`, not the alternatives that were generated). Two threads of a bit may share a premise: the calls do
     not see each other, as independent samples of one prompt must not (D-110)."""
 
+    tonight = None  # a TonightContext (D-117), set by the server for a show with approved context; a subclass that skips __init__ runs without
+
     def __init__(self, client: llm.Client, *, budget_s: float = GENERATOR_TIMING[1], prompt_id: str | None = None,
                  told: list[str] | None = None):
         self.client = client
@@ -164,7 +167,7 @@ class ThreadGenerator:
 
     def generate(self, mode: str, bit: int, joke: int, context: dict) -> Batch:
         if bit not in self._bits:
-            self._bits[bit] = self._fetch(mode, context)
+            self._bits[bit] = self._fetch(mode, context, bit)
         return self._batch(self._bits[bit], mode, bit, joke)
 
     def _batch(self, got, mode: str, bit: int, joke: int) -> Batch:
@@ -178,7 +181,7 @@ class ThreadGenerator:
     def generate_speculative(self, mode: str, bit: int, joke: int, context: dict) -> Batch:
         key = (bit, mode)
         if key not in self._spec:
-            got = self._fetch(mode, context)  # a worker thread cannot be cancelled: it may end after a discard
+            got = self._fetch(mode, context, bit)  # a worker thread cannot be cancelled: it may end after a discard
             if key in self._dead:
                 return self._batch(got, mode, bit, joke)  # nobody will ask again; keep nothing
             self._spec[key] = got
@@ -196,13 +199,29 @@ class ThreadGenerator:
         got = self._bits.get(bit)
         if not isinstance(got, Exception) and got and thread < len(got[2]):
             self._told.append(got[2][thread])
+            if self.tonight:
+                self.tonight.played(bit)  # D-117: only a played bit spends its headline
 
-    def _fetch(self, mode: str, context: dict) -> tuple[str, list[list[str]], list[str], list[str]] | Exception:
+    def set_tonight(self, tonight) -> None:
+        self.tonight = tonight
+        self.generator_id = f"{self.prompt_id}{tonight_mod.SUFFIX}:{self.client.model}"
+
+    def tonight_summary(self) -> dict | None:
+        return self.tonight.summary() if self.tonight else None
+
+    def tonight_use(self, bit: int) -> dict | None:
+        return self.tonight.use_row(bit) if self.tonight else None
+
+    def _fetch(self, mode: str, context: dict, bit: int | None = None) -> tuple[str, list[list[str]], list[str], list[str]] | Exception:
         """(prompt, joke-major lines, premises, reasons for the threads lost), or the error when no thread came back.
         The error carries the same reasons as `threads_lost`, so the log shows why a bit went to the bank."""
         teens = TEENS_RULE if context["age"] not in safety.STANDARD_AGES else ""
         system = PROMPTS[self.prompt_id].format(mode=mode, mode_note=MODES[mode], jokes=JOKES, teens=teens)
-        user = json.dumps({"venue": context["venue"], "energy": context["energy"], "premises_already_told": self._told})
+        fields = {"venue": context["venue"], "energy": context["energy"], "premises_already_told": self._told}
+        if self.tonight and bit is not None:  # D-117: background for every bit, a headline topic for bits 2 and 6
+            system = f"{system}{tonight_mod.SEP}{tonight_mod.PARAGRAPH}"
+            fields |= {k: v for k, v in (("tonight", self.tonight.background()), ("topic", self.tonight.draw(bit))) if v}
+        user = json.dumps(fields)
         left = self.budget_s  # the calls start together, so each has the whole bit's budget
         if self.client.deadline_s is not None:
             left = min(left, self.client.deadline_s)

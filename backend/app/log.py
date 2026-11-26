@@ -22,6 +22,10 @@ EVENTS = {
     # The mode guessed for a bit while the one before it played its last jokes, and whether the director then picked it
     # (D-115). Written right after the bit's `bit_decision`; absent when no guess was made.
     "prediction": ("bit", "predicted", "decided", "hit", "started_at"),
+    # Tonight's approved context (D-117): written once right after show_start, then one `tonight_use` row for each played
+    # bit that took a headline as its topic.
+    "tonight": ("facts", "market", "gists", "report"),
+    "tonight_use": ("bit", "gist"),
     "bridge": ("bit", "text", "tts_seconds", "audio_start_at", "audio_end_at"),
     "cache": ("bits",),  # the cached bits the show could draw on, written right after show_start (D-91)
     "reaction": ("bit", "joke", "source", "level", "key", "latency_s"),
@@ -86,7 +90,7 @@ def validate(record: dict) -> None:
     event = record["event"]
     if not isinstance(event, str) or event not in EVENTS:
         raise ValueError(f"unknown event {event!r}")
-    if event in ("prep", "bridge", "cache", "pause", "resume", "prediction") and record["schema"] < 2:
+    if event in ("prep", "bridge", "cache", "pause", "resume", "prediction", "tonight", "tonight_use") and record["schema"] < 2:
         raise ValueError(f"a schema 1 log has no {event} event")
     _need_keys(event, record, EVENTS[event])
     for (name, field), allowed in CHOICES.items():
@@ -131,6 +135,13 @@ def validate(record: dict) -> None:
             raise ValueError("prep.speculative must be a boolean")  # D-115: prepared on a guess that was then adopted
         if not (_is_int(record["bank_fallbacks"]) and record["bank_fallbacks"] >= 0):
             raise ValueError("prep.bank_fallbacks must be a non-negative integer")
+    if event == "tonight":
+        if not (isinstance(record["facts"], list) and isinstance(record["gists"], list)
+                and all(isinstance(t, str) for t in record["facts"] + record["gists"])
+                and isinstance(record["report"], dict)):
+            raise ValueError("tonight.facts and tonight.gists must be lists of strings and tonight.report an object")
+    if event == "tonight_use" and not (_is_int(record["bit"]) and isinstance(record["gist"], str)):
+        raise ValueError("tonight_use.bit must be an integer and tonight_use.gist a string")
     if event == "prediction":
         if not isinstance(record["hit"], bool):
             raise ValueError("prediction.hit must be a boolean")
