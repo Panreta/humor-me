@@ -77,7 +77,7 @@ JUDGE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["h
                 "properties": {"hardware": {"type": "boolean"}}}
 # The cross-check: the words that made up the 28% in the live logs (battery, power, data, charging, processor, memory).
 HARDWARE_WORDS = re.compile(r"\b(batter(?:y|ies)|charg\w*|power(?:ed|s)?|processor\w*|cpu|gpu|memory|ram|data|wires?|"
-                            r"circuit\w*|motherboard|overheat\w*|shut(?:ting)? ?down|reboot\w*|hard drive|storage|fans?)\b", re.I)
+                            r"circuit\w*|motherboard|overheat\w*|shut(?:ting)? ?down|reboot\w*|hard drive|storage)\b", re.I)  # no "fans": "sports fans" is a topic
 
 
 # --- the slots, digests, folders ---------------------------------------------------------------------------------
