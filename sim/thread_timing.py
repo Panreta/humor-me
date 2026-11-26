@@ -55,7 +55,8 @@ def digest() -> str:
     """What the timed bit is made of: a changed prompt, model, request flag, timing or retry constant starts a new
     record. Code changes elsewhere (the generator's logic, the client) are NOT covered: rerun with `--rerun` after one."""
     parts = [generate.PROMPT_ID, generate.SYSTEM, generate.TEENS_RULE, json.dumps(generate.MODES, sort_keys=True),
-             json.dumps(generate.REPLY_SCHEMA, sort_keys=True),
+             json.dumps(generate.REPLY_SCHEMA, sort_keys=True), json.dumps(generate.COUNTED_REPLY_SCHEMA, sort_keys=True),
+             "reask_bad_shape_once",  # D-111: the call re-asks a bad shape inside its deadline
              str((generate.K, generate.JOKES, generate.TEMPERATURE, generate.GENERATOR_TIMING, generate.RETRIES,
                   generate.WRITER_CONTEXT, generate.HANG_GRACE_S, llm.MIN_ATTEMPT_S)),
              writer_model(), json.dumps(llm.OLLAMA_NO_THINK, sort_keys=True), "json_schema=True", SEED, str(N_BITS)]

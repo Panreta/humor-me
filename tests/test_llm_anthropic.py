@@ -236,6 +236,10 @@ def test_generator_runs_on_the_claude_client():
     batch = generate.ThreadGenerator(c).generate("neurotic", 0, 0, {"venue": "bar", "energy": "low", "age": "mixed"})
     assert len(batch.texts) == 3
     assert sdk.calls[0]["output_config"]["format"]["schema"] == generate.REPLY_SCHEMA
+    # Claude takes minItems of 0 or 1 only and no maxItems (the SDK's own transform moves them into the description),
+    # so the counted schema stays on the Ollama path and the parser enforces the 5 lines here.
+    jokes = sdk.calls[0]["output_config"]["format"]["schema"]["properties"]["jokes"]
+    assert "minItems" not in jokes and "maxItems" not in jokes
 
 
 def test_safety_filter_runs_on_the_claude_client_with_validate():
