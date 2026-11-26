@@ -377,9 +377,18 @@ def score(directory_root: pathlib.Path | None = None) -> dict:
     return summarize(rec, records, read_answers(directory), on_gpu=tc.writer_on_gpu(directory))
 
 
-def stored() -> dict | None:
-    rec = read_fetch()
-    return None if rec is None else cache.load(NAME, params(rec))
+def stored(directory: pathlib.Path | None = None) -> dict | None:
+    """The record when it matches the local fetch. The fetch is gitignored and `fetch` on a later day replaces it (more days
+    for bar 1 is the next step), so without the record's own day here the record is returned as recorded: a clone, or the
+    next day, still shows Exp 35. Same day but a new digest means the code changed since: None, rerun."""
+    rec = read_fetch(directory)
+    if rec is not None and (hit := cache.load(NAME, params(rec))) is not None:
+        return hit
+    path = cache.METRICS / f"{NAME}.json"
+    if not path.exists():
+        return None
+    res = json.loads(path.read_text())["results"]
+    return res if rec is None or rec.get("date") != res["bar1_filter"]["date"] else None
 
 
 def pct(x) -> str:

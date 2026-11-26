@@ -216,3 +216,20 @@ def test_score_reads_the_run_folder_and_the_table_prints_every_row(tmp_path):
     text = ex.table(res)
     assert len(text.splitlines()) == 10 and "Wilson" in text and "adopt" in text
     json.dumps(res)  # a record is plain JSON
+
+
+def test_the_record_is_shown_without_the_local_fetch_or_after_a_later_days_fetch(tmp_path, monkeypatch):
+    from sim import cache
+    monkeypatch.setattr(cache, "METRICS", tmp_path / "metrics")
+    rec = {**rec_of([True] * 5), "facts": []}
+    res = {"bar1_filter": {"date": rec["date"]}, "verdict": "adopt"}
+    fetch_dir = tmp_path / "fetch"
+    assert ex.stored(fetch_dir) is None  # nothing recorded
+    cache.save(ex.NAME, ex.params(rec), res)
+    assert ex.stored(fetch_dir) == res  # a clone: no local fetch, the record stands
+    tc._write(ex.fetch_path(fetch_dir), rec)
+    assert ex.stored(fetch_dir) == res  # the fetch it was made from
+    tc._write(ex.fetch_path(fetch_dir), {**rec, "date": "2026-11-27", "approved": ["another gist"]})
+    assert ex.stored(fetch_dir) == res  # a later day's fetch for bar 1 does not hide it
+    tc._write(ex.fetch_path(fetch_dir), {**rec, "approved": ["another gist"]})
+    assert ex.stored(fetch_dir) is None  # the same day with other material: the record is not this run's
