@@ -292,6 +292,7 @@ Later, during the 90k extension run:
 | Backend venv would not build or import: `ModuleNotFoundError: numpy`, `kokoro` has no matching distribution (Python 3.14), then spaCy `E050 can't find model 'en_core_web_sm'` at the first render (2026-11-25) | The venv was made on the default Python 3.14, and Kokoro 0.9.4 needs Python below 3.13 (`requirements.txt` line 1 already says so). A `uv venv` has no pip, and Kokoro downloads spaCy's English model by calling pip, so a fresh uv venv cannot fetch it itself | The first show start after setup (the user's own run) | Make the venv with `uv venv --python 3.12` and install with `uv pip install --python .venv/Scripts/python.exe -r requirements.txt`; then install the `en_core_web_sm` 3.8.0 wheel by URL with the same `uv pip`. Steps are in `backend/README.md` (Setup), PR #80 |
 
 ---
+| 12 to 17 s waits before a bit's first joke with 2 to 3 filler lines per gap (shows `6c09c721b0bb`, `0e102d77d795`) (2026-11-26) | Each bit was decided and prepared only after the one before it ended, because the decision uses that bit's reward; Exp 29's `prep` rows put it at generate 3.8 s, safety 3.3 s, first render 3.0 s, plus up to 2.3 s of bridge overhang | The `prep` rows (D-113) | Deciding at joke 3 was tried first and failed Exp 31(a): it leaves the director one update behind and costs about 1.3 laughs per show. Shipped instead: guess the next mode after joke 3 and write that bit while jokes 4 and 5 play; the decision at the bit's end is unchanged (D-115, Exp 31(b): right about 7 times in 10) |
 
 ## Process lessons
 
