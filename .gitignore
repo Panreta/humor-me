@@ -238,6 +238,8 @@ data/external/
 
 # Live show logs: replay data, local only
 data/sessions/
+Diane/
+llm_judgments.jsonl
 
 # Permission emails: personal addresses, and this repo is public
 data/permissions/
@@ -248,3 +250,22 @@ data/model_comparison/
 
 # Exp 27 connected threads: generated joke text, judge verdicts and your review answers; local only
 data/thread_coherence/
+
+sync.sh
+selfTest
+data/DPO_set/
+
+# Local working files (not for GitHub)
+.DS_Store
+refer/
+scrolls/
+understanding/
+dpo_manual.md
+judge-dpo.pptx
+Humor-moi - Google Slides.pdf
+*.code-workspace
+NewlyData/
+
+# Trained adapters and copied cluster results; local only (adapters are large, course storage is deleted after grades)
+data/models/
+data/results/
