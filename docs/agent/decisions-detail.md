@@ -947,3 +947,32 @@ Decided by the user, 2026-11-25, before the restarted vote.
 
 **Not hidden, said plainly.** Style beyond punctuation (word choice, line length, how a bit builds) can still hint at a model; that is part of what is being judged.
 
+
+## <a id="d-107"></a>D-107 · 2026-11-25 — Exp 24 result: bonsai-2:4b writes the live show's bits and is the SFT/DPO base; Haiku is the funnier reference to beat (user)
+Decided by the user, 2026-11-25, after seeing the score. The rule was fixed before any run (D-94, D-101); the score is `python -m sim.compare_generators score`, stored in `reports/metrics/model_comparison.json` (numbers only, no joke text).
+
+**Result.** 60 prompts per model, one attempt each; 30 prompts ranked by the user, 0 by the judge (the D-95 judge was not used). All three models are eligible (p95 within 12 s, failure upper bound within 15%, local models 100% on the GPU).
+
+| Model | Attempts | Failed (95% upper) | p50 | p95 | Line pass | Playable | Mean rank (95% CI) | Cost, 5 shows | GPU | Eligible |
+|---|---|---|---|---|---|---|---|---|---|---|
+| qwen3-4b-instruct | 60 | 0 (6%) | 6.7 s | 8.2 s | 87% | 87% | 2.17 (1.90 to 2.43) | $0.000 | 100% | yes |
+| bonsai-2-4b | 60 | 1 (9%) | 5.2 s | 6.9 s | 89% | 92% | 2.17 (1.87 to 2.43) | $0.000 | 100% | yes |
+| claude-haiku-5-5 | 60 | 2 (11%) | 5.6 s | 7.4 s | 91% | 95% | 1.67 (1.40 to 1.97) | $0.017 | - | yes |
+
+**Pick by the rule: bonsai-2-4b.** Funniness is inconclusive between claude-haiku-5-5 and bonsai-2-4b (the paired CI includes 0), so the cheaper, then faster, of the two.
+
+**Funniness numbers.** Haiku vs bonsai, paired rank gap: 0.50 in Haiku's favour, 95% CI 0.00 to 1.00. The bar is a lower bound above 0, so it is not clear: it misses by touching 0. First places: Haiku 16 of 30, bonsai 8, qwen 6. Ranked last: qwen 3, bonsai 4, Haiku 2 (a 3-way ranking, so these are small counts). Head to head, restricted to bonsai and qwen: qwen is 0.13 ranks ahead (mean rank 1.43 vs 1.57), CI -0.20 to 0.47, so inconclusive.
+
+**Tie-break.** qwen and bonsai tie exactly on mean rank among the eligible three (2.17). `decide()` sorts by (mean rank, name), so bonsai reached the Haiku comparison by alphabetical order. Had qwen gone first instead, the cheaper-then-faster step would pick between qwen and Haiku, and qwen is $0 but slower than bonsai (p50 6.7 s vs 5.2 s); so the pick is a close call between two local models that tie on funniness, and bonsai wins on speed and playable rate (92% vs 87%). The user's choice below does not rest on the tie-break.
+
+**Options offered.** (a) Override the rule and pick Haiku by judgment: the user ranked it first most often and finds it funnier. (b) Rank the other 30 prompts first. (c, chosen) Keep bonsai-2-4b as the rule says.
+
+**Choice (c), the user's reason:** it gives a good baseline to improve. Haiku has no weights, so it cannot be fine-tuned; the SFT/DPO base had to be local whatever the vote said. Haiku stays the funnier reference: its 0.5-rank lead over bonsai is the gap SFT and DPO must close.
+
+**Why not (b).** Ranking more prompts after seeing the result is a stopping rule that depends on the data. It inflates false "clear" results, and the bar was fixed at 30 prompts before any vote (D-101's power table). The 30 are the result.
+
+**Next.** The 120-pair ranking tool (D-102) is built on bonsai. Wiring bonsai into the show as `JOKE_WRITER` (Ollama provider, reply schema, reasoning off) is a separate PR. The live show still runs on Gemini until then.
+
+**What would change it.** A trained bonsai that does not beat bonsai-2-4b as it is on the pairs the user ranks (D-102). Or a live show where bonsai misses the 12 s deadline when it shares the GPU with Kokoro: the speeds above were measured without the voice, so they are a best case (D-97). Then the fallback writer is Haiku ($0.017 for 5 shows).
+
+**Judgment calls, not measured.** That the cheap-then-fast tie-break is the right way to pick between two models whose funniness is a tie. That 30 ranked prompts, one rater, is enough: the user is one taste, and the room's taste is not measured here. Playable and line-pass rates come from the Haiku safety filter and its rules, which judge qwen's, bonsai's and Haiku's lines by the same rules (D-105).
