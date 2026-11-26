@@ -15,6 +15,9 @@ row to "Done" with its PR. Add a row whenever something is deferred so it isn't 
 | 9 | Learned joke scorer on rJokes (encoder regressor) | Cheap reranker for K candidates | Explorer; noise ceiling caps it | 2026-10-26 |
 | 10 | Transcript callback pass + Birbiglia held-out eval | Completes the paused pipeline's report appendix | Gemini quota; Birbiglia labels | 2026-10-21 |
 | 11 | **Known issue, if labeling ever runs again:** `label_modes.py`'s transformers backend ignores `--max-model-len` (vLLM only), so one very long "joke" can OOM a batch | #23's halve-and-retry already turns it into one parse failure; a length cap would skip it without wasting GPU time | Only if `label_modes.py` is reused (dev/test splits, another judge) | 2026-11-01 |
+| 12 | Replay proven bridge lines for a new audience (demo, presentation), with a heard set per listener | Comedians reuse their best lines on a new crowd; D-112 keeps heard lines out for the one listener we have, so the cache is empty for the user's own shows | A listener id (who is in the room); then `BRIDGE_SKIP_HEARD` becomes per listener | 2026-11-25 |
+| 13 | **20 to 30 new filler lines** (D-112 follow-up, its own PR) | Cached bridges are off for the user's own shows, so the 10 filler lines carry every wait; Exp 28: all 10 already heard. The per-show shuffle (D-112) only changes their order | The user approves each line by ear; each must clear the safety rules and fit about 5 s | 2026-11-25 |
+| 14 | Sim and bank shows replay heard jokes too | Exp 28: up to 35 of 40 jokes in simulated shows had been played in an earlier show (the bank's fixed jokes), so a sim show can feel repeated; candidate only, not part of D-112 | Decide whether sim shows are ever listened to or only scored | 2026-11-25 |
 
 ## Done
 

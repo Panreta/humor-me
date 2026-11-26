@@ -1,6 +1,8 @@
 """The show loop: `run_show` runs one show against whatever voice, room and clock it is given."""
 import asyncio
 import logging
+import random
+import secrets
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -397,7 +399,8 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
                    explore_seed: int | None = None, operator: str = "sim", git_sha: str = "unknown",
                    audio: dict | None = None, n_bits: int = 8, jokes_per_bit: int = 5, config=REACTION,
                    fallback: Generator | None = None, bridge_lines: list[str] | None = None,
-                   cached: dict[str, list[CachedBit]] | None = None, pauses: Pauses | None = None) -> None:
+                   cached: dict[str, list[CachedBit]] | None = None, pauses: Pauses | None = None,
+                   cache_info=None, bridge_seed: int | None = None) -> None:
     """One show. `director` is an EpsilonSoft over LinUCB, already warm: the caller replays the career into it
     (app.director.load_director) so this loop never decides which rooms count."""
     modes = AudienceEnv().modes
@@ -414,8 +417,13 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
     rendered: list[tuple[str, bytes, float]] = []  # bridge lines that are ready; a failed one is just not here
     bridges_used: list[str] = []
 
+    # The filler order is shuffled per show, so the 10 lines are not heard in the same order every time. The seed is
+    # logged in the `cache` row, which keeps the show replayable (invariant 6).
+    bridge_seed = secrets.randbits(32) if bridge_seed is None else bridge_seed
+    bridge_order = random.Random(bridge_seed).sample(list(bridge_lines or ()), len(bridge_lines or ()))
+
     async def render_bridges():
-        for text in bridge_lines:
+        for text in bridge_order:
             try:
                 wav, seconds = await _render(tts, text, clock)
                 rendered.append((text, wav, seconds))
@@ -427,8 +435,11 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
                       "seed": explore_seed},
               generator_id=generator.generator_id, selector_id=selector.selector_id, git_sha=git_sha,
               operator=operator, audio=audio or {"consent": False, "path": None})
-    if cache_report:  # invariant 6: what the show could play, and what the re-check dropped
-        log.write("cache", bits=cache_report)
+    if bridge_lines or cache_report:  # invariant 6: what the show could play, what the rule dropped, the filler order
+        # skip_heard and heard_dropped: the D-112 rule and its effect, counts only; absent in a pre-D-112 log
+        extra = {} if cache_info is None else {"skip_heard": cache_info.skip_heard,
+                                               **({} if cache_info.heard_dropped is None else {"heard_dropped": cache_info.heard_dropped})}
+        log.write("cache", bits=cache_report, **extra, **({"bridge_seed": bridge_seed} if bridge_lines else {}))
     opened: asyncio.Task | None = None
     try:
         last_action = last_reward = None

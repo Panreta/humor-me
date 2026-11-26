@@ -774,3 +774,17 @@ The Stage 0 exit (T11). Three simulated shows back to back, then one live show w
 **Caveats.** One rater, 30 prompts. Local speeds were measured without the voice, so they are a best case. Haiku is the funnier reference that SFT and DPO must close in on.
 
 Chart: `reports/figures/decision-plot/exp24-generator-pick.png`.
+
+## Bridge lines the listener has heard (Exp 28, 2026-11-25)
+
+`python -m sim.evaluate_heard --record`, from the 25 session logs on this laptop (no model call). Raw: `reports/metrics/heard_bridges.json` (counts and session ids only). Decision: [D-112](agent/decisions-detail.md#d-112).
+
+| Show | Bridge lines | Cached, heard before | Filler, heard before |
+|---|---|---|---|
+| `d3ef092dfafe` (sim) | 18 | 17 of 17 | 1 of 1 |
+| `e9a42ccc6b36` (sim) | 5 | 5 of 5 | 0 of 0 |
+| `e204ec80e62e` (sim) | 18 | 17 of 17 | 1 of 1 |
+
+**Read it:** Exp 28 sizes the problem; it is not a test of the rule. "100% of cached lines heard" is true by construction (a cached line is a logged show's own played text), and "0 heard lines in the rule's pool" is the filter checked against itself; the tests on synthetic logs check the rule. The informative numbers: the cached pool is 17 lines without the rule and 0 with it, and **all 10 filler lines have been heard** (4 earlier shows played them; the live show alone played 12), so the fallback repeats across shows. The dev-log's "11 bridge lines" was 18 rows in the logs.
+
+**Caveat:** it counts what was played, not what was noticed, and it matches on lowercase text with spaces collapsed, so a reworded line counts as new.
