@@ -1,7 +1,7 @@
 # Material: topics and character facts
 
-**Where it fits:** the writer's input, before the safety filter. Each bit gets one topic and two facts about the robot, so the jokes have something to be about.
-**Used in:** `backend/app/material.py` and the `MATERIAL` setting, Exp 33 in the [live decision notebook](../../notebooks/decisions-live.ipynb), decisions D-117 and D-118.
+**Where it fits:** the writer's input, before the safety filter. Each bit gets one topic (and, in the first version, two facts about the robot), so the jokes have something to be about.
+**Used in:** `backend/app/material.py` and the `MATERIAL` setting, Exp 33 and Exp 34 in the [live decision notebook](../../notebooks/decisions-live.ipynb), decisions D-117 and D-118.
 
 ## The problem
 
@@ -26,7 +26,7 @@ A topic or fact counts as used only when its bit is actually played. A bit writt
 
 ## Topic only (D-118)
 
-Exp 33 left a question: did the facts make the bit stiff? `MATERIAL=topic` gives each bit a topic and no facts, with its own short instruction to the writer. `MATERIAL=1` still means topic plus two facts. Exp 34 tests the topic-only version against Exp 33's old bits, with the same bars. It is a second try at bars the first try missed, so a pass counts for less. Off is still the default until it passes.
+Exp 33 left a question: did the facts make the bit stiff? `MATERIAL=topic` gives each bit a topic and no facts, with its own short instruction to the writer. `MATERIAL=1` still means topic plus two facts. Exp 34 tests the topic-only version against Exp 33's old bits, with the same bars. Its 20 blind pairs use only the slots you did not see in Exp 33, so an old bit cannot look familiar. It is a second try at bars the first try missed, so a pass counts for less. Off is still the default until it passes.
 
 ## What is not done yet
 

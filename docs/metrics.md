@@ -961,7 +961,7 @@ Decision: [D-118](agent/decisions-detail.md#d-118). Raw: `reports/metrics/materi
 | Bits about the robot's hardware, topic only (gen-v5 + topic) | at most 15% |
 | Drop against Exp 33's material-off bits, slot by slot | 95% interval entirely below 0 |
 | Same count by word list (cross-check) | beside the bar |
-| (a) Funnier: topic-only wins, 20 new blind pairs | at least 10 of 20; a tie is not a win |
+| (a) Funnier: topic-only wins, 20 new blind pairs from the 20 slots not shown in Exp 33 | at least 10 of 20; a tie is not a win |
 | (b) More like a specific character | beside the bar, with a 95% interval |
 
 Both bars must pass to make `topic` the default. Results go here after the run.

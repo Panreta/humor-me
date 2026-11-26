@@ -310,7 +310,7 @@ def test_exp34_never_rewrites_arm_a_and_arm_c_gets_exp33s_topics_without_facts(t
     a33 = [r for r in first if r["arm"] == "A"]
     b33 = [r for r in first if r["arm"] == "B"]
     fake, d34, recs = exp34_write(tmp_path, s, d33)
-    assert [r for r in recs if r["arm"] == "A"] == a33  # the stored bits themselves
+    assert [{k: v for k, v in r.items() if k != m32.SHOWN} for r in recs if r["arm"] == "A"] == a33  # the stored bits themselves
     assert not list((d34 / "bits").glob("*-A.json")) and len(list((d34 / "bits").glob("*-C.json"))) == 6
     c = [r for r in recs if r["arm"] == "C"]
     assert [r["topic"] for r in c] == [r["topic"] for r in b33] and [r["from"] for r in c] == [r["from"] for r in b33]
@@ -431,3 +431,22 @@ def test_exp34_run_writes_only_c_judges_and_leaves_exp33s_bits_alone(tmp_path, m
     assert len(list((m32.run_dir(exp=E34) / "bits").glob("*-C.json"))) == 40
     with pytest.raises(AssertionError):
         m32.run(exp=E34, digest_="stale", judge_digest_=m32.judge_digest())
+
+
+def test_exp34_pairs_skip_every_slot_exp33s_review_showed_and_refuse_without_exp33s_arm_b(tmp_path, monkeypatch):
+    """The user has read the arm A bits of Exp 33's 20 pairs: pairing one again would let a familiar bit mark its side."""
+    monkeypatch.setattr(generate, "warm_up", lambda *a, **k: None)
+    monkeypatch.setattr(generate, "placement", lambda *a, **k: (1.0, 8192, []))
+    s = m32.slots()
+    d33 = m32.run_dir(root=tmp_path)
+    first = m32.generate_bits(FakeOllama().client(), s, d33)
+    shown = {p["slot"] for p in m32.pairs(first)}
+    (d33 / "review.json").write_text(json.dumps({"answers": {"s4b7": {"funnier": "t", "character": "t"}}}))  # answered, so seen
+    _, d34, recs = exp34_write(tmp_path, s, d33, shows=5, bits=8)
+    p34 = {p["slot"] for p in m32.pairs(recs, exp=E34)}
+    assert not p34 & (shown | {"s4b7"}) and len(p34) == 40 - len(shown | {"s4b7"})
+    assert {r["slot"] for r in recs if r["arm"] == "A" and r[m32.SHOWN]} == shown | {"s4b7"}
+    for path in (d33 / "bits").glob("*-B.json"):
+        path.unlink()
+    with pytest.raises(SystemExit, match="arm B"):
+        m32.gather(d34, s, E34, d33)

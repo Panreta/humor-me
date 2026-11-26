@@ -23,7 +23,8 @@ character topic and for everyday-topic bits.
 Metric 2 (you, blind, gates funniness): 20 pairs, one per bit slot (seeded), A against B, sides randomized. For each pair
 you answer (a) which is funnier and (b) which sounds more like a specific character. Bar for (a): B wins at least 10 of
 20; a tie is not a win. (b) is reported with a Wilson 95% interval and is not gated. 20 pairs only detect large
-differences: a true 60% preference for B is missed more often than not.
+differences: with no real difference B still reaches 10 wins about 59% of the time (ties ignored), so the bar reads as
+"not clearly worse", not "funnier".
 
 Adopt (flip the MATERIAL default to on, same PR) only when both bars pass. No `audience.yaml` value is involved: no sim
 room reward is read.
@@ -34,8 +35,10 @@ Exp 34 (D-118): arm C is the topic alone (no robot facts, its own paragraph, gen
 same material seeds as Exp 33, so C's topics are B's topics. Arm A is NOT rewritten: Exp 33's arm A bits are read from
 Exp 33's run folder, and the run refuses to start when that folder, its slots or its modes do not match. Same two metrics
 and bars with C in B's place: C's hardware share at most 15% and the paired bootstrap 95% CI of (C - A) entirely below 0;
-and C wins at least 10 of 20 new blind pairs (pair seed 34, not 32) on funnier. This is a second attempt at the bars Exp 33
-missed: under no real difference each attempt passes the funniness bar about 59% of the time, so a pass is weak evidence.
+and C wins at least 10 of 20 new blind pairs (pair seed 34, not 32) on funnier. The pairs come only from the 20 slots Exp 33's
+review did not show: the user has read those slots' arm A bits, so a familiar bit would mark its side as A. This is a second
+attempt at the bars Exp 33 missed: under no real difference each attempt passes the funniness bar about 59% of the time, so a
+pass is weak evidence.
 """
 import argparse
 import dataclasses
@@ -74,6 +77,7 @@ MAX_SHARE_B = 0.15
 N_PAIRS = 20
 PAIR_SEED = 32
 FUNNY_WINS = 10
+SHOWN = "shown_in_exp33_review"  # on a reused arm A bit: the user read it in Exp 33's review, so Exp 34 does not pair it
 
 
 @dataclasses.dataclass(frozen=True)
@@ -226,7 +230,18 @@ def reused_a(bits: list[dict], source: pathlib.Path) -> dict[str, dict]:
             raise SystemExit(f"Exp 34: the stored arm A bit for slot {s['id']} does not match the slot (slot, arm, mode or "
                              f"material-off): refusing to pair it")
         out[s["id"]] = r
-    return out
+    shown = exp33_shown(bits, source)
+    return {sid: {**r, SHOWN: sid in shown} for sid, r in out.items()}
+
+
+def exp33_shown(bits: list[dict], source: pathlib.Path) -> set[str]:
+    """The slots Exp 33's review showed the user: its seeded pairs, plus any slot answered. Refuses when Exp 33's arm B
+    bits are gone, since then nobody can tell which arm A bits the user has already read."""
+    records = gather(source, bits, EXP33)
+    if records is None:
+        raise SystemExit(f"Exp 34: Exp 33's arm B bits are incomplete in {source}, so the slots its review showed cannot be "
+                         f"recomputed: refusing to draw pairs that might show the user a bit already seen")
+    return {p["slot"] for p in pairs(records, exp=EXP33)} | set(read_answers(source))
 
 
 def generate_bits(client, bits: list[dict], directory: pathlib.Path, seed: str = SEED, http=None, exp: Exp = EXP33,
@@ -391,9 +406,11 @@ def review_path(directory: pathlib.Path) -> pathlib.Path:
 
 
 def pairs(records: list[dict], n: int = N_PAIRS, seed: int | None = None, exp: Exp = EXP33) -> list[dict]:
-    """n slots where both arms delivered a bit, a fixed seeded draw; `left` says which arm is shown on the left."""
+    """n slots where both arms delivered a bit, a fixed seeded draw; `left` says which arm is shown on the left. A slot
+    whose arm A bit Exp 33's review already showed is left out (`SHOWN`), so no side is recognizable as the old one."""
     rng = random.Random(exp.pair_seed if seed is None else seed)
-    ok = sorted(sid for sid, arms in by_slot(records).items() if all(a in arms and arms[a]["premise"] is not None for a in exp.arms))
+    ok = sorted(sid for sid, arms in by_slot(records).items()
+                if all(a in arms and arms[a]["premise"] is not None for a in exp.arms) and not arms["A"].get(SHOWN))
     picked = rng.sample(ok, min(n, len(ok)))
     return [{"slot": sid, "left": rng.choice(exp.arms)} for sid in picked]
 
