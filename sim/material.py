@@ -1,10 +1,11 @@
 """Exp 33 (D-117): does giving each bit a topic and two character facts move the writer off the robot's own hardware
-without making it less funny?
+without making it less funny? Exp 34 (D-118) asks it again with the topic alone (arm C), against Exp 33's arm A.
 
 Usage (Ollama up with `OLLAMA_NUM_PARALLEL=3` and `OLLAMA_CONTEXT_LENGTH=8192`, `ANTHROPIC_API_KEY` set for the judge):
     python -m sim.material run [--env-file backend/.env]   # write both arms, label every bit -> reports/metrics/material.json
     python -m sim.material review                          # you compare 20 pairs, sides hidden and randomized
     python -m sim.material score [--record]                # recompute the numbers with your answers (no model calls)
+Exp 34: the same three commands with `--exp 34` (its record is reports/metrics/material_topic.json).
 
 Design: 5 consecutive simulated shows of 8 bits, 40 bits per arm. The mode and the room of every bit come from one fixed
 seed and are the same for both arms (paired). Arm A is the live prompt with material off. Arm B is the same prompt with
@@ -28,8 +29,16 @@ Adopt (flip the MATERIAL default to on, same PR) only when both bars pass. No `a
 room reward is read.
 
 Code changes elsewhere (the generator, the material files) change the digest: rerun with `--rerun` after one.
+
+Exp 34 (D-118): arm C is the topic alone (no robot facts, its own paragraph, generator id +mat-topic-v1), same 40 slots and
+same material seeds as Exp 33, so C's topics are B's topics. Arm A is NOT rewritten: Exp 33's arm A bits are read from
+Exp 33's run folder, and the run refuses to start when that folder, its slots or its modes do not match. Same two metrics
+and bars with C in B's place: C's hardware share at most 15% and the paired bootstrap 95% CI of (C - A) entirely below 0;
+and C wins at least 10 of 20 new blind pairs (pair seed 34, not 32) on funnier. This is a second attempt at the bars Exp 33
+missed: under no real difference each attempt passes the funniness bar about 59% of the time, so a pass is weak evidence.
 """
 import argparse
+import dataclasses
 import hashlib
 import json
 import math
@@ -65,6 +74,29 @@ MAX_SHARE_B = 0.15
 N_PAIRS = 20
 PAIR_SEED = 32
 FUNNY_WINS = 10
+
+
+@dataclasses.dataclass(frozen=True)
+class Exp:
+    """What differs between Exp 33 and Exp 34. `arm` is the material arm; `seed` feeds the digest and the record;
+    `slot_seed` orders the slots and the topics; `reuse_a` reads arm A from Exp 33's run folder instead of writing it."""
+    name: str  # the record, reports/metrics/<name>.json
+    seed: str
+    slot_seed: str
+    arm: str
+    variant: str
+    boot_seed: int
+    pair_seed: int
+    reuse_a: bool = False
+
+    @property
+    def arms(self) -> tuple[str, str]:
+        return ("A", self.arm)
+
+
+EXP33 = Exp(NAME, SEED, SEED, "B", app_material.FULL, BOOT_SEED, PAIR_SEED)
+EXP34 = Exp("material_topic", "exp34", SEED, "C", app_material.TOPIC, 34, 34, reuse_a=True)
+EXPS = {"33": EXP33, "34": EXP34}
 
 HARDWARE_JUDGE = """You label stand-up material. You get the premise and five lines of one bit, written for a robot comedian.
 
@@ -104,7 +136,7 @@ def file_hash(name: str) -> str:
     return hashlib.sha256((app_material.DATA / f"{name}.yaml").read_bytes()).hexdigest()[:12]
 
 
-def digest(n_shows: int = N_SHOWS, bits: int = BITS_PER_SHOW, seed: str = SEED) -> str:
+def digest(n_shows: int = N_SHOWS, bits: int = BITS_PER_SHOW, seed: str = SEED, exp: Exp = EXP33) -> str:
     """What the written bits are made of: the live prompt, the material paragraph, both material files, the draw rule, the
     slots, the writer and its settings. A change starts a new run folder. The judge has its own digest."""
     parts = [generate.PROMPT_ID, generate.PROMPTS[generate.PROMPT_ID], generate.MATERIAL_PARAGRAPH, generate.MATERIAL_SUFFIX,
@@ -114,6 +146,8 @@ def digest(n_shows: int = N_SHOWS, bits: int = BITS_PER_SHOW, seed: str = SEED) 
              tc.writer_model(), json.dumps(llm.OLLAMA_NO_THINK, sort_keys=True), file_hash(app_material.SHEET_ID),
              file_hash(app_material.LIST_ID), str((app_material.FACTS_PER_BIT, app_material.CHARACTER_EVERY)),
              json.dumps(slots(n_shows, bits, seed), sort_keys=True), seed, str((n_shows, bits))]
+    if exp != EXP33:  # Exp 33's folder name stays what it was; Exp 34 adds what is its own
+        parts += [exp.name, exp.seed, exp.arm, exp.variant, generate.TOPIC_PARAGRAPH, generate.TOPIC_SUFFIX]
     return hashlib.sha256("\x00".join(parts).encode()).hexdigest()[:8]
 
 
@@ -123,12 +157,15 @@ def judge_digest() -> str:
                                        *map(str, tc.judge_model())]).encode()).hexdigest()[:8]
 
 
-def run_dir(n_shows: int = N_SHOWS, bits: int = BITS_PER_SHOW, seed: str = SEED, root: pathlib.Path | None = None) -> pathlib.Path:
-    return (root or DATA) / f"run-{digest(n_shows, bits, seed)}"
+def run_dir(n_shows: int = N_SHOWS, bits: int = BITS_PER_SHOW, seed: str = SEED, root: pathlib.Path | None = None,
+            exp: Exp = EXP33) -> pathlib.Path:
+    return (root or DATA) / f"run-{digest(n_shows, bits, seed, exp)}"
 
 
-def params(n_shows: int = N_SHOWS, bits: int = BITS_PER_SHOW, seed: str = SEED) -> dict:
-    return {"n_shows": n_shows, "bits_per_show": bits, "seed": seed, "digest_": digest(n_shows, bits, seed),
+def params(n_shows: int = N_SHOWS, bits: int = BITS_PER_SHOW, seed: str | None = None, exp: Exp = EXP33) -> dict:
+    """`seed` is the slot seed (what orders slots and topics); the record's own seed string is `exp.seed`."""
+    slot_seed = exp.slot_seed if seed is None else seed
+    return {"n_shows": n_shows, "bits_per_show": bits, "seed": exp.seed, "digest_": digest(n_shows, bits, slot_seed, exp),
             "judge_digest_": judge_digest()}
 
 
@@ -169,27 +206,51 @@ def restore(gen, rec: dict, slot: dict) -> None:
         gen.material.played(slot["bit"], {"topic": rec["topic"], "facts": rec["facts"]})
 
 
-def new_generator(client, arm: str, show: int, history: dict[str, float], seed: str):
-    mat = app_material.ShowMaterial(material_seed(show, seed), history) if arm == "B" else None
+def new_generator(client, arm: str, show: int, history: dict[str, float], seed: str, exp: Exp = EXP33):
+    mat = app_material.ShowMaterial(material_seed(show, seed), history, variant=exp.variant) if arm == exp.arm else None
     return generate.ThreadGenerator(client, prompt_id=generate.PROMPT_ID, material=mat)
 
 
-def generate_bits(client, bits: list[dict], directory: pathlib.Path, seed: str = SEED, http=None) -> list[dict]:
-    """Writes every missing (slot, arm) bit, resumable. Arm B's history is the topics its earlier shows in this run played
-    (an empty history at show 0). The arm order alternates by slot so a slow stretch of the machine does not fall on one
-    arm. Calls run one bit at a time."""
-    todo = [(s, a) for s in bits for a in ARMS if tc._read(bit_path(directory, s["id"], a)) is None]
+def reused_a(bits: list[dict], source: pathlib.Path) -> dict[str, dict]:
+    """Exp 34's arm A: Exp 33's stored bits, slot id -> record. Refuses (SystemExit) when the folder is missing, a bit is
+    missing, or a bit is not that slot's material-off bit, because a silent mismatch would pair C with the wrong A."""
+    if not source.is_dir():
+        raise SystemExit(f"Exp 34 reads Exp 33's arm A bits from {source}, which does not exist: Exp 33's prompt, material files or "
+                         f"slots changed since it ran (its folder name is the digest), or it never ran here. Not rewriting arm A.")
+    out = {}
+    for s in bits:
+        r = tc._read(bit_path(source, s["id"], "A"))
+        if r is None:
+            raise SystemExit(f"Exp 34: Exp 33's arm A bit for slot {s['id']} is missing from {source}")
+        if r.get("slot") != s["id"] or r.get("arm") != "A" or r.get("mode") != s["mode"] or r.get("topic") is not None:
+            raise SystemExit(f"Exp 34: the stored arm A bit for slot {s['id']} does not match the slot (slot, arm, mode or "
+                             f"material-off): refusing to pair it")
+        out[s["id"]] = r
+    return out
+
+
+def generate_bits(client, bits: list[dict], directory: pathlib.Path, seed: str = SEED, http=None, exp: Exp = EXP33,
+                  a_source: pathlib.Path | None = None) -> list[dict]:
+    """Writes every missing (slot, arm) bit, resumable. The material arm's history is the topics its earlier shows in this
+    run played (an empty history at show 0). The arm order alternates by slot so a slow stretch of the machine does not fall
+    on one arm. Calls run one bit at a time. With `exp.reuse_a`, arm A is read from `a_source` and never written."""
+    arms = exp.arms
+    fixed_a = reused_a(bits, a_source) if exp.reuse_a else {}
+    todo = [(s, a) for s in bits for a in arms if (s["id"] not in fixed_a or a != "A") and tc._read(bit_path(directory, s["id"], a)) is None]
     if todo:
         probe = generate.ThreadGenerator(client)
         generate.warm_up(probe, http) if http else generate.warm_up(probe)
     out: dict[tuple[str, str], dict] = {}
-    history = {a: {} for a in ARMS}  # arm -> topic -> show it was last used in
+    history = {a: {} for a in arms}  # arm -> topic -> show it was last used in
     gens: dict[tuple[int, str], object] = {}
     for i, s in enumerate(bits):
-        for arm in (ARMS if i % 2 == 0 else reversed(ARMS)):
+        for arm in (arms if i % 2 == 0 else reversed(arms)):
+            if arm == "A" and s["id"] in fixed_a:
+                out[(s["id"], arm)] = fixed_a[s["id"]]
+                continue
             key = (s["show"], arm)
             if key not in gens:
-                gens[key] = new_generator(client, arm, s["show"], dict(history[arm]), seed)
+                gens[key] = new_generator(client, arm, s["show"], dict(history[arm]), seed, exp)
             gen = gens[key]
             path = bit_path(directory, s["id"], arm)
             rec = tc._read(path)
@@ -201,14 +262,14 @@ def generate_bits(client, bits: list[dict], directory: pathlib.Path, seed: str =
             out[(s["id"], arm)] = rec
         last_of_show = i + 1 == len(bits) or bits[i + 1]["show"] != s["show"]
         if last_of_show:
-            for arm in ARMS:
+            for arm in arms:
                 for r in (out[(b["id"], arm)] for b in bits if b["show"] == s["show"]):
                     if r["topic"] is not None:
                         history[arm][normalise(r["topic"])] = float(s["show"])
     if todo:
         share, context, others = generate.placement(client, http) if http else generate.placement(client)
         tc._write(tc.placement_path(directory), {"gpu_share": share, "context_length": context, "others_loaded": others})
-    return [out[(s["id"], a)] for s in bits for a in ARMS]
+    return [out[(s["id"], a)] for s in bits for a in arms]
 
 
 # --- labeling ----------------------------------------------------------------------------------------------------
@@ -236,11 +297,20 @@ def verdict_path(directory: pathlib.Path, h: str) -> pathlib.Path:
     return directory / "judge_cache" / judge_digest() / f"{h}.json"
 
 
-def label(client, rec: dict, directory: pathlib.Path) -> bool | None:
-    """The judge's verdict for a delivered bit (None when it could not answer, an outage is not cached), cached by text."""
+def cached_verdict(dirs: tuple[pathlib.Path, ...], rec: dict) -> bool | None:
+    for d in dirs:
+        if (cached := tc._read(verdict_path(d, bit_hash(rec)))) is not None:
+            return cached["hardware"]
+    return None
+
+
+def label(client, rec: dict, directory: pathlib.Path, also: tuple[pathlib.Path, ...] = ()) -> bool | None:
+    """The judge's verdict for a delivered bit (None when it could not answer, an outage is not cached), cached by text.
+    `also` are other run folders whose cached verdict for the same text counts (Exp 34 keeps Exp 33's labels for arm A)."""
     path = verdict_path(directory, bit_hash(rec))
-    if (cached := tc._read(path)) is not None:
-        return cached["hardware"]
+    for d in (directory, *also):
+        if (cached := tc._read(verdict_path(d, bit_hash(rec)))) is not None:
+            return cached["hardware"]
     try:
         verdict = parse_verdict(client.chat(HARDWARE_JUDGE, judge_user(rec["premise"], rec["lines"]), json_reply=JUDGE_SCHEMA,
                                             validate=parse_verdict))
@@ -250,11 +320,11 @@ def label(client, rec: dict, directory: pathlib.Path) -> bool | None:
     return verdict
 
 
-def label_all(client, records: list[dict], directory: pathlib.Path) -> dict[str, bool | None]:
+def label_all(client, records: list[dict], directory: pathlib.Path, also: tuple[pathlib.Path, ...] = ()) -> dict[str, bool | None]:
     out: dict[str, bool | None] = {}
     for r in records:
         if r["premise"] is not None and (h := bit_hash(r)) not in out:
-            out[h] = label(client, r, directory)
+            out[h] = label(client, r, directory, also)
     return out
 
 
@@ -277,11 +347,11 @@ def share(flags: list[bool | None]) -> dict:
     return {"n": len(got), "hardware": sum(got), "share": sum(got) / len(got) if got else None}
 
 
-def paired(records: list[dict], verdicts: dict) -> tuple[list[str], np.ndarray]:
-    """B minus A hardware flag (-1, 0 or 1) for every slot where both arms delivered a bit the judge answered."""
+def paired(records: list[dict], verdicts: dict, exp: Exp = EXP33) -> tuple[list[str], np.ndarray]:
+    """Material arm minus A hardware flag (-1, 0 or 1) for every slot where both arms delivered a bit the judge answered."""
     ids, diffs = [], []
     for sid, arms in sorted(by_slot(records).items()):
-        a, b = (hardware_of(arms.get(x), verdicts) if x in arms else None for x in ARMS)
+        a, b = (hardware_of(arms.get(x), verdicts) if x in arms else None for x in exp.arms)
         if a is not None and b is not None:
             ids.append(sid)
             diffs.append(int(b) - int(a))
@@ -289,7 +359,8 @@ def paired(records: list[dict], verdicts: dict) -> tuple[list[str], np.ndarray]:
 
 
 def bar1(share_b: float | None, diffs: np.ndarray, n_boot: int = N_BOOT, seed: int = BOOT_SEED) -> dict:
-    """B's share at most MAX_SHARE_B AND the paired bootstrap 95% CI of (B - A) entirely below 0 (resampling slots)."""
+    """The material arm's share at most MAX_SHARE_B AND the paired bootstrap 95% CI of (it - A) entirely below 0
+    (resampling slots)."""
     if len(diffs) < 2 or share_b is None:
         return {"n_paired": int(len(diffs)), "mean_diff": None, "ci95": None, "share_ok": False, "ci_below_zero": False,
                 "passes": False}
@@ -299,18 +370,18 @@ def bar1(share_b: float | None, diffs: np.ndarray, n_boot: int = N_BOOT, seed: i
             "passes": ok and below}
 
 
-def metric1(records: list[dict], verdicts: dict, n_boot: int = N_BOOT) -> dict:
-    arm = {a: [r for r in records if r["arm"] == a] for a in ARMS}
-    shares = {a: share([hardware_of(r, verdicts) for r in arm[a]]) for a in ARMS}
-    ids, diffs = paired(records, verdicts)
+def metric1(records: list[dict], verdicts: dict, n_boot: int = N_BOOT, exp: Exp = EXP33) -> dict:
+    arm = {a: [r for r in records if r["arm"] == a] for a in exp.arms}
+    shares = {a: share([hardware_of(r, verdicts) for r in arm[a]]) for a in exp.arms}
+    ids, diffs = paired(records, verdicts, exp)
     split = {}
-    for a in ARMS:  # no bar: the character-topic bits against the everyday ones, on B's slots in both arms
+    for a in exp.arms:  # no bar: the character-topic bits against the everyday ones, on the material arm's slots in both arms
         for kind in ("character", "everyday"):
-            slots_of = {r["slot"] for r in arm["B"] if r["from"] == kind}
+            slots_of = {r["slot"] for r in arm[exp.arm] if r["from"] == kind}
             split[f"{a}_{kind}"] = share([hardware_of(r, verdicts) for r in arm[a] if r["slot"] in slots_of])
-    regex = {a: share([regex_hardware(r) for r in arm[a] if r["premise"] is not None]) for a in ARMS}
+    regex = {a: share([regex_hardware(r) for r in arm[a] if r["premise"] is not None]) for a in exp.arms}
     return {"share": shares, "regex_share": regex, "by_topic_kind": split, "paired_slots": ids,
-            "bar": bar1(shares["B"]["share"], diffs, n_boot)}
+            "bar": bar1(shares[exp.arm]["share"], diffs, n_boot, exp.boot_seed)}
 
 
 # --- metric 2: the blind pairs ----------------------------------------------------------------------------------
@@ -319,12 +390,12 @@ def review_path(directory: pathlib.Path) -> pathlib.Path:
     return directory / "review.json"
 
 
-def pairs(records: list[dict], n: int = N_PAIRS, seed: int = PAIR_SEED) -> list[dict]:
+def pairs(records: list[dict], n: int = N_PAIRS, seed: int | None = None, exp: Exp = EXP33) -> list[dict]:
     """n slots where both arms delivered a bit, a fixed seeded draw; `left` says which arm is shown on the left."""
-    rng = random.Random(seed)
-    ok = sorted(sid for sid, arms in by_slot(records).items() if all(a in arms and arms[a]["premise"] is not None for a in ARMS))
+    rng = random.Random(exp.pair_seed if seed is None else seed)
+    ok = sorted(sid for sid, arms in by_slot(records).items() if all(a in arms and arms[a]["premise"] is not None for a in exp.arms))
     picked = rng.sample(ok, min(n, len(ok)))
-    return [{"slot": sid, "left": rng.choice(ARMS)} for sid in picked]
+    return [{"slot": sid, "left": rng.choice(exp.arms)} for sid in picked]
 
 
 def read_answers(directory: pathlib.Path) -> dict[str, dict]:
@@ -338,15 +409,15 @@ def ask(read, prompt: str) -> str:
             return a
 
 
-def review(directory: pathlib.Path, records: list[dict], read=input, out=print) -> int:
+def review(directory: pathlib.Path, records: list[dict], read=input, out=print, exp: Exp = EXP33) -> int:
     """Asks about each pair not answered yet, saving after every answer. You see the lines and the premise only: not the arm
     or the topic. l = left, r = right, t = tie (a tie is not a win for B), q = stop for now."""
-    drawn, slot = pairs(records), by_slot(records)
+    drawn, slot = pairs(records, exp=exp), by_slot(records)
     answers = read_answers(directory)
     for n, p in enumerate(drawn, 1):
         if p["slot"] in answers:
             continue
-        right = next(a for a in ARMS if a != p["left"])
+        right = next(a for a in exp.arms if a != p["left"])
         out(f"\nPair {n} of {len(drawn)}")
         for side, arm in (("LEFT", p["left"]), ("RIGHT", right)):
             r = slot[p["slot"]][arm]
@@ -371,8 +442,9 @@ def wilson(k: int, n: int, z: float = 1.96) -> list[float] | None:
     return [max(0.0, centre - half), min(1.0, centre + half)]
 
 
-def metric2(records: list[dict], answers: dict[str, dict]) -> dict:
-    drawn = pairs(records)
+def metric2(records: list[dict], answers: dict[str, dict], exp: Exp = EXP33) -> dict:
+    drawn = pairs(records, exp=exp)
+    m = exp.arm
 
     def b_wins(field: str) -> tuple[int, int, int]:
         won = lost = tied = 0
@@ -382,7 +454,7 @@ def metric2(records: list[dict], answers: dict[str, dict]) -> dict:
             side = a[field]
             if side == "t":
                 tied += 1
-            elif (side == "l") == (p["left"] == "B"):
+            elif (side == "l") == (p["left"] == m):
                 won += 1
             else:
                 lost += 1
@@ -391,8 +463,8 @@ def metric2(records: list[dict], answers: dict[str, dict]) -> dict:
     cw, cl, ct = b_wins("character")
     asked, answered = len(drawn), fw + fl + ft
     return {"asked": asked, "answered": answered, "complete": asked > 0 and answered == asked,
-            "funnier": {"B_wins": fw, "A_wins": fl, "ties": ft, "bar": FUNNY_WINS, "passes": fw >= FUNNY_WINS},
-            "character": {"B_wins": cw, "A_wins": cl, "ties": ct, "B_share": cw / (cw + cl + ct) if cw + cl + ct else None,
+            "funnier": {f"{m}_wins": fw, "A_wins": fl, "ties": ft, "bar": FUNNY_WINS, "passes": fw >= FUNNY_WINS},
+            "character": {f"{m}_wins": cw, "A_wins": cl, "ties": ct, f"{m}_share": cw / (cw + cl + ct) if cw + cl + ct else None,
                           "wilson95": wilson(cw, cw + cl + ct)},
             "short": asked < N_PAIRS}
 
@@ -407,18 +479,19 @@ def decide(m1: dict, m2: dict) -> str:
     return "pending_review" if not m2["complete"] else "keep_off"
 
 
-def summarize(records: list[dict], verdicts: dict, answers: dict, n_boot: int = N_BOOT, on_gpu: bool | None = None) -> dict:
-    m1, m2 = metric1(records, verdicts, n_boot), metric2(records, answers)
+def summarize(records: list[dict], verdicts: dict, answers: dict, n_boot: int = N_BOOT, on_gpu: bool | None = None,
+              exp: Exp = EXP33) -> dict:
+    m1, m2 = metric1(records, verdicts, n_boot, exp), metric2(records, answers, exp)
     arms = {}
-    for a in ARMS:
+    for a in exp.arms:
         mine = [r for r in records if r["arm"] == a]
         walls = [r["wall_s"] for r in mine]
         arms[a] = {"bits": len(mine), "bits_delivered": sum(r["premise"] is not None for r in mine),
                    "bits_with_no_thread": sum(r["premise"] is None for r in mine), "threads_lost": sum(len(r["lost"]) for r in mine),
                    "bad_replies": sum(r["bad_replies"] for r in mine), "bit_p50_s": cg.percentile(walls, 50),
                    "bit_p95_s": cg.percentile(walls, 95)}
-    mats = [r for r in records if r["arm"] == "B" and r["topic"] is not None]
-    arms["B"].update(recycled_topics=sum(bool(r["recycled"]) for r in mats), character_topic_bits=sum(r["from"] == "character" for r in mats),
+    mats = [r for r in records if r["arm"] == exp.arm and r["topic"] is not None]
+    arms[exp.arm].update(recycled_topics=sum(bool(r["recycled"]) for r in mats), character_topic_bits=sum(r["from"] == "character" for r in mats),
                      distinct_topics=len({r["topic"] for r in mats}))
     return {"n_slots": len(by_slot(records)), "arms": arms, "metric1": m1, "metric2": m2, "writer_on_gpu_after_run": on_gpu,
             "judge_failures": sum(v is None for v in verdicts.values()), "verdict": decide(m1, m2)}
@@ -426,58 +499,75 @@ def summarize(records: list[dict], verdicts: dict, answers: dict, n_boot: int = 
 
 # --- running -----------------------------------------------------------------------------------------------------
 
-def gather(directory: pathlib.Path, bits: list[dict]) -> list[dict] | None:
-    recs = [tc._read(bit_path(directory, s["id"], a)) for s in bits for a in ARMS]
+def gather(directory: pathlib.Path, bits: list[dict], exp: Exp = EXP33, a_source: pathlib.Path | None = None) -> list[dict] | None:
+    """Every (slot, arm) bit in the run folder, None when one is missing. With `exp.reuse_a`, arm A comes from `a_source`
+    (checked: a mismatch refuses)."""
+    fixed_a = reused_a(bits, a_source) if exp.reuse_a else {}
+    recs = [fixed_a[s["id"]] if a == "A" and exp.reuse_a else tc._read(bit_path(directory, s["id"], a)) for s in bits for a in exp.arms]
     return None if any(r is None for r in recs) else recs
 
 
-def run(n_shows: int = N_SHOWS, bits_per_show: int = BITS_PER_SHOW, seed: str = SEED, digest_: str = "",
-        judge_digest_: str = "") -> dict:
-    assert digest_ == digest(n_shows, bits_per_show, seed), "the prompt, material files, timing or slots changed since this call was built"
+def a_dir(n_shows: int, bits_per_show: int, exp: Exp) -> pathlib.Path | None:
+    """Where this experiment's arm A bits are stored when they are Exp 33's: its run folder (named by its digest)."""
+    return run_dir(n_shows, bits_per_show, exp.slot_seed, exp=EXP33) if exp.reuse_a else None
+
+
+def run(n_shows: int = N_SHOWS, bits_per_show: int = BITS_PER_SHOW, seed: str | None = None, digest_: str = "",
+        judge_digest_: str = "", exp: Exp = EXP33) -> dict:
+    slot_seed = exp.slot_seed
+    assert digest_ == digest(n_shows, bits_per_show, slot_seed, exp), "the prompt, material files, timing or slots changed since this call was built"
     assert judge_digest_ == judge_digest(), "the judge's prompt or model changed since this call was built"
     client = generate.writer_client()
-    bits, directory = slots(n_shows, bits_per_show, seed), run_dir(n_shows, bits_per_show, seed)
-    if gather(directory, bits) is None and not getattr(client, "local", False):
-        raise SystemExit("Exp 33 writes with the local writer: set JOKE_WRITER_PROVIDER=ollama")
-    records = generate_bits(client, bits, directory, seed)
-    verdicts = label_all(tc.make_judge_client(), records, directory)
-    return summarize(records, verdicts, read_answers(directory), on_gpu=tc.writer_on_gpu(directory))
+    bits, directory = slots(n_shows, bits_per_show, slot_seed), run_dir(n_shows, bits_per_show, slot_seed, exp=exp)
+    source = a_dir(n_shows, bits_per_show, exp)
+    if gather(directory, bits, exp, source) is None and not getattr(client, "local", False):
+        raise SystemExit(f"Exp {EXP_NUMBER[exp.name]} writes with the local writer: set JOKE_WRITER_PROVIDER=ollama")
+    records = generate_bits(client, bits, directory, slot_seed, exp=exp, a_source=source)
+    verdicts = label_all(tc.make_judge_client(), records, directory, (source,) if source else ())
+    return summarize(records, verdicts, read_answers(directory), on_gpu=tc.writer_on_gpu(directory), exp=exp)
 
 
-def score(n_shows: int = N_SHOWS, bits_per_show: int = BITS_PER_SHOW, seed: str = SEED) -> dict:
+def score(n_shows: int = N_SHOWS, bits_per_show: int = BITS_PER_SHOW, exp: Exp = EXP33) -> dict:
     """The numbers again from the run folder with your answers, no model call. Raises when a bit is missing."""
-    bits, directory = slots(n_shows, bits_per_show, seed), run_dir(n_shows, bits_per_show, seed)
-    records = gather(directory, bits)
+    bits, directory = slots(n_shows, bits_per_show, exp.slot_seed), run_dir(n_shows, bits_per_show, exp.slot_seed, exp=exp)
+    source = a_dir(n_shows, bits_per_show, exp)
+    records = gather(directory, bits, exp, source)
     if records is None:
-        raise SystemExit("not all bits are written yet: run `python -m sim.material run` first")
-    verdicts = {bit_hash(r): (tc._read(verdict_path(directory, bit_hash(r))) or {}).get("hardware")
-                for r in records if r["premise"] is not None}
-    return summarize(records, verdicts, read_answers(directory), on_gpu=tc.writer_on_gpu(directory))
+        raise SystemExit(f"not all bits are written yet: run `python -m sim.material run{CLI_FLAG[exp.name]}` first")
+    dirs = (directory, *((source,) if source else ()))
+    verdicts = {bit_hash(r): cached_verdict(dirs, r) for r in records if r["premise"] is not None}
+    return summarize(records, verdicts, read_answers(directory), on_gpu=tc.writer_on_gpu(directory), exp=exp)
 
 
-def stored() -> dict | None:
-    return cache.load(NAME, params())
+def stored(exp: Exp = EXP33) -> dict | None:
+    return cache.load(exp.name, params(exp=exp))
+
+
+EXP_NUMBER = {EXP33.name: 33, EXP34.name: 34}
+CLI_FLAG = {EXP33.name: "", EXP34.name: " --exp 34"}
 
 
 def pct(x) -> str:
     return "n/a" if x is None else f"{x:.0%}"
 
 
-def table(res: dict) -> str:
+def table(res: dict, exp: Exp = EXP33) -> str:
     m1, m2 = res["metric1"], res["metric2"]
     b = m1["bar"]
     ci = "n/a" if b["ci95"] is None else f"{b['ci95'][0]:+.3f} to {b['ci95'][1]:+.3f}"
     f, c = m2["funnier"], m2["character"]
     w = c["wilson95"]
+    x = exp.arm
+    on = "material on" if exp.variant == app_material.FULL else "topic only"
     rows = ["| Check | Result | Bar |", "|---|---|---|",
-            f"| Hardware share, B (material on) | {pct(m1['share']['B']['share'])} of {m1['share']['B']['n']} bits | at most {MAX_SHARE_B:.0%} |",
+            f"| Hardware share, {x} ({on}) | {pct(m1['share'][x]['share'])} of {m1['share'][x]['n']} bits | at most {MAX_SHARE_B:.0%} |",
             f"| Hardware share, A (material off) | {pct(m1['share']['A']['share'])} of {m1['share']['A']['n']} bits | beside the bar |",
-            f"| Paired B - A over {b['n_paired']} slots | {cg.fmt(b['mean_diff'], '{:+.3f}')}, CI {ci} | CI entirely below 0 |",
-            f"| Word-list share, A / B (cross-check) | {pct(m1['regex_share']['A']['share'])} / {pct(m1['regex_share']['B']['share'])} | beside the bar |",
-            f"| Hardware share on character-topic / everyday bits (B) | {pct(m1['by_topic_kind']['B_character']['share'])} / "
-            f"{pct(m1['by_topic_kind']['B_everyday']['share'])} | beside the bar |",
-            f"| (a) Funnier: B wins | {f['B_wins']} of {m2['asked']} (A {f['A_wins']}, ties {f['ties']}; {m2['answered']} answered) | at least {FUNNY_WINS} |",
-            f"| (b) More like a specific character: B wins | {c['B_wins']} of {m2['asked']} (A {c['A_wins']}, ties {c['ties']}), Wilson 95% "
+            f"| Paired {x} - A over {b['n_paired']} slots | {cg.fmt(b['mean_diff'], '{:+.3f}')}, CI {ci} | CI entirely below 0 |",
+            f"| Word-list share, A / {x} (cross-check) | {pct(m1['regex_share']['A']['share'])} / {pct(m1['regex_share'][x]['share'])} | beside the bar |",
+            f"| Hardware share on character-topic / everyday bits ({x}) | {pct(m1['by_topic_kind'][x + '_character']['share'])} / "
+            f"{pct(m1['by_topic_kind'][x + '_everyday']['share'])} | beside the bar |",
+            f"| (a) Funnier: {x} wins | {f[x + '_wins']} of {m2['asked']} (A {f['A_wins']}, ties {f['ties']}; {m2['answered']} answered) | at least {FUNNY_WINS} |",
+            f"| (b) More like a specific character: {x} wins | {c[x + '_wins']} of {m2['asked']} (A {c['A_wins']}, ties {c['ties']}), Wilson 95% "
             f"{'n/a' if w is None else f'{w[0]:.0%} to {w[1]:.0%}'} | beside the bar |",
             f"| Verdict | {res['verdict']} | both bars |"]
     return "\n".join(rows)
@@ -486,28 +576,31 @@ def table(res: dict) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("command", choices=("run", "review", "score"))
+    ap.add_argument("--exp", choices=tuple(EXPS), default="33", help="33 (topic and two facts, the default) or 34 (topic only)")
     ap.add_argument("--rerun", action="store_true", help="run: recompute from the run folder even if a record exists")
-    ap.add_argument("--record", action="store_true", help="score: save the result as the Exp 33 record")
+    ap.add_argument("--record", action="store_true", help="score: save the result as the experiment's record")
     ap.add_argument("--env-file")
     a = ap.parse_args()
+    exp = EXPS[a.exp]
     if a.env_file:
         from dotenv import load_dotenv
         load_dotenv(a.env_file, override=True)
     os.environ.setdefault("JOKE_WRITER_PROVIDER", "ollama")
     if a.command == "run":
-        res = cache.run_or_load(NAME, run, rerun=a.rerun, **params())
+        res = cache.run_or_load(exp.name, lambda **p: run(exp=exp, **p), rerun=a.rerun, **params(exp=exp))
     elif a.command == "review":
-        records = gather(run_dir(), slots())
+        directory = run_dir(exp=exp)
+        records = gather(directory, slots(seed=exp.slot_seed), exp, a_dir(N_SHOWS, BITS_PER_SHOW, exp))
         if records is None:
-            raise SystemExit("run `python -m sim.material run` first")
-        done = review(run_dir(), records)
-        print(f"{done} of {len(pairs(records))} pairs answered; now `score --record`.")
+            raise SystemExit(f"run `python -m sim.material run{CLI_FLAG[exp.name]}` first")
+        done = review(directory, records, exp=exp)
+        print(f"{done} of {len(pairs(records, exp=exp))} pairs answered; now `score{CLI_FLAG[exp.name]} --record`.")
         return
     else:
-        res = score()
+        res = score(exp=exp)
         if a.record:
-            cache.save(NAME, params(), res)
-    print(table(res), flush=True)
+            cache.save(exp.name, params(exp=exp), res)
+    print(table(res, exp), flush=True)
 
 
 if __name__ == "__main__":

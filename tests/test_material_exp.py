@@ -274,3 +274,160 @@ def test_summarize_and_table_report_both_arms_and_score_reads_the_run_folder(tmp
     scored = m32.score()
     assert scored["metric1"]["share"] == res["metric1"]["share"]
     np.testing.assert_array_equal(m32.paired(recs, verdicts)[1], -np.ones(6))
+
+
+# --- Exp 34 (D-118): topics only, arm A reused from Exp 33 ---
+
+E33, E34 = m32.EXP33, m32.EXP34
+
+
+def exp33_folder(tmp_path, shows=2, bits=3):
+    """Exp 33 as it ran: both arms written under tmp_path/<its digest>."""
+    s = m32.slots(shows, bits)
+    d33 = m32.run_dir(shows, bits, root=tmp_path)
+    recs = m32.generate_bits(FakeOllama().client(), s, d33, http=ps())
+    return s, d33, recs
+
+
+def exp34_write(tmp_path, s, d33, shows=2, bits=3):
+    fake = FakeOllama()
+    d34 = m32.run_dir(shows, bits, root=tmp_path, exp=E34)
+    recs = m32.generate_bits(fake.client(), s, d34, exp=E34, a_source=d33, http=ps())
+    return fake, d34, recs
+
+
+def test_exp34_is_the_same_slots_and_topic_seeds_with_its_own_record_pair_seed_and_folder():
+    assert E34.slot_seed == E33.slot_seed and E34.seed != E33.seed and E34.pair_seed != E33.pair_seed
+    assert E34.name != E33.name and E34.arms == ("A", "C") and E34.variant == "topic" and E34.reuse_a and not E33.reuse_a
+    assert m32.digest(exp=E34) != m32.digest() and m32.run_dir(exp=E34) != m32.run_dir()
+    assert m32.params(exp=E34)["seed"] == "exp34" and m32.params()["seed"] == "exp32"
+    assert m32.params(exp=E34)["digest_"] == m32.digest(exp=E34)
+    assert m32.a_dir(5, 8, E34) == m32.run_dir(5, 8, exp=E33) and m32.a_dir(5, 8, E33) is None
+
+
+def test_exp34_never_rewrites_arm_a_and_arm_c_gets_exp33s_topics_without_facts(tmp_path):
+    s, d33, first = exp33_folder(tmp_path)
+    a33 = [r for r in first if r["arm"] == "A"]
+    b33 = [r for r in first if r["arm"] == "B"]
+    fake, d34, recs = exp34_write(tmp_path, s, d33)
+    assert [r for r in recs if r["arm"] == "A"] == a33  # the stored bits themselves
+    assert not list((d34 / "bits").glob("*-A.json")) and len(list((d34 / "bits").glob("*-C.json"))) == 6
+    c = [r for r in recs if r["arm"] == "C"]
+    assert [r["topic"] for r in c] == [r["topic"] for r in b33] and [r["from"] for r in c] == [r["from"] for r in b33]
+    assert all(r["facts"] == [] for r in c)
+    asks = [(body["messages"][0]["content"], user) for body, user in fake.seen[1:]]  # the first call is the warm-up probe's
+    assert len(asks) == 6 * 3  # only C was written: 6 bits, 3 calls each
+    assert all(generate.TOPIC_PARAGRAPH in sys_ and generate.MATERIAL_PARAGRAPH not in sys_ for sys_, _ in asks)
+    assert all(set(user) == {"venue", "energy", "premises_already_told", "topic"} for _, user in asks)
+
+
+def test_exp34_refuses_when_the_stored_arm_a_is_missing_or_does_not_match_the_slots(tmp_path):
+    s, d33, _ = exp33_folder(tmp_path)
+    with pytest.raises(SystemExit, match="does not exist"):
+        exp34_write(tmp_path, s, tmp_path / "run-none")
+    path = d33 / "bits" / "s0b1-A.json"
+    good = path.read_text()
+    path.write_text(json.dumps({**json.loads(good), "mode": "not-" + json.loads(good)["mode"]}))
+    with pytest.raises(SystemExit, match="s0b1"):
+        exp34_write(tmp_path, s, d33)
+    path.write_text(json.dumps({**json.loads(good), "topic": "a topic", "from": "everyday"}))  # a material-on bit as A
+    with pytest.raises(SystemExit, match="material-off"):
+        exp34_write(tmp_path, s, d33)
+    path.write_text(json.dumps({**json.loads(good), "slot": "s1b0"}))
+    with pytest.raises(SystemExit, match="s0b1"):
+        exp34_write(tmp_path, s, d33)
+    path.write_text(good)
+    path.with_name("s1b2-A.json").unlink()
+    with pytest.raises(SystemExit, match="missing"):
+        exp34_write(tmp_path, s, d33)
+    assert not (m32.run_dir(2, 3, root=tmp_path, exp=E34) / "bits").exists()  # nothing written before a refusal
+
+
+def test_exp34_labels_reuse_exp33s_verdicts_for_arm_a_and_judge_only_arm_c(tmp_path):
+    s, d33, first = exp33_folder(tmp_path)
+    v33 = m32.label_all(FakeJudge(), first, d33)
+    _, d34, recs = exp34_write(tmp_path, s, d33)
+    j34 = FakeJudge()
+    v34 = m32.label_all(j34, recs, d34, (d33,))
+    a_hashes = {m32.bit_hash(r) for r in first}
+    new = {m32.bit_hash(r) for r in recs if r["arm"] == "C"} - a_hashes
+    assert len(j34.calls) == len(new)  # arm A's bits cost no call
+    assert all(v34[m32.bit_hash(r)] == v33[m32.bit_hash(r)] for r in recs if r["arm"] == "A")
+    assert all("topic" not in user.lower() for _, user, _ in j34.calls)  # the blind judge sees premise and lines only
+
+
+def test_exp34_summary_and_table_name_arm_c_and_score_reads_a_from_exp33s_folder(tmp_path, monkeypatch):
+    s, d33, _ = exp33_folder(tmp_path)
+    _, d34, recs = exp34_write(tmp_path, s, d33)
+    v = m32.label_all(FakeJudge(), recs, d34, (d33,))
+    res = m32.summarize(recs, v, {}, n_boot=500, exp=E34)
+    assert set(res["arms"]) == {"A", "C"} and res["arms"]["C"]["distinct_topics"] == 6
+    assert set(res["metric1"]["share"]) == {"A", "C"} and res["metric1"]["share"]["C"]["share"] == 0.0
+    assert "C_wins" in res["metric2"]["funnier"] and "C_share" in res["metric2"]["character"]
+    text = m32.table(res, E34)
+    assert "Hardware share, C (topic only)" in text and "Paired C - A over 6 slots" in text and "C wins" in text
+    monkeypatch.setattr(m32, "DATA", tmp_path)
+    scored = m32.score(2, 3, exp=E34)
+    assert scored["metric1"]["share"] == res["metric1"]["share"] and scored["verdict"] == "pending_review"
+    with pytest.raises(SystemExit):
+        m32.score(2, 4, exp=E34)  # slots that were never written here
+
+
+def test_exp34_pairs_use_their_own_seed_and_c_needs_10_of_20_funnier_with_a_tie_not_a_win():
+    recs = []
+    for i in range(30):
+        recs += [rec(f"s0b{i}", "A", False), rec(f"s0b{i}", "C", False, topic=f"t{i}", kind="everyday")]
+    p34, p33 = m32.pairs(recs, exp=E34), m32.pairs(recs)
+    assert p34 == m32.pairs(recs, exp=E34) and len(p34) == 20 and [x["slot"] for x in p34] != [x["slot"] for x in p33]
+    assert {x["left"] for x in p34} == {"A", "C"}
+
+    def answers(funny):
+        return {p["slot"]: {"funnier": "t" if who == "t" else ("l" if p["left"] == who else "r"), "character": "t"}
+                for p, who in zip(p34, funny)}
+    nine = m32.metric2(recs, answers(["C"] * 9 + ["t"] * 2 + ["A"] * 9), E34)
+    ten = m32.metric2(recs, answers(["C"] * 10 + ["A"] * 10), E34)
+    assert not nine["funnier"]["passes"] and nine["funnier"]["C_wins"] == 9 and nine["funnier"]["ties"] == 2
+    assert ten["funnier"]["passes"] and ten["funnier"]["C_wins"] == 10 and ten["complete"]
+
+
+def test_exp34_review_hides_the_arm_and_saves_to_its_own_folder(tmp_path):
+    recs = []
+    for i in range(30):
+        recs += [rec(f"s0b{i}", "A", False), rec(f"s0b{i}", "C", False, topic=f"t{i}", kind="everyday")]
+    shown = []
+    done = m32.review(tmp_path, recs, read=lambda prompt: "l", out=shown.append, exp=E34)
+    text = "\n".join(shown)
+    assert done == 20 and "LEFT" in text and "RIGHT" in text and "topic" not in text.lower() and "arm" not in text.lower()
+    assert len(m32.read_answers(tmp_path)) == 20
+
+
+def test_exp34_bar_one_is_c_at_most_15_percent_and_the_paired_ci_below_zero():
+    recs = []
+    for i in range(40):
+        recs += [rec(f"s{i // 8}b{i % 8}", "A", i < 30), rec(f"s{i // 8}b{i % 8}", "C", i < 4, topic=f"t{i}", kind="everyday")]
+    r = m32.metric1(recs, verdicts_of(recs), exp=E34)
+    assert r["share"]["C"]["share"] == 0.1 and r["bar"]["passes"] and r["bar"]["ci95"][1] < 0
+    assert "C_character" in r["by_topic_kind"] and "A_everyday" in r["by_topic_kind"]
+    same = []
+    for i in range(40):
+        same += [rec(f"s{i // 8}b{i % 8}", "A", i < 4), rec(f"s{i // 8}b{i % 8}", "C", i < 4, topic=f"t{i}", kind="everyday")]
+    r = m32.metric1(same, verdicts_of(same), exp=E34)
+    assert r["bar"]["share_ok"] and not r["bar"]["passes"]
+
+
+def test_exp34_run_writes_only_c_judges_and_leaves_exp33s_bits_alone(tmp_path, monkeypatch):
+    monkeypatch.setattr(m32, "DATA", tmp_path)
+    monkeypatch.setattr(generate, "warm_up", lambda *a, **k: None)
+    monkeypatch.setattr(generate, "placement", lambda *a, **k: (1.0, 8192, []))
+    d33 = m32.run_dir()
+    m32.generate_bits(FakeOllama().client(), m32.slots(), d33)
+    stored_a = [p.read_text() for p in sorted((d33 / "bits").glob("*-A.json"))]
+    fake34 = FakeOllama()
+    monkeypatch.setattr(generate, "writer_client", fake34.client)
+    monkeypatch.setattr(m32.tc, "make_judge_client", lambda: FakeJudge())
+    res = m32.run(exp=E34, **m32.params(exp=E34))
+    assert len(fake34.seen) == 40 * 3 and set(res["arms"]) == {"A", "C"} and res["arms"]["A"]["bits"] == 40
+    assert [p.read_text() for p in sorted((d33 / "bits").glob("*-A.json"))] == stored_a
+    assert len(list((m32.run_dir(exp=E34) / "bits").glob("*-C.json"))) == 40
+    with pytest.raises(AssertionError):
+        m32.run(exp=E34, digest_="stale", judge_digest_=m32.judge_digest())
