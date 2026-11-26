@@ -237,6 +237,8 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
                     set_tonight(ctx)
                     if hasattr(safety, "allow_caps"):
                         safety.allow_caps = ctx.allow_caps
+                else:  # approved items that are not in today's fetch (a new day) or failed the second check
+                    log.warning("tonight context dropped: nothing the operator approved survived the check at start")
             except Exception:  # noqa: BLE001
                 log.warning("tonight context dropped: the check failed", exc_info=True)
         pool = await asyncio.to_thread(build_pool, bridge_lines, sessions)

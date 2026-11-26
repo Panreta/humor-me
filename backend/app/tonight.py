@@ -139,9 +139,22 @@ CONDENSE_SCHEMA = {"type": "object", "additionalProperties": False, "required": 
                                                          "type": {"type": "string", "enum": list(KEEP_TYPES)}}}}}}}}}
 
 
+def kept_team(name, kind, gist: str) -> str | None:
+    """The keep entry as a name the show may allow, else None. Only a team or sports event written as "the <name>" in the
+    gist counts: a person is rarely "the Messi", so a player Haiku lists as a team is not unlocked for the whole show. A
+    holiday is never a keep name: the whole-name list in `safety.OCCASIONS` already allows it, and a keep entry would allow
+    its words alone ("Black") or an unlisted holiday named after a person. Pre-merge review; judgment call, not measured."""
+    if kind != "sports" or not isinstance(name, str):
+        return None
+    name = re.sub(r"^[Tt]he\s+", "", name.strip())
+    if not name or safety.mask_occasions(name) == "holiday":
+        return None
+    return name if re.search(rf"(?<![A-Za-z])[Tt]he\s+{re.escape(name)}(?![A-Za-z])", gist) else None
+
+
 def parse_condensed(reply: str, n: int) -> list[tuple[str, str, list[str]]]:
     """[(category, gist, kept names)] by headline id. Raises ValueError unless every id 0..n-1 is answered once. A kept
-    name that does not appear in the gist, or has another type, is dropped from the list (never kept on trust)."""
+    name must pass `kept_team`, or it is dropped from the list (never kept on trust)."""
     got: dict[int, tuple[str, str, list[str]]] = {}
     for item in json.loads(llm.strip_fence(reply))["items"]:
         i, cat, gist = item["id"], item["category"], item["gist"]
@@ -150,10 +163,9 @@ def parse_condensed(reply: str, n: int) -> list[tuple[str, str, list[str]]]:
             gist = gist.strip()
             keep = []
             for k in item.get("keep") or []:
-                name = k.get("name") if isinstance(k, dict) else None
-                if (isinstance(name, str) and name.strip() and k.get("type") in KEEP_TYPES and name.strip() in gist
-                        and name.strip() not in keep):
-                    keep.append(name.strip())
+                name = kept_team(k.get("name"), k.get("type"), gist) if isinstance(k, dict) else None
+                if name and name not in keep:
+                    keep.append(name)
             got[i] = (cat, gist, keep)
     if len(got) != n:
         raise ValueError("missing or malformed items")
@@ -231,7 +243,7 @@ def _get_retrying(get, url: str, tries: int = FETCH_TRIES) -> str:
 
 
 def _zero_report() -> dict:
-    return {"fetched": 0, "dropped_by_category": {c: 0 for c in CATEGORIES}, "dropped_no_gist": 0,
+    return {"fetched": 0, "dropped_by_category": {c: 0 for c in CATEGORIES}, "dropped_no_gist": 0, "dropped_too_long": 0,
             "rejected_by_name_check": 0, "rejected_by_safety": 0, "kept": 0}
 
 
@@ -276,6 +288,9 @@ def build(get, condense_client, safety_client, now: datetime.datetime | None = N
             rejected.append({"gist": gist, "reason": f"category:{category}"})
         elif not gist:
             report["dropped_no_gist"] += 1
+        elif len(gist) > MAX_GIST_CHARS:  # the start message refuses it (app.protocol), so the operator must not be offered it
+            report["dropped_too_long"] += 1
+            rejected.append({"gist": gist, "reason": "too_long"})
         elif hit := name_check(gist, caps_tokens(keep)):
             report["rejected_by_name_check"] += 1
             rejected.append({"gist": gist, "reason": f"name:{hit}"})
@@ -378,6 +393,7 @@ def make_context(payload: dict, cached: dict | None, safety_client) -> TonightCo
     report = {**((cached or {}).get("report") or {}), "rejected_at_start": rejected_at_start,
               "facts_typed": len(payload.get("facts", [])),
               "sources": (cached or {}).get("sources"), "fetched_at": (cached or {}).get("fetched_at"),
+              "errors": list((cached or {}).get("errors") or []),  # invariant 6: a missing market or feed is said, not just absent
               "date": (cached or {}).get("date")}
     use_market = payload.get("market") is not None and market is not None and payload["market"] == market["line"]
     ctx = TonightContext([f for f in facts if verdicts[f].ok], market["line"] if use_market else None,

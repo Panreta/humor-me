@@ -168,7 +168,8 @@ def test_build_counts_every_drop_and_keeps_what_is_left():
     assert out["gists"] == ["a tech company unveils a new chip"]
     assert out["market"]["pct"] == 1.0 and out["errors"] == []
     assert out["report"] == {"fetched": 6, "dropped_by_category": {"death": 1, "disaster": 0, "crime": 1, "war": 1},
-                             "dropped_no_gist": 0, "rejected_by_name_check": 1, "rejected_by_safety": 1, "kept": 1}
+                             "dropped_no_gist": 0, "dropped_too_long": 0, "rejected_by_name_check": 1, "rejected_by_safety": 1,
+                             "kept": 1}
     assert out["sources"] == {"news": tonight.news_urls(), "market": tonight.MARKET_URL} and out["fetched_at"]
     assert {r["reason"] for r in out["rejected"]} == {"category:death", "category:crime", "category:war", "name:Kevin",
                                                      next(r["reason"] for r in out["rejected"] if r["reason"].startswith("safety:"))}
@@ -376,7 +377,7 @@ def test_with_no_working_safety_client_nothing_is_approved():
     assert tonight.make_context({**payload, "market": None}, CACHED, FakeClient(boom=True)) is None
 
 
-def test_the_switch_is_off_by_default():
+def test_the_switch_is_on_by_default_and_0_turns_it_off():
     assert tonight.enabled({}) is True and tonight.enabled({"TONIGHT": "0"}) is False and tonight.enabled({"TONIGHT": "off"}) is False
     assert all(tonight.enabled({"TONIGHT": v}) for v in ("1", "true", "YES", " on "))
 
@@ -660,3 +661,67 @@ def test_the_safety_defaults_are_unchanged():
         assert inspect.signature(fn).parameters["allow_caps"].default == frozenset()
     assert safety.check_rules("Lakers lost.", "mixed").ok  # a sentence-initial word was never a name
     assert safety.check_rules("I watched the Lakers lose.", "mixed").reason.startswith("named_person")
+
+
+# --- adversarial keep lists (pre-merge review): the allowlists must not become a way to name a person ---
+
+def show_allow(gist, keep):
+    """What a show would allow mid-sentence in every joke if this gist were approved."""
+    [(_, g, kept)] = tonight.parse_condensed(condensed(("none", gist, keep)), 1)
+    return tonight.caps_tokens(kept), g
+
+
+@pytest.mark.parametrize("gist, keep, person", [
+    ("A team called the Lakers signs LeBron.", [("Lakers", "sports"), ("LeBron", "sports")], "LeBron"),  # a player listed as a team
+    ("A pop star and Kelce attend the Chiefs game.", [("Kelce", "sports"), ("Chiefs", "sports")], "Kelce"),
+    ("Fans of Messi cheer in a stadium.", [("Messi", "sports")], "Messi"),
+    ("A city marks Gandhi Jayanti with a parade.", [("Gandhi Jayanti", "occasion")], "Gandhi"),  # a holiday named after a person
+    ("Fans celebrate Mahomes Day downtown.", [("Mahomes Day", "occasion")], "Mahomes"),
+])
+def test_a_person_listed_as_a_team_or_holiday_is_not_allowed(gist, keep, person):
+    allow, g = show_allow(gist, keep)
+    assert person not in allow
+    assert tonight.name_check(g, allow) is not None
+    assert not safety.check_rules(f"Then {person} called me about the game.", "mixed", allow).ok
+
+
+def test_an_approved_holiday_gist_does_not_unlock_its_words_alone_in_jokes():
+    # "Black Friday" is allowed as a whole name everywhere (safety.OCCASIONS); a keep entry must not add "Black" on its own.
+    allow, g = show_allow("Shoppers line up for Black Friday deals.", [("Black Friday", "occasion")])
+    assert tonight.name_check(g, allow) is None
+    assert "Black" not in allow
+    assert not safety.check_rules("My neighbor Black waved at me.", "mixed", allow).ok
+
+
+def test_a_team_is_kept_only_as_the_team():
+    assert show_allow("A team called the Lakers wins a game.", [("Lakers", "sports")])[0] == {"Lakers"}
+    assert show_allow("The Lakers win a game.", [("the Lakers", "sports")])[0] == {"Lakers"}
+    assert show_allow("Fans plan parties for the World Series.", [("World Series", "sports")])[0] == {"World", "Series"}
+    assert show_allow("A team called the Lakers wins.", [("Lake", "sports")])[0] == frozenset()  # a part of a word is not the name
+
+
+def test_gists_the_start_message_cannot_carry_are_not_offered():
+    # The pool grew to 40 headlines after Exp 35, but a start message carries at most MAX_GISTS gists of MAX_GIST_CHARS.
+    long = "a chip company " + "grows " * 40
+    n = tonight.PER_FEED  # every fake feed answers the same items, so the pool is one feed's worth
+    news = "<rss><channel>" + "".join(f"<item><title>h{i} - W</title></item>" for i in range(n)) + "</channel></rss>"
+    reply = condensed(*[("none", long if i == 0 else f"a chip company grows in round {'abcdefghijklmn'[i]}") for i in range(n)])
+    out = tonight.build(feeds(news=news), FakeClient(reply), FakeClient())
+    assert len(out["gists"]) == n - 1 and out["report"]["dropped_too_long"] == 1
+    assert all(len(g) <= tonight.MAX_GIST_CHARS for g in out["gists"])
+    assert {"gist": long.strip(), "reason": "too_long"} in out["rejected"]
+    assert parse(frame({**START_MSG, "tonight": {"facts": [], "market": None, "gists": out["gists"][:tonight.MAX_GISTS]}}))["tonight"]
+
+
+def test_the_log_row_says_what_went_wrong_with_the_fetch():
+    news = "<rss><channel><item><title>h0 - W</title></item></channel></rss>"
+    out = tonight.build(feeds(market=TimeoutError("slow"), news=news), FakeClient(condensed(("none", "a chip company grows"))),
+                        FakeClient())
+    ctx = tonight.make_context({"facts": [], "market": None, "gists": out["gists"]}, out, FakeClient())
+    assert ctx.summary()["report"]["errors"] and "market" in ctx.summary()["report"]["errors"][0]
+
+
+def test_the_panel_limits_mirror_the_servers():
+    panel = (pathlib.Path(__file__).resolve().parents[1] / "frontend" / "src" / "app" / "TonightPanel.tsx").read_text(encoding="utf-8")
+    assert f"const MAX_FACTS = {tonight.MAX_TONIGHT_FACTS};" in panel and f"const MAX_GISTS = {tonight.MAX_GISTS};" in panel
+    assert f"maxLength={{{tonight.MAX_FACT_CHARS}}}" in panel

@@ -5,6 +5,8 @@ import styles from "./page.module.css";
 
 const API = "http://localhost:8000";
 const MAX_FACTS = 1; // mirrors MAX_TONIGHT_FACTS in backend/app/tonight.py
+// mirrors MAX_GISTS: the server refuses a start message with more, and the fetch can offer up to 40
+const MAX_GISTS = 10;
 
 type Fetched = { enabled: boolean; market?: { line: string } | null; gists?: string[]; errors?: string[] };
 export type Approved = { facts: string[]; market: string | null; gists: string[] };
@@ -13,6 +15,7 @@ export type Approved = { facts: string[]; market: string | null; gists: string[]
 // Renders nothing when the backend has TONIGHT off or cannot be reached, so the show starts as it always did.
 export default function TonightPanel({ onChange }: { onChange: (approved: Approved | undefined) => void }) {
   const [data, setData] = useState<Fetched | null>(null);
+  const [loading, setLoading] = useState(true);
   const [useMarket, setUseMarket] = useState(true);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [fact, setFact] = useState("");
@@ -25,13 +28,15 @@ export default function TonightPanel({ onChange }: { onChange: (approved: Approv
   }, [onChange]);
 
   const load = useCallback((refresh: boolean) => {
+    setLoading(true);
     fetch(`${API}/tonight${refresh ? "?refresh=true" : ""}`)
       .then((r) => r.json())
       .then((d: Fetched) => {
         setData(d);
         setPicked(new Set());
       })
-      .catch(() => setData(null));
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
   }, []);
   useEffect(() => load(false), [load]);
 
@@ -58,12 +63,14 @@ export default function TonightPanel({ onChange }: { onChange: (approved: Approv
       .catch(() => setVerdict("Could not check."));
   };
 
+  // A first fetch can take a minute or more (several feeds, a slow market source, the gist step); the show can start meanwhile.
+  if (loading && !data) return <p className={styles.tonight}>Fetching tonight&apos;s news (the show can start without it)…</p>;
   if (!data?.enabled) return null;
   const toggle = (g: string) =>
     setPicked((s) => {
       const next = new Set(s);
       if (next.has(g)) next.delete(g);
-      else next.add(g);
+      else if (next.size < MAX_GISTS) next.add(g);
       return next;
     });
 
@@ -80,7 +87,12 @@ export default function TonightPanel({ onChange }: { onChange: (approved: Approv
       )}
       {(data.gists ?? []).map((g) => (
         <label key={g}>
-          <input type="checkbox" checked={picked.has(g)} onChange={() => toggle(g)} />
+          <input
+            type="checkbox"
+            checked={picked.has(g)}
+            disabled={!picked.has(g) && picked.size >= MAX_GISTS}
+            onChange={() => toggle(g)}
+          />
           {g}
         </label>
       ))}
@@ -100,8 +112,9 @@ export default function TonightPanel({ onChange }: { onChange: (approved: Approv
         </button>
       </div>
       {verdict && <span role="status">{verdict}</span>}
-      <button type="button" className={styles.start} onClick={() => load(true)}>
-        Fetch again
+      {(data.gists?.length ?? 0) > MAX_GISTS && <span>Tick at most {MAX_GISTS}; bits 2 and 6 use the first unused one.</span>}
+      <button type="button" className={styles.start} onClick={() => load(true)} disabled={loading}>
+        {loading ? "Fetching…" : "Fetch again"}
       </button>
     </fieldset>
   );
