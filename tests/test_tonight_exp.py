@@ -214,5 +214,5 @@ def test_score_reads_the_run_folder_and_the_table_prints_every_row(tmp_path):
     res = ex.score(tmp_path)
     assert res["verdict"] == "adopt" and res["bar2_pairs"]["funnier"]["B_wins"] == 6
     text = ex.table(res)
-    assert text.count("\n") == 10 and "Wilson" in text and "adopt" in text
+    assert len(text.splitlines()) == 11 and "Wilson" in text and "adopt" in text
     json.dumps(res)  # a record is plain JSON
