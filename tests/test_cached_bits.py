@@ -482,7 +482,7 @@ def test_only_the_llm_stack_gets_cached_lines():
     assert cache.cached_for(["a bridge"], sessions) == {}
     called = []
     orig = cache.popular_bits
-    cache.popular_bits = lambda s: called.append(s) or {"x": []}
+    cache.popular_bits = lambda s, **kw: called.append(s) or {"x": []}
     try:
         assert cache.cached_for(None, sessions) is None and not called
         assert cache.cached_for(["b"], sessions) == {"x": []} and called
@@ -564,3 +564,86 @@ def test_cached_renders_are_chained_so_bit_zeros_first_line_waits_behind_at_most
     assert ahead[next(t for t, _ in voice.at_request if t.startswith("ok 0.0"))] <= 1
     # chained: a cached line never asks while another cached line is still outstanding, in the open or after it
     assert all(n == 0 for t, n in voice.at_request if t.startswith("cached"))
+
+
+# --- bridge lines the listener has already heard (D-112) ---
+
+def three_bits(tmp_path, frozen_time):
+    return live_show(tmp_path, [("neurotic", [3] * 5, lines("top")), ("neurotic", [2] * 5, lines("mid")),
+                                ("neurotic", [1] * 5, lines("low"))], now=frozen_time)
+
+
+def test_heard_lines_are_matched_on_normalised_text_in_jokes_and_bridges_of_any_session(tmp_path, frozen_time):
+    src = three_bits(tmp_path, frozen_time)
+    assert cache.normalise("  Top  LINE	0 ") == "top line 0"
+    elsewhere = [{"event": "bridge", "text": "  TOP line   1"}, {"event": "joke_played", "text": "Mid line 0"},
+                 {"event": "reaction", "text": "low line 0"}]  # a reaction row is not audio, so "low line 0" stays unheard
+    heard = cache.heard_texts([elsewhere])
+    assert heard == {"top line 1", "mid line 0"}
+    got = popular_bits([src], per_mode=3, heard=heard)["neurotic"]
+    said = {cache.normalise(ln.text) for b in got for ln in b.lines}
+    assert not said & heard  # what the rule guarantees: no heard line is ever in the pool
+    assert {"top line 0", "top line 2", "mid line 1", "low line 0"} <= said  # and the rest is kept
+
+
+def test_a_bit_whose_lines_were_all_heard_yields_its_slot_to_the_next_bit(tmp_path, frozen_time):
+    src = three_bits(tmp_path, frozen_time)
+    heard = frozenset(cache.normalise(t) for t in lines("top"))
+    got = popular_bits([src], per_mode=2, heard=heard)["neurotic"]
+    assert [b.lines[0].text for b in got] == ["mid line 0", "low line 0"]  # without the rule: top and mid
+    assert [b.lines[0].text for b in popular_bits([src], per_mode=2)["neurotic"]] == ["top line 0", "mid line 0"]
+
+
+def test_every_line_of_every_logged_show_counts_as_heard_so_the_listeners_own_shows_leave_an_empty_pool(tmp_path, frozen_time):
+    src = three_bits(tmp_path, frozen_time)
+    sim = live_show(tmp_path, [("cynic", [3] * 5, lines("sim"))], room="sim", now=frozen_time)
+    assert cache.cached_for(["b"], [src, sim]) == {}  # the source show is itself a logged session
+    assert cache.cached_for(["b"], [src, sim], skip_heard=False) == popular_bits([src, sim]) != {}
+
+
+def test_the_dropped_count_is_the_heard_lines_of_the_qualifying_bits(tmp_path, frozen_time):
+    src = three_bits(tmp_path, frozen_time)
+    assert cache.heard_dropped([src]) == 15  # three bits of 5, all heard in their own show
+    assert cache.heard_dropped_for(["b"], [src]) == 15
+    assert cache.heard_dropped_for(["b"], [src], skip_heard=False) is None  # rule off: nothing was dropped, nothing to say
+    assert cache.heard_dropped_for(None, [src]) is None  # the bank stack builds no pool
+    assert cache.heard_dropped([]) == 0
+
+
+def test_the_setting_is_on_unless_turned_off():
+    assert cache.skip_heard_setting({}) is True
+    assert [cache.skip_heard_setting({"BRIDGE_SKIP_HEARD": v}) for v in ("1", "0", "false", " OFF ", "no", "yes")] ==         [True, False, False, False, False, True]
+
+
+def test_the_show_logs_how_many_lines_were_dropped_as_heard_even_with_an_empty_pool(tmp_path):
+    voice, log = FakeVoice(), SessionLog(tmp_path)
+    asyncio.run(run_show(load_director([], seed=1), "sim", CTX, generator=Gen(delay=0.02), safety=_RulesFilter(),
+                         selector=UniformSelector(0), tts=voice, player=FakePlayer(voice, seconds=0.01),
+                         source=SimRoom(CTX, 0), clock=RealClock(), log=log, n_bits=1, config=FAST,
+                         bridge_lines=["b"], cached={}, heard_dropped=7))
+    rows = read_session(log.path)
+    cache_row = next(r for r in rows if r["event"] == "cache")
+    assert cache_row["heard_dropped"] == 7 and cache_row["bits"] == [] and rows[1] is cache_row
+    assert "heard_dropped" not in next(r for r in run(tmp_path, pool(), n_bits=1)[0] if r["event"] == "cache")
+
+
+def test_the_cache_row_validates_its_heard_count():
+    base = {"schema": 2, "session": "s", "at": 1.0, "event": "cache", "bits": []}
+    validate(base)
+    validate({**base, "heard_dropped": 0})
+    for bad in (-1, 1.5, "3", True):
+        with pytest.raises(ValueError):
+            validate({**base, "heard_dropped": bad})
+
+
+def test_filler_lines_are_not_repeated_within_a_show_while_an_unused_one_remains(tmp_path):
+    fillers = [f"filler {i}" for i in range(4)]
+    rows, _ = run(tmp_path, None, gen=Gen(delay=0.1), bridges=fillers, n_bits=3, seconds=0.05)
+    per_bit = {}
+    for r in rows:
+        if r["event"] == "bridge" and r["kind"] == "filler":
+            per_bit.setdefault(r["bit"], []).append(r["text"])
+    said = [t for bit in sorted(per_bit) for t in per_bit[bit]]
+    assert len(said) > len(fillers)  # a long stall: the 4 run out inside the show
+    assert len(set(said[:len(fillers)])) == len(fillers)  # each is said once before any is said again
+    assert not [r for r in rows if r["event"] == "bridge" and r["kind"] == "cached"]

@@ -397,7 +397,8 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
                    explore_seed: int | None = None, operator: str = "sim", git_sha: str = "unknown",
                    audio: dict | None = None, n_bits: int = 8, jokes_per_bit: int = 5, config=REACTION,
                    fallback: Generator | None = None, bridge_lines: list[str] | None = None,
-                   cached: dict[str, list[CachedBit]] | None = None, pauses: Pauses | None = None) -> None:
+                   cached: dict[str, list[CachedBit]] | None = None, pauses: Pauses | None = None,
+                   heard_dropped: int | None = None) -> None:
     """One show. `director` is an EpsilonSoft over LinUCB, already warm: the caller replays the career into it
     (app.director.load_director) so this loop never decides which rooms count."""
     modes = AudienceEnv().modes
@@ -427,8 +428,9 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
                       "seed": explore_seed},
               generator_id=generator.generator_id, selector_id=selector.selector_id, git_sha=git_sha,
               operator=operator, audio=audio or {"consent": False, "path": None})
-    if cache_report:  # invariant 6: what the show could play, and what the re-check dropped
-        log.write("cache", bits=cache_report)
+    if cache_report or heard_dropped is not None:  # invariant 6: what the show could play, and what was dropped
+        # heard_dropped: lines skipped for having been played in an earlier show (D-112), a count and no text
+        log.write("cache", bits=cache_report, **({} if heard_dropped is None else {"heard_dropped": heard_dropped}))
     opened: asyncio.Task | None = None
     try:
         last_action = last_reward = None

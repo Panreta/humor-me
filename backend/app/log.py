@@ -96,6 +96,9 @@ def validate(record: dict) -> None:
             _need_keys(f"cache.bits[{i}]", b, ("session", "bit", "mode", "reward", "source_age", "lines"))
             for j, line in enumerate(b["lines"]):
                 _need_keys(f"cache.bits[{i}].lines[{j}]", line, ("joke", "text", "verdict", "reason"))
+        dropped = record.get("heard_dropped")  # optional (D-112): absent in older logs
+        if dropped is not None and not (_is_int(dropped) and dropped >= 0):
+            raise ValueError("cache.heard_dropped must be a non-negative integer")
     if event == "candidates":
         if not isinstance(record["items"], list):
             raise ValueError("candidates.items must be a list")
