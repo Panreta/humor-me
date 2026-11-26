@@ -14,7 +14,7 @@ uv pip install --python .venv/Scripts/python.exe https://github.com/explosion/sp
 cp sample.env .env
 ```
 
-The venv must be Python 3.12: Kokoro 0.9.4 needs Python below 3.13 (`requirements.txt`, line 1), and on 3.14 the install fails ("no matching distribution", or `ModuleNotFoundError: numpy` in an old venv). A `uv` venv has no pip, so Kokoro cannot download spaCy's English model by itself and the first render stops with `E050 can't find model 'en_core_web_sm'`: the last install line above is that model. (To use pip instead, make the venv with `uv venv --seed --python 3.12 .venv`.)
+The venv must be Python 3.12: Kokoro 0.9.4 needs Python below 3.13, and on 3.14 the install fails (spaCy's build dependencies; see `requirements.txt` line 1 and the dev-log, 2026-11-01) ("no matching distribution", or `ModuleNotFoundError: numpy` in an old venv). A `uv` venv has no pip, so Kokoro cannot download spaCy's English model by itself and the first render stops with `E050 can't find model 'en_core_web_sm'`: the last install line above is that model. (To use pip instead, make the venv with `uv venv --seed --python 3.12 .venv`.)
 
 `.env` points at any OpenAI-compatible chat endpoint (see `sample.env`):
 
@@ -65,7 +65,7 @@ The mode the director picked is never sent. Presses outside their window are not
 row), only noted by the Python logger. Within a hold the last press wins and each change is a `reaction` row.
 By default the show uses the bank and a bank-only filter (`BankOnlySafety`), which needs no key. `JOKE_SOURCE=llm` switches to the
 real stack (`app/generate.py`, gen-v4, D-110): each bit is 3 model calls at once on the same prompt, one thread of 5 jokes each (so up to 3 candidates per joke; a call that fails drops only its thread; a badly shaped reply is asked for once more first (D-111), and on Ollama the reply schema counts the 5 jokes, and the 3 share one 12 s budget), the safety filter's rules plus one LLM verdict call
-per bit (Claude Haiku 5.5 with thinking off by default, D-100; needs `ANTHROPIC_API_KEY`; `SAFETY_CHECK_PROVIDER=gemini` goes back to Flash-Lite), the next line rendered while the current one plays, and filler while a bit loads: cached lines from the best bits of earlier live shows (`app/cache.py`, rules re-checked for this room's age, a teen room only from teen shows, never rated, logged in a `cache` row) at the show open and between bits, then in-character bridge lines (the 10 in `app/generate.py`, `BRIDGES`). By default a cached line is skipped when any show logged on this laptop already played it (D-112), so with one listener only the in-character lines play; `BRIDGE_SKIP_HEARD=0` in `.env` brings the cached lines back for a new audience. The `cache` row logs `heard_dropped`, how many lines were skipped. A failed call is retried
+per bit (Claude Haiku 5.5 with thinking off by default, D-100; needs `ANTHROPIC_API_KEY`; `SAFETY_CHECK_PROVIDER=gemini` goes back to Flash-Lite), the next line rendered while the current one plays, and filler while a bit loads: cached lines from the best bits of earlier live shows (`app/cache.py`, rules re-checked for this room's age, a teen room only from teen shows, never rated, logged in a `cache` row) at the show open and between bits, then in-character bridge lines (the 10 in `app/generate.py`, `BRIDGES`). By default a cached line is skipped when any show logged on this laptop already played it (D-112), so with one listener only the in-character lines play; `BRIDGE_SKIP_HEARD=0` in `.env` brings the cached lines back for a new audience. The filler lines play in a fresh order each show (a seeded shuffle; still no repeat while an unused one remains). The `cache` row logs `skip_heard` (the setting), `heard_dropped` (pool lines the rule removed: the pool without it minus the pool with it) and `bridge_seed` (the shuffle seed, so the show replays). A failed call is retried
 twice inside a deadline; a failed generation or a bit whose candidates are all rejected falls back to the hand-checked bank (rules only, no API call), logged in
 `candidates`. A `live` room refuses to start without `app/blocklist.local.txt`.
 
@@ -93,7 +93,7 @@ The user runs the shows; `sim/acceptance.py` scores them. Needed: 3 simulated sh
 - `backend/.env` has `ANTHROPIC_API_KEY` (the safety check) and `backend/app/blocklist.local.txt` exists (a live room refuses to start without it).
 - Ollama is serving bonsai and nothing else is loaded (`ollama ps`); see the writer note above.
 
-**Start the backend from the main checkout** (`D:/vs-code-workspace/humor-me`, not a worktree: the key and the blocklist are there), in a Python 3.12 venv as in Setup (on the operator laptop the working one is `D:/vs-code-workspace/humor-me-demo/backend/.venv`; the main checkout's `backend/.venv` is a stale 3.14 venv):
+**Start the backend from the main checkout** (`D:/vs-code-workspace/humor-me`, not a worktree: the key and the blocklist are there), in a Python 3.12 venv as in Setup (on the operator laptop the working one is `D:/vs-code-workspace/humor-me-demo/backend/.venv`; the main checkout's `backend/.venv` is now a 3.12 venv too, rebuilt 2026-11-25; an older one was 3.14 and had no numpy or kokoro):
 
 ```sh
 cd backend
@@ -188,6 +188,6 @@ backend/.venv/Scripts/python scripts/latency_probe.py --runs 5   # from repo roo
 | `tts/` | streaming TTS with timing marks | 3–4 |
 
 Python note: audio/ML wheels (faster-whisper, torch) may lag on 3.14. If installs fail in
-week 5, recreate this venv with 3.12 or 3.13.
+week 5, recreate this venv with 3.12 (the backend venv is already 3.12).
 
 `app/bank/` holds `bank-v1.yaml`, 120 hand-written lines (6 modes x 4 bits x 5 jokes), and `BankGenerator`: model-free material for tests, calibration and outages.

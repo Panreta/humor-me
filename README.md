@@ -64,7 +64,7 @@ need pipeline outputs once the planner and reward model exist.
 
 ## Setup
 
-Prerequisites: Python 3.14 (3.12/3.13 may be needed later for audio/ML wheels), Node 24+,
+Prerequisites: Python 3.14 for the root (tooling) venv, **Python 3.12 for the backend venv** (Kokoro needs it; see `backend/README.md`), Node 24+,
 npm, Git. Commands below use Git Bash on Windows; on macOS/Linux replace
 `.venv/Scripts/python` with `.venv/bin/python`.
 
@@ -76,10 +76,10 @@ backend needs a web server, and keeping them apart stops dependency conflicts.
 py -3.14 -m venv .venv
 .venv/Scripts/python -m pip install -r requirements.txt
 
-# 2. Backend env
+# 2. Backend env: Python 3.12, plus spaCy's English model (steps and why in backend/README.md)
 cd backend
-py -3.14 -m venv .venv
-.venv/Scripts/python -m pip install -r requirements.txt
+uv venv --python 3.12 .venv
+uv pip install --python .venv/Scripts/python.exe -r requirements.txt
 cp sample.env .env          # then fill in GEMINI_BASE_URL / GEMINI_API_KEY / JOKE_WRITER_MODEL
 cd ..
 

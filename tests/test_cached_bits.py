@@ -476,18 +476,11 @@ def test_a_log_with_a_cache_row_validates_without_it_and_replays_the_same(tmp_pa
     assert same(load_director([with_cache], room="sim", seed=1), load_director([stripped], room="sim", seed=1))
 
 
-def test_only_the_llm_stack_gets_cached_lines():
-    sessions = []
-    assert cache.cached_for(None, sessions) is None  # the bank stack has no filler, so no cached line either
-    assert cache.cached_for(["a bridge"], sessions) == {}
-    called = []
-    orig = cache.popular_bits
-    cache.popular_bits = lambda s, **kw: called.append(s) or {"x": []}
-    try:
-        assert cache.cached_for(None, sessions) is None and not called
-        assert cache.cached_for(["b"], sessions) == {"x": []} and called
-    finally:
-        cache.popular_bits = orig
+def test_only_the_llm_stack_gets_cached_lines(tmp_path, frozen_time):
+    src = live_show(tmp_path, [("neurotic", [3] * 5, lines("top"))], now=frozen_time)
+    assert cache.cached_for(None, [src]) is None  # the bank stack has no filler, so no cached line either
+    assert cache.cached_for(["a bridge"], []) == {}
+    assert cache.cached_for(["b"], [src], skip_heard=False) == popular_bits([src]) != {}
 
 
 def test_the_bank_stack_run_end_to_end_plays_no_cached_row(tmp_path):
@@ -601,39 +594,73 @@ def test_every_line_of_every_logged_show_counts_as_heard_so_the_listeners_own_sh
     assert cache.cached_for(["b"], [src, sim], skip_heard=False) == popular_bits([src, sim]) != {}
 
 
-def test_the_dropped_count_is_the_heard_lines_of_the_qualifying_bits(tmp_path, frozen_time):
+def test_the_dropped_count_is_the_pool_without_the_rule_minus_the_pool_with_it(tmp_path, frozen_time):
+    src = three_bits(tmp_path, frozen_time)  # 3 bits of 5 lines; per_mode 2 puts 10 lines in the unruled pool
+    got = cache.build_pool(["b"], [src], skip_heard=True)
+    assert got.bits == {} and got.skip_heard is True and got.heard_dropped == 10  # not the 15 heard lines of 3 bits
+    off = cache.build_pool(["b"], [src], skip_heard=False)
+    assert off.bits == popular_bits([src]) and off.skip_heard is False and off.heard_dropped is None
+    bank = cache.build_pool(None, [src])
+    assert bank.bits is None and bank.heard_dropped is None  # the bank stack builds no pool
+    assert cache.build_pool(["b"], []).heard_dropped == 0
+
+
+def test_the_setting_is_read_from_the_environment_and_on_unless_turned_off(tmp_path, frozen_time):
     src = three_bits(tmp_path, frozen_time)
-    assert cache.heard_dropped([src]) == 15  # three bits of 5, all heard in their own show
-    assert cache.heard_dropped_for(["b"], [src]) == 15
-    assert cache.heard_dropped_for(["b"], [src], skip_heard=False) is None  # rule off: nothing was dropped, nothing to say
-    assert cache.heard_dropped_for(None, [src]) is None  # the bank stack builds no pool
-    assert cache.heard_dropped([]) == 0
+    on = lambda env: cache.build_pool(["b"], [src], environ=env).skip_heard  # noqa: E731
+    assert on({}) is True
+    assert [on({"BRIDGE_SKIP_HEARD": v}) for v in ("1", "0", "false", " OFF ", "no", "yes")] ==         [True, False, False, False, False, True]
+    assert cache.cached_for(["b"], [src], environ={"BRIDGE_SKIP_HEARD": "0"}) == popular_bits([src])
+    assert cache.cached_for(["b"], [src], environ={}) == {}
 
 
-def test_the_setting_is_on_unless_turned_off():
-    assert cache.skip_heard_setting({}) is True
-    assert [cache.skip_heard_setting({"BRIDGE_SKIP_HEARD": v}) for v in ("1", "0", "false", " OFF ", "no", "yes")] ==         [True, False, False, False, False, True]
-
-
-def test_the_show_logs_how_many_lines_were_dropped_as_heard_even_with_an_empty_pool(tmp_path):
+def test_the_show_logs_the_rule_its_effect_and_the_filler_seed_even_with_an_empty_pool(tmp_path):
     voice, log = FakeVoice(), SessionLog(tmp_path)
+    info = cache.CachePool({}, True, 7)
     asyncio.run(run_show(load_director([], seed=1), "sim", CTX, generator=Gen(delay=0.02), safety=_RulesFilter(),
                          selector=UniformSelector(0), tts=voice, player=FakePlayer(voice, seconds=0.01),
                          source=SimRoom(CTX, 0), clock=RealClock(), log=log, n_bits=1, config=FAST,
-                         bridge_lines=["b"], cached={}, heard_dropped=7))
+                         bridge_lines=["b"], cached={}, cache_info=info, bridge_seed=99))
     rows = read_session(log.path)
-    cache_row = next(r for r in rows if r["event"] == "cache")
-    assert cache_row["heard_dropped"] == 7 and cache_row["bits"] == [] and rows[1] is cache_row
-    assert "heard_dropped" not in next(r for r in run(tmp_path, pool(), n_bits=1)[0] if r["event"] == "cache")
+    row = next(r for r in rows if r["event"] == "cache")
+    assert (row["skip_heard"], row["heard_dropped"], row["bridge_seed"], row["bits"]) == (True, 7, 99, []) and rows[1] is row
+    off = SessionLog(tmp_path)
+    asyncio.run(run_show(load_director([], seed=1), "sim", CTX, generator=Gen(delay=0.02), safety=_RulesFilter(),
+                         selector=UniformSelector(0), tts=voice, player=FakePlayer(voice, seconds=0.01),
+                         source=SimRoom(CTX, 0), clock=RealClock(), log=off, n_bits=1, config=FAST,
+                         bridge_lines=["b"], cached={}, cache_info=cache.CachePool({}, False, None)))
+    row = next(r for r in read_session(off.path) if r["event"] == "cache")
+    assert row["skip_heard"] is False and "heard_dropped" not in row and isinstance(row["bridge_seed"], int)
 
 
-def test_the_cache_row_validates_its_heard_count():
+def test_the_cache_row_validates_its_optional_fields():
     base = {"schema": 2, "session": "s", "at": 1.0, "event": "cache", "bits": []}
-    validate(base)
-    validate({**base, "heard_dropped": 0})
-    for bad in (-1, 1.5, "3", True):
+    validate(base)  # a pre-D-112 log
+    validate({**base, "heard_dropped": 0, "bridge_seed": 5, "skip_heard": False})
+    for key, bad in [("heard_dropped", -1), ("heard_dropped", 1.5), ("heard_dropped", True), ("bridge_seed", "3"),
+                     ("bridge_seed", -2), ("skip_heard", 1), ("skip_heard", "yes")]:
         with pytest.raises(ValueError):
-            validate({**base, "heard_dropped": bad})
+            validate({**base, key: bad})
+
+
+def test_the_filler_order_is_shuffled_per_show_from_a_logged_seed(tmp_path):
+    fillers = [f"filler {i}" for i in range(6)]
+
+    def first_wait(seed):
+        voice, log = FakeVoice(), SessionLog(tmp_path)
+        asyncio.run(run_show(load_director([], seed=1), "sim", CTX, generator=Gen(delay=0.1), safety=_RulesFilter(),
+                             selector=UniformSelector(0), tts=voice, player=FakePlayer(voice, seconds=0.05),
+                             source=SimRoom(CTX, 0), clock=RealClock(), log=log, n_bits=2, config=FAST,
+                             bridge_lines=fillers, cached=None, bridge_seed=seed))
+        rows = read_session(log.path)
+        return [r["text"] for r in rows if r["event"] == "bridge"][:6], next(r for r in rows if r["event"] == "cache")["bridge_seed"]
+
+    (a, sa), (a2, _), (b, _) = first_wait(1), first_wait(1), first_wait(2)
+    assert sa == 1 and a == a2  # the same seed replays the same order
+    assert sorted(a) == sorted(fillers) and a != fillers  # all six, none twice, and not in list order
+    assert a != b  # another seed, another order
+    seeds = {first_wait(None)[1] for _ in range(3)}
+    assert len(seeds) > 1  # unseeded, each show draws its own
 
 
 def test_filler_lines_are_not_repeated_within_a_show_while_an_unused_one_remains(tmp_path):

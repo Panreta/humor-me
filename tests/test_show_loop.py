@@ -441,6 +441,28 @@ def test_a_pause_is_refused_once_run_show_has_raised(server, monkeypatch):
     assert refusal["type"] == "error" and refusal["about"] == "pause"
 
 
+@pytest.mark.parametrize("env, skip", [(None, True), ("1", True), ("0", False)])
+def test_the_server_builds_the_cache_pool_from_the_environment_and_hands_it_to_the_show(server, monkeypatch, env, skip):
+    from app.bank import BankGenerator
+    from app.live import BankOnlySafety
+    got = {}
+
+    async def spy(*args, **kwargs):
+        got.update(kwargs)
+
+    monkeypatch.setattr(main, "make_stack", lambda room: (BankGenerator(), BankOnlySafety(), None, ["a filler"]))
+    monkeypatch.setattr(main, "warm_up", lambda g: None)
+    monkeypatch.setattr(main, "run_show", spy)
+    monkeypatch.delenv("BRIDGE_SKIP_HEARD", raising=False)
+    if env is not None:
+        monkeypatch.setenv("BRIDGE_SKIP_HEARD", env)
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(start("sim"))
+        pump(ws)
+    assert got["cache_info"].skip_heard is skip and got["cached"] == {}  # no live show logged, so nothing to drop either way
+    assert got["cache_info"].heard_dropped == (0 if skip else None) and got["bridge_lines"] == ["a filler"]
+
+
 def test_a_writer_that_cannot_load_stops_the_show_before_it_starts(server, monkeypatch):
     from app import llm
 

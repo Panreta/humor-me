@@ -923,7 +923,7 @@ def test_bridge_lines_are_not_repeated_while_unused_ones_remain(tmp_path):
     lines = [f"b{i}" for i in range(2 * show_module.MAX_BRIDGES + 4)]  # more than two waits can use
     _, voice = show(tmp_path, Gen(delay=0.2), Filter(), bridges=lines, n_bits=3)
     bridges = [t for kind, t in voice.events if kind == "start" and t.startswith("b")]
-    assert len(bridges) > 2 and len(set(bridges)) == len(bridges) and bridges == lines[:len(bridges)]
+    assert len(bridges) > 2 and len(set(bridges)) == len(bridges) and set(bridges) <= set(lines)  # shuffled per show (D-112), so no fixed order
 
 
 def test_a_bridge_line_that_fails_to_render_never_stops_the_show(tmp_path):

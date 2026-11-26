@@ -75,23 +75,10 @@ def _candidates(sessions: list[list[dict]], min_labels: int) -> list[tuple[float
     return found
 
 
-def heard_dropped(sessions: list[list[dict]], min_labels: int = 3) -> int:
-    """How many usable lines of qualifying bits `popular_bits` skips for having been heard (counts only, for the log)."""
-    heard = heard_texts(sessions)
-    return sum(normalise(line.text) in heard for *_, cb in _candidates(sessions, min_labels) for line in cb.lines)
-
-
-def popular_bits(sessions: list[list[dict]], per_mode: int = 2, min_labels: int = 3,
-                 heard: frozenset[str] = frozenset()) -> dict[str, list[CachedBit]]:
-    """The top `per_mode` bits of each mode, from live shows only: a simulated reward comes from made-up
-    `audience.yaml` values, so it cannot say what was popular. Ranked by reward, ties to the later show. A bit with
-    fewer than `min_labels` labels, no reward or no usable line is skipped, and a bit whose lines repeat a better
-    one's is dropped. A line is not usable when the bank wrote it or the room scored it level 0.
-    A line whose normalised text is in `heard` (see `heard_texts`) is dropped first (D-112), so a bit whose lines were all
-    heard yields its slot to the next-best bit of its mode, and a bit with some heard keeps only the others."""
+def _pool(found: list[tuple[float, float, int, CachedBit]], per_mode: int, heard: frozenset[str]) -> dict[str, list[CachedBit]]:
     out: dict[str, list[CachedBit]] = {}
     seen: set[tuple[str, ...]] = set()
-    for *_, cb in _candidates(sessions, min_labels):
+    for *_, cb in found:
         lines = tuple(line for line in cb.lines if normalise(line.text) not in heard)
         if not lines:
             continue
@@ -102,6 +89,17 @@ def popular_bits(sessions: list[list[dict]], per_mode: int = 2, min_labels: int 
         seen.add(texts)
         out[cb.mode].append(cb)
     return {mode: bits for mode, bits in out.items() if bits}
+
+
+def popular_bits(sessions: list[list[dict]], per_mode: int = 2, min_labels: int = 3,
+                 heard: frozenset[str] = frozenset()) -> dict[str, list[CachedBit]]:
+    """The top `per_mode` bits of each mode, from live shows only: a simulated reward comes from made-up
+    `audience.yaml` values, so it cannot say what was popular. Ranked by reward, ties to the later show. A bit with
+    fewer than `min_labels` labels, no reward or no usable line is skipped, and a bit whose lines repeat a better
+    one's is dropped. A line is not usable when the bank wrote it or the room scored it level 0.
+    A line whose normalised text is in `heard` (see `heard_texts`) is dropped first (D-112), so a bit whose lines were all
+    heard yields its slot to the next-best bit of its mode, and a bit with some heard keeps only the others."""
+    return _pool(_candidates(sessions, min_labels), per_mode, heard)
 
 
 def screen(cached: dict[str, list[CachedBit]], check, age: str, venue: str | None = None
@@ -140,18 +138,33 @@ def screen(cached: dict[str, list[CachedBit]], check, age: str, venue: str | Non
     return kept, report
 
 
-def cached_for(bridge_lines, sessions: list[list[dict]], skip_heard: bool = True) -> dict[str, list[CachedBit]] | None:
-    """Cached bits only for the llm stack (the one with bridge lines). The bank stack has no filler today, so a cached
-    line before every bit would be new audio there and would queue its voice in front of bit 0's first render.
-    `skip_heard` (BRIDGE_SKIP_HEARD, on by default, D-112) keeps lines the listener has already heard out of the pool."""
-    return popular_bits(sessions, heard=heard_texts(sessions) if skip_heard else frozenset()) if bridge_lines else None
+def _line_count(pool: dict[str, list[CachedBit]]) -> int:
+    return sum(len(b.lines) for bits in pool.values() for b in bits)
 
 
-def heard_dropped_for(bridge_lines, sessions: list[list[dict]], skip_heard: bool = True) -> int | None:
-    """What `cached_for` skipped, for the show's `cache` row; None when no pool was built or the rule is off."""
-    return heard_dropped(sessions) if bridge_lines and skip_heard else None
+@dataclasses.dataclass(frozen=True)
+class CachePool:
+    bits: dict[str, list[CachedBit]] | None  # None on the bank stack: no cached line at all
+    skip_heard: bool
+    heard_dropped: int | None  # pool lines the rule removed (lines without it minus with it); None when it is off
 
 
-def skip_heard_setting(environ=os.environ) -> bool:
-    """BRIDGE_SKIP_HEARD, on unless set to 0, false, no or off."""
-    return environ.get("BRIDGE_SKIP_HEARD", "1").strip().lower() not in ("0", "false", "no", "off")
+def build_pool(bridge_lines, sessions: list[list[dict]], skip_heard: bool | None = None, environ=os.environ) -> CachePool:
+    """The show's cached pool, built once. Cached bits only for the llm stack (the one with bridge lines): the bank
+    stack has no filler today, so a cached line before every bit would be new audio there and would queue its voice in
+    front of bit 0's first render. `skip_heard` (default: the BRIDGE_SKIP_HEARD setting, on unless 0, false, no or
+    off; D-112) keeps lines the listener has already heard out of the pool. `heard_dropped` is the size of the pool
+    without the rule minus the pool with it, so it counts lines that would have been offered, not every heard line."""
+    if skip_heard is None:
+        skip_heard = environ.get("BRIDGE_SKIP_HEARD", "1").strip().lower() not in ("0", "false", "no", "off")
+    if not bridge_lines:
+        return CachePool(None, skip_heard, None)
+    found = _candidates(sessions, 3)
+    pool = _pool(found, 2, heard_texts(sessions) if skip_heard else frozenset())
+    dropped = _line_count(_pool(found, 2, frozenset())) - _line_count(pool) if skip_heard else None
+    return CachePool(pool, skip_heard, dropped)
+
+
+def cached_for(bridge_lines, sessions: list[list[dict]], skip_heard: bool | None = None, environ=os.environ
+               ) -> dict[str, list[CachedBit]] | None:
+    return build_pool(bridge_lines, sessions, skip_heard, environ).bits
