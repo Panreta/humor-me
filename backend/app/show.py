@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 import numpy as np
@@ -27,6 +27,7 @@ class Batch:
     prompt_id: str
     prompt: str  # exactly what the model saw, so a log replays the generation
     texts: list[str]
+    threads_lost: tuple[str, ...] = ()  # why each dropped thread of this bit produced none (D-110); empty for the bank
 
 
 class Generator(Protocol):
@@ -97,6 +98,7 @@ class _Plan:
     generator_id: str
     bank: Callable[[], Awaitable[None]] | None = None  # consults the bank once; None when there is none or it ran
     render: asyncio.Task | None = None  # the render of options[0], started ahead of its turn
+    threads_lost: list[str] = field(default_factory=list)  # logged in the joke's `candidates` row
 
 
 async def _render(tts, text: str, clock):
@@ -140,6 +142,7 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
     age = context["age"]
     batches: list[Batch | None] = []
     reasons: list[str] = []
+    lost: dict[int, list[str]] = {}
     for joke in range(jokes_per_bit):
         try:
             batches.append(await asyncio.to_thread(generator.generate, mode, bit, joke, context))
@@ -147,6 +150,7 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
         except Exception as e:  # a bad reply or a dead provider must not stop the show
             batches.append(None)
             reasons.append(f"generation failed: {type(e).__name__}: {e}")
+            lost[joke] = list(getattr(e, "threads_lost", []))
     if prefetch := getattr(safety, "prefetch", None):  # the LLM layer judges the whole bit in one call
         await asyncio.to_thread(prefetch, [t for b in batches if b for t in b.texts], age)
     judged = [[_judge(safety.check, t, age) for t in b.texts] if b else [] for b in batches]
@@ -165,7 +169,8 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
             if not batch:  # nothing was generated, so the row still needs one item saying why (invariant 6)
                 items = [{"text": "", "verdict": "reject", "reason": reasons[joke]}]
         plan = _Plan(items, [], batch.prompt_id if batch else f"{generator.generator_id}:failed",
-                     batch.prompt if batch else "", generator.generator_id)
+                     batch.prompt if batch else "", generator.generator_id,
+                     threads_lost=list(batch.threads_lost) if batch else lost.get(joke, []))
         if ok:
             first = picked[0] if picked[0] in ok else ok[selector.pick([batch.texts[i] for i in ok])[0]]
             plan.options = [(first, _marginal(first, ok, picked[1]))] + [
@@ -237,7 +242,7 @@ async def _joke(bit, joke, plans, *, tts, player, source, clock, log, config, sp
     _start_render(plans, joke + 1, tts, clock, spawn)
     spoken = await _speak(plan, tts, clock)
     log.write("candidates", bit=bit, joke=joke, prompt_id=plan.prompt_id, prompt=plan.prompt,
-              generator_id=plan.generator_id, items=plan.items)
+              generator_id=plan.generator_id, items=plan.items, threads_lost=plan.threads_lost)
     if spoken is None:
         return None  # unlabeled: no reaction row, so replay sees the same thing
     chosen, prob, wav, tts_seconds = spoken

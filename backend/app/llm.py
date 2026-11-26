@@ -9,6 +9,7 @@ a second or two on a 429, not longer (the bridge line covers that, docs/plans/li
 import json
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -45,6 +46,17 @@ def strip_think(reply: str) -> str:
     return reply.split("<think>", 1)[0]
 
 
+_COUNTERS = threading.Lock()
+
+
+def bump(client, **deltas: int) -> None:
+    """Adds to a client's counters under a lock: the generator's calls of one bit run on several threads at once, and
+    an unlocked `+=` on a shared client would lose counts (the quota and timing bookkeeping read them)."""
+    with _COUNTERS:
+        for name, n in deltas.items():
+            setattr(client, name, getattr(client, name) + n)
+
+
 class LLMError(Exception):
     def __init__(self, message: str, status: int | None = None, retryable: bool = False):
         super().__init__(message)
@@ -52,20 +64,25 @@ class LLMError(Exception):
         self.retryable = retryable or status in RETRY_STATUS
 
 
-def run_with_retries(client, once: Callable[[float], str], validate: Callable[[str], None] | None = None) -> str:
+def run_with_retries(client, once: Callable[[float], str], validate: Callable[[str], None] | None = None,
+                     deadline_s: float | None = None) -> str:
     """The bounded retry loop shared by every provider's client. `client` carries `timeout`, `retries`, `backoff_s`,
     `deadline_s`, `sleep` and the `attempts`/`retried`/`failed`/`bad_replies` counters; `once(timeout)` makes one attempt.
 
     `validate` raises on a reply the caller cannot use. That reply is asked for once more, inside the same retries and
     deadline and with no backoff (nothing is overloaded); a second bad reply is returned as it is, so the caller
     decides what a bad reply means (the safety filter fails closed on it). If the re-ask itself fails, the first bad
-    reply is returned instead of the error: a partial reply still clears the lines it does judge."""
+    reply is returned instead of the error: a partial reply still clears the lines it does judge.
+
+    `deadline_s` overrides the client's own for this call: a caller that spends one budget over several calls (the
+    generator's K threads) passes what is left, and the client's counters still see every attempt."""
     start = time.monotonic()
+    deadline = client.deadline_s if deadline_s is None else deadline_s
     bad = False
     last_bad: str | None = None
     for attempt in range(client.retries + 1):
-        client.attempts += 1
-        left = None if client.deadline_s is None else client.deadline_s - (time.monotonic() - start)
+        bump(client, attempts=1)
+        left = None if deadline is None else deadline - (time.monotonic() - start)
         try:
             text = once(client.timeout if left is None else max(min(client.timeout, left), 0.1))
             if validate is None:
@@ -74,23 +91,23 @@ def run_with_retries(client, once: Callable[[float], str], validate: Callable[[s
                 validate(text)
                 return text
             except Exception:
-                client.bad_replies += 1
+                bump(client, bad_replies=1)
                 spent = time.monotonic() - start
                 if bad or attempt == client.retries or (
-                        client.deadline_s is not None and spent + MIN_ATTEMPT_S > client.deadline_s):
+                        deadline is not None and spent + MIN_ATTEMPT_S > deadline):
                     return text
                 bad, last_bad = True, text
                 continue  # a re-ask, not a retry: `retried` counts provider failures only
         except LLMError as e:
             wait = client.backoff_s * 2 ** attempt
-            late = (client.deadline_s is not None
-                    and time.monotonic() - start + wait + MIN_ATTEMPT_S > client.deadline_s)
+            late = (deadline is not None
+                    and time.monotonic() - start + wait + MIN_ATTEMPT_S > deadline)
             if not e.retryable or attempt == client.retries or late:
-                client.failed += 1
+                bump(client, failed=1)
                 if last_bad is not None:
                     return last_bad
                 raise
-            client.retried += 1
+            bump(client, retried=1)
             client.sleep(wait)
 
 
@@ -118,9 +135,9 @@ class Client:
     local: bool = False  # a model on this machine (Ollama): its first request loads it, so a show warms it first
 
     def chat(self, system: str, user: str, *, json_reply: bool | dict = False, temperature: float = 0.0,
-             validate: Callable[[str], None] | None = None) -> str:
+             validate: Callable[[str], None] | None = None, deadline_s: float | None = None) -> str:
         return run_with_retries(self, lambda timeout: self._once(system, user, json_reply, temperature, timeout),
-                                validate)
+                                validate, deadline_s)
 
     def _once(self, system: str, user: str, json_reply: bool | dict, temperature: float, timeout: float) -> str:
         body = {"model": self.model, "temperature": temperature,
@@ -154,8 +171,8 @@ class Client:
             raise LLMError("malformed response") from e
         try:  # bookkeeping must never fail a good reply
             usage = body.get("usage") or {}
-            self.input_tokens += int(usage.get("prompt_tokens") or 0)
-            self.output_tokens += int(usage.get("completion_tokens") or 0)
+            bump(self, input_tokens=int(usage.get("prompt_tokens") or 0),
+                 output_tokens=int(usage.get("completion_tokens") or 0))
         except (AttributeError, TypeError, ValueError):
             pass
         # A provider safety block arrives as a normal 200 with no usable text.
@@ -189,7 +206,7 @@ def from_env(timeout: float = 8.0, *, role: str = "joke_writer", provider: str |
     """The client for one job: `role` is `joke_writer` (writes the live jokes) or `safety_check` (judges each line
     before the voice). Each role reads only its own `<ROLE>_PROVIDER` (`gemini`, the default; `anthropic`, the
     official SDK in app.llm_anthropic; or `ollama`, a local model) and `<ROLE>_MODEL`, so the safety check never follows the joke writer to
-    another provider. Both clients expose `chat(system, user, *, json_reply, temperature, validate)` and raise
+    another provider. Both clients expose `chat(system, user, *, json_reply, temperature, validate, deadline_s)` and raise
     `LLMError`. `provider` and `model` override the env (the Exp 24 harness compares several in one process).
     Raises RuntimeError for a missing setting, or a model name that belongs to the other provider."""
     prefix = ROLES[role]

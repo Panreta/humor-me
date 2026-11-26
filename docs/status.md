@@ -1,6 +1,6 @@
 # Status (read this first in a new session)
 
-Last updated: 2026-11-25 (Exp 24 done: bonsai-2:4b picked, D-107). Update this file whenever the state below changes.
+Last updated: 2026-11-25 (per-thread generator, D-110; Exp 26 waits for the user). Update this file whenever the state below changes.
 
 Learning the material from scratch (RL foundations → our experiments → Explorer runbook):
 [study-guide.md](study-guide.md).
@@ -37,7 +37,7 @@ Learning the material from scratch (RL foundations → our experiments → Explo
 
 | Use | Provider / model | Notes |
 |---|---|---|
-| Live show loop | `bonsai-2:4b` on Ollama, on this laptop (`JOKE_WRITER_PROVIDER=ollama`, D-107, D-109) | Exp 24: p50 5.2 s, p95 6.9 s, free. Each show loads it first and refuses to start unless it is 100% on the GPU. Gemini Flash-Lite and Claude Haiku still work by setting the provider |
+| Live show loop | `bonsai-2:4b` on Ollama, on this laptop (`JOKE_WRITER_PROVIDER=ollama`, D-107, D-109), one thread per call, 3 calls in parallel (D-110, needs `OLLAMA_NUM_PARALLEL=3`) | Exp 24: p50 5.2 s, p95 6.9 s, free. Each show loads it first and refuses to start unless it is 100% on the GPU. Gemini Flash-Lite and Claude Haiku still work by setting the provider |
 | Safety check | Claude `claude-haiku-5-5`, thinking off (`SAFETY_CHECK_*`, D-100) | p95 3.6 s per bit against a 7 s bar (moved from 3 s after the data); about $0.003 a show. Moved off Gemini's free tier for its 503s |
 | Offline pipeline (S4/S5) | Gemini `gemini-flash-latest` (`TRANSCRIPT_PIPELINE_MODEL`) | Paused with the transcript pipeline |
 | rJokes mode/safety labels | `Qwen/Qwen2.5-7B-Instruct` via `transformers`, greedy, on Explorer V100 | `explorer/label_modes.py`; vLLM can't run on Explorer's driver/GPUs |
@@ -61,6 +61,7 @@ Learning the material from scratch (RL foundations → our experiments → Explo
 2. **Demo track:** tasks T1–T11 in [plans/live-loop.md](plans/live-loop.md), each PR built by a Sonnet agent and reviewed before
    it reaches the user. T1–T10 merged, Exp 21 met, operator UI revamped; T11 merged and the acceptance run passed (Exp 22). **Cached bits** (D-91, branch `feat/cached-bits`): shows open with the best bits of earlier live shows instead of 7.5 to 11.5 s of silence. **Pause logging** (D-92, branch `feat/pause-logging`, builds on Tingyu's pause button, #59): the browser sends `pause`/`resume`, the server logs them on the show clock, a joke playing during a pause loses its label from the reward (live and replay), the acceptance scorer reports pauses and leaves paused or aborted shows out of the reported rating. Exp 23 waits for the user's 3 simulated `GENERATOR=llm` shows (bar: open silence at most 2 s each; `python -m sim.evaluate_cached <ids> --record`). The safety check's budget is lengthened (12 s / 25 s, 3 retries, one re-ask on a bad reply, 5 bridge lines; Exp 20 rerun met its bars with the filter at 0 failures, but the provider was healthy, so the stall handling rests on tests; D-88). Next: real live shows to collect DPO and detector data. Laugh detection follows T11.
 3. **Exp 24 (which model writes bits): done, D-107.** Pick: `bonsai-2:4b`. All three models passed the bars. Funniness was inconclusive: Haiku's mean rank is 1.67 and bonsai's 2.17, a gap of 0.5 whose 95% interval is 0.00 to 1.00. Bonsai is the live writer and the SFT/DPO base; Haiku is the funnier reference to beat. Table and chart: [metrics.md](metrics.md#generator-models-exp-24-2026-11-25). Next: wiring bonsai into the show (Ollama, reply schema, reasoning off).
+   **Generator (D-110): one thread per call.** Each bit is now 3 parallel calls on one prompt, one thread of 5 jokes each, so a DPO example is one request and the 5 jokes the audience hears. Exp 24 stays frozen on the old one-call generator (digest `2a512264`). **Next: you run Exp 26** (`python -m sim.thread_timing`, Ollama up with `OLLAMA_NUM_PARALLEL=3`; bar: at most 1 of 20 bits loses a thread, none empty, writer still 100% on the GPU). Then the 120-pair ranking tool.
    **What Exp 24 was for:** the trained model speaks on Dec 8, and only a local model can be trained, so the local winner is the SFT/DPO base; Haiku is the yardstick and fallback writer. **Next: the 120-pair ranking tool on bonsai (D-102), then SFT/DPO on Explorer.** DPO's judge is the D-95 judge, taught on 60 same-model pairs you rank and gated on 60 more (at least 38 of 60, D-102).
    **Safety filter: Claude Haiku 5.5, thinking off (D-100),** in shows and in Exp 24. It passed Exp 19's safety bars; p95 3.6 s per bit against a 7 s limit (moved from 3 s after the data). Not yet checked: the 2 s between-bit silence rule, which the Exp 23 shows will show.
 4. Week 6: final sim figures for the report.

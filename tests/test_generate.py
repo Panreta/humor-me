@@ -7,6 +7,7 @@ import re
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 import numpy as np
@@ -14,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "backend"))
 
-from app import generate, llm, safety  # noqa: E402
+from app import generate, generate_v3, llm, safety  # noqa: E402
 from app.bank import BankGenerator  # noqa: E402
 from app.director import EPSILON, load_director  # noqa: E402
 from app.log import SessionLog, read_session  # noqa: E402
@@ -29,6 +30,11 @@ FAST = ReactionConfig(holds={3: 0.01, 2: 0.01, 1: 0.01, 0: 0.01, None: 0.0}, tim
 def reply(n_jokes=5, k=3, tag="x"):
     """The one accepted shape: thread-major, threads[i][j] is joke j of thread i."""
     return json.dumps({"premises": [f"p{i}" for i in range(k)], "threads": [[f"{tag} line {j}.{i}" for j in range(n_jokes)] for i in range(k)]})
+
+
+def thread_reply(tag="x", premise="p"):
+    """The one gen-v4 shape: a premise and 5 lines."""
+    return json.dumps({"premise": premise, "jokes": [f"{tag} line {j}." for j in range(5)]})
 
 
 JOKE_MAJOR = json.dumps({"premises": ["p"], "jokes": [[f"line {j}.{i}" for i in range(3)] for j in range(5)]})
@@ -81,15 +87,15 @@ def test_a_client_error_and_a_provider_block_are_not_retried():
 
 
 @pytest.mark.parametrize("raw", [
-    "<think>hmm {not json}</think>\n" + reply(),  # a reasoning block before the JSON
-    "<think>\nmulti\nline\n</think>" + reply(),
-    "reasoning the template opened in the prompt</think>" + reply(),  # only the closing tag is in the reply
-    "<think>a</think><think>b</think>" + reply(),
-    reply(),  # no block: untouched
+    "<think>hmm {not json}</think>\n" + thread_reply(),  # a reasoning block before the JSON
+    "<think>\nmulti\nline\n</think>" + thread_reply(),
+    "reasoning the template opened in the prompt</think>" + thread_reply(),  # only the closing tag is in the reply
+    "<think>a</think><think>b</think>" + thread_reply(),
+    thread_reply(),  # no block: untouched
 ])
 def test_a_reasoning_block_never_breaks_the_json_parse(raw):
     c, _ = client((200, completion(raw)))
-    assert generate.GeminiGenerator(c).generate("neurotic", 0, 0, {"venue": "club", "energy": "high", "age": "adults"}).texts
+    assert generate.ThreadGenerator(c).generate("neurotic", 0, 0, {"venue": "club", "energy": "high", "age": "adults"}).texts
 
 
 def test_a_reply_that_is_only_an_unfinished_reasoning_block_is_an_empty_reply():
@@ -155,21 +161,21 @@ def test_default_client_never_retries():
     assert len(seen) == 1
 
 
-# --- the generator ---
+# --- the frozen gen-v3 generator (Exp 24's harness; the show runs gen-v4 below) ---
 
 def test_one_call_per_bit_serves_all_five_jokes_with_three_candidates_each():
     c, seen = client((200, completion(reply())))
-    g = generate.GeminiGenerator(c)
+    g = generate_v3.GeminiGenerator(c)
     batches = [g.generate("cynic", 0, j, CTX) for j in range(5)]
     assert len(seen) == 1
     assert [len(b.texts) for b in batches] == [3] * 5 and batches[2].texts[1] == "x line 2.1"
-    assert seen[0]["temperature"] == generate.TEMPERATURE and seen[0]["response_format"] == {"type": "json_object"}
+    assert seen[0]["temperature"] == generate_v3.TEMPERATURE and seen[0]["response_format"] == {"type": "json_object"}
     assert batches[0].prompt.startswith(seen[0]["messages"][0]["content"])  # the log holds what the model saw
 
 
 def test_only_the_premise_of_the_played_thread_is_told_to_the_next_bit():
     c, seen = client((200, completion(reply())))
-    g = generate.GeminiGenerator(c)
+    g = generate_v3.GeminiGenerator(c)
     g.generate("cynic", 0, 0, CTX)
     g.played_thread(0, 1)
     g.generate("optimist", 1, 0, CTX)
@@ -188,7 +194,7 @@ def test_only_the_premise_of_the_played_thread_is_told_to_the_next_bit():
                                  json.dumps([1, 2])])
 def test_a_malformed_reply_raises_for_every_joke_without_a_second_call(bad):
     c, seen = client((200, completion(bad)))
-    g = generate.GeminiGenerator(c)
+    g = generate_v3.GeminiGenerator(c)
     for joke in range(5):
         with pytest.raises(generate.GenerationError):
             g.generate("cynic", 0, joke, CTX)
@@ -197,7 +203,7 @@ def test_a_malformed_reply_raises_for_every_joke_without_a_second_call(bad):
 
 def test_a_timeout_raises_for_every_joke_without_a_second_call():
     c, seen = client(httpx.ConnectTimeout("down"))
-    g = generate.GeminiGenerator(c)
+    g = generate_v3.GeminiGenerator(c)
     for joke in range(5):
         with pytest.raises(llm.LLMError):
             g.generate("cynic", 0, joke, CTX)
@@ -213,14 +219,14 @@ def test_fence_stripping_is_shared_with_the_safety_parser():
 
 def test_a_thread_major_reply_becomes_joke_major_batches_with_thread_i_at_index_i():
     fence = chr(96) * 3
-    premises, lines = generate.parse(fence + "json" + chr(10) + reply() + chr(10) + fence)
+    premises, lines = generate_v3.parse(fence + "json" + chr(10) + reply() + chr(10) + fence)
     assert premises == ["p0", "p1", "p2"] and [len(r) for r in lines] == [3] * 5
     assert lines[4] == ["x line 4.0", "x line 4.1", "x line 4.2"] and lines[0][2] == "x line 0.2"
 
 
 def test_the_prompt_holds_the_identity_the_rules_and_teens_only_for_teens():
     c, seen = client((200, completion(reply())))
-    g = generate.GeminiGenerator(c)
+    g = generate_v3.GeminiGenerator(c)
     g.generate("wordsmith", 0, 0, CTX)
     g.generate("wordsmith", 1, 0, {**CTX, "age": "teens"})
     adults, teens = (s["messages"][0]["content"] for s in seen)
@@ -234,6 +240,258 @@ def test_the_prompt_holds_the_identity_the_rules_and_teens_only_for_teens():
 @pytest.mark.parametrize("age", ["mixed", "teens"])
 def test_every_bridge_line_passes_the_rules(age):
     assert all(safety.check_rules(t, age).ok for t in generate.BRIDGES)
+
+
+# --- the gen-v4 generator: one thread per call, three calls in parallel on one prompt (D-110) ---
+
+def parallel_client(*steps, wait_for=3, hold_s=3.0, **options):
+    """A transport that holds every request until `wait_for` have arrived (or `hold_s` passes), so only calls that
+    overlap in time get through together. `steps[i]` answers the i-th request to arrive: a reply text or an
+    Exception to raise (the last one repeats). Returns (client, seen bodies, state with the peak held at once)."""
+    seen, lock, gate = [], threading.Lock(), threading.Event()
+    state = {"in": 0, "peak": 0}
+
+    def handler(request):
+        with lock:
+            seen.append(json.loads(request.content))
+            n = len(seen)
+            state["in"] += 1
+            state["peak"] = max(state["peak"], state["in"])
+            if state["in"] >= wait_for:
+                gate.set()
+        gate.wait(hold_s)  # a sequential generator never reaches wait_for, and gets through only after hold_s
+        with lock:
+            state["in"] -= 1
+        step = steps[min(n - 1, len(steps) - 1)]
+        if isinstance(step, Exception):
+            raise step
+        return httpx.Response(200, json=completion(step))
+    c = llm.Client("http://fake", "k", "m", transport=httpx.MockTransport(handler), sleep=lambda s: None, **options)
+    return c, seen, state
+
+
+def test_parse_accepts_only_one_premise_and_five_lines():
+    assert generate.parse(thread_reply(premise=" a robot at a bar ")) == ("a robot at a bar", [f"x line {j}." for j in range(5)])
+    fence = chr(96) * 3
+    assert generate.parse(fence + "json" + chr(10) + thread_reply() + chr(10) + fence)[0] == "p"
+    for bad in (reply(), JOKE_MAJOR, "not json", json.dumps([1]), json.dumps({"jokes": ["a"] * 5}),
+                json.dumps({"premise": "p"}), json.dumps({"premise": 3, "jokes": ["a"] * 5}),
+                json.dumps({"premise": "p", "jokes": "abcde"}), json.dumps({"premise": "p", "jokes": ["a"] * 4}),
+                json.dumps({"premise": "p", "jokes": ["a"] * 6}), json.dumps({"premise": "p", "jokes": [1] * 5}),
+                json.dumps({"premise": "p", "jokes": ["a", "a", "a", "a", ""]}),
+                json.dumps({"premise": "p", "jokes": ["a", "a", "a", "a", chr(0x1F642) + "!"]})):
+        with pytest.raises(generate.GenerationError):
+            generate.parse(bad)
+
+
+def test_three_identical_calls_overlap_in_time_and_serve_all_five_jokes_with_three_candidates_each():
+    c, seen, state = parallel_client(*(thread_reply(tag=t) for t in "abc"))
+    g = generate.ThreadGenerator(c)
+    start = time.monotonic()
+    batches = [g.generate("cynic", 0, j, CTX) for j in range(5)]
+    assert time.monotonic() - start < 2.5  # the server holds 3 s if the calls come one after another
+    assert len(seen) == 3 and state["peak"] == 3
+    assert seen[0] == seen[1] == seen[2]  # same system and user message: independent samples of one prompt
+    assert "premises_this_bit" not in seen[0]["messages"][1]["content"]
+    assert json.loads(seen[0]["messages"][1]["content"]) == {"venue": "bar", "energy": "high", "premises_already_told": []}
+    assert seen[0]["temperature"] == generate.TEMPERATURE and seen[0]["response_format"] == {"type": "json_object"}
+    assert [len(b.texts) for b in batches] == [3] * 5
+    assert sorted(batches[2].texts) == ["a line 2.", "b line 2.", "c line 2."]
+    assert batches[0].prompt.startswith(seen[0]["messages"][0]["content"])  # the log holds what the model saw
+    assert (c.attempts, c.failed) == (3, 0)
+
+
+def test_threads_keep_the_order_of_their_calls_not_of_their_completion():
+    n = {"i": 0}
+    lock = threading.Lock()
+
+    def handler(request):
+        with lock:
+            mine = n["i"]
+            n["i"] += 1
+        if mine == 0:
+            time.sleep(0.3)  # the first call to arrive finishes last
+        return httpx.Response(200, json=completion(thread_reply(tag=f"call{mine}", premise=f"p{mine}")))
+    g = generate.ThreadGenerator(llm.Client("http://fake", "k", "m", transport=httpx.MockTransport(handler)))
+    lines = [g.generate("cynic", 0, j, CTX).texts for j in range(5)]
+    premises = g._bits[0][2]
+    assert sorted(premises) == ["p0", "p1", "p2"]
+    for j in range(5):  # premise i and line j of thread i come from the same call
+        assert [t.split()[0] for t in lines[j]] == [f"call{p[1:]}" for p in premises]
+    first = [t.split()[0] for t in lines[0]]
+    assert all([t.split()[0] for t in row] == first for row in lines)
+
+
+def test_a_failed_or_malformed_call_drops_only_its_thread():
+    for broken in (httpx.ConnectTimeout("down"), "not json", reply(), json.dumps({"premise": "p", "jokes": ["a"] * 4})):
+        c, seen, _ = parallel_client(thread_reply(tag="a", premise="pa"), broken, thread_reply(tag="c", premise="pc"))
+        g = generate.ThreadGenerator(c)
+        batches = [g.generate("cynic", 0, j, CTX) for j in range(5)]
+        assert len(seen) == 3 and [len(b.texts) for b in batches] == [2] * 5
+        assert len(g._bits[0][2]) == 2  # premises line up with the threads that came back
+        premise_of = {"a": "pa", "c": "pc"}  # the premise each surviving call wrote, keyed by its lines' tag
+        for thread in (0, 1):
+            g.played_thread(0, thread)
+            assert g._told[-1] == premise_of[batches[0].texts[thread].split()[0]]  # the played thread's, not another's
+        assert len(g._told) == 2
+        assert len(batches[0].threads_lost) == 1 and "line 0" not in batches[0].threads_lost[0]  # a reason, no text
+        assert batches[4].threads_lost == batches[0].threads_lost
+
+
+def test_with_no_thread_every_joke_raises_and_no_further_call_is_made():
+    for bad in (httpx.ConnectTimeout("down"), "not json"):
+        c, seen, _ = parallel_client(bad)
+        g = generate.ThreadGenerator(c)
+        for joke in range(5):
+            with pytest.raises(generate.GenerationError):
+                g.generate("cynic", 0, joke, CTX)
+        assert len(seen) == 3
+        g.played_thread(0, 0)
+        assert g._told == []
+        with pytest.raises(generate.GenerationError) as e:
+            g.generate("cynic", 0, 0, CTX)
+        assert len(e.value.threads_lost) == 3 and all(isinstance(x, str) for x in e.value.threads_lost)
+
+
+class SpyClient:
+    deadline_s, model, local = 12.0, "m", False
+
+    def __init__(self):
+        self.deadlines, self.lock = [], threading.Lock()
+
+    def chat(self, system, user, **kw):
+        with self.lock:
+            self.deadlines.append(kw["deadline_s"])
+        return thread_reply()
+
+
+def test_the_whole_bit_shares_one_budget_and_no_call_starts_without_time():
+    spy = SpyClient()
+    generate.ThreadGenerator(spy).generate("cynic", 0, 0, CTX)
+    assert spy.deadlines == [12.0] * 3  # the calls start together: each has the bit's whole budget, none its own
+    spy = SpyClient()
+    spy.deadline_s = 4.0  # a client with a tighter deadline of its own keeps it
+    generate.ThreadGenerator(spy).generate("cynic", 0, 0, CTX)
+    assert spy.deadlines == [4.0] * 3
+    spy = SpyClient()
+    with pytest.raises(generate.GenerationError):
+        generate.ThreadGenerator(spy, budget_s=llm.MIN_ATTEMPT_S - 0.1).generate("cynic", 0, 0, CTX)
+    assert spy.deadlines == []
+
+
+def test_a_slow_server_ends_the_bit_at_the_shared_deadline_with_no_further_call():
+    seen = []
+
+    def handler(request):
+        seen.append(1)
+        time.sleep(request.extensions["timeout"]["read"])
+        raise httpx.ReadTimeout("slow")
+    c = llm.Client("http://fake", "k", "m", timeout=5.0, retries=2, backoff_s=0.05, deadline_s=5.0,
+                   transport=httpx.MockTransport(handler))
+    g = generate.ThreadGenerator(c, budget_s=0.8)
+    start = time.monotonic()
+    for joke in range(5):
+        with pytest.raises(generate.GenerationError):
+            g.generate("cynic", 0, joke, CTX)
+    assert time.monotonic() - start < 1.6  # each call is cut at the 0.8 s the bit has, retries included
+    assert len(seen) == 3  # one attempt per call: a retry would be cut off before it started
+    time.sleep(1.0)  # past the bit's 0.8 s and every call's own deadline: nothing may start later
+    assert len(seen) == 3
+    for joke in range(5):
+        with pytest.raises(generate.GenerationError):
+            g.generate("cynic", 0, joke, CTX)
+    assert len(seen) == 3  # the failure is cached for the bit's other jokes
+
+
+def test_a_call_that_ignores_its_timeout_cannot_hold_the_bit_past_the_budget(monkeypatch):
+    monkeypatch.setattr(generate, "HANG_GRACE_S", 0.3)
+
+    class Hung(SpyClient):
+        def chat(self, system, user, **kw):
+            time.sleep(3.0)  # a client bug: it never honours deadline_s
+            return thread_reply()
+    g = generate.ThreadGenerator(Hung(), budget_s=0.5)
+    start = time.monotonic()
+    with pytest.raises(generate.GenerationError) as e:
+        g.generate("cynic", 0, 0, CTX)
+    assert time.monotonic() - start < 1.5 and len(e.value.threads_lost) == 3
+    assert all("outlived" in x for x in e.value.threads_lost)
+
+
+def test_client_counters_stay_exact_when_calls_run_on_many_threads():
+    ok = llm.Client("http://fake", "k", "m", sleep=lambda s: None, transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, json={**completion("ok"), "usage": {"prompt_tokens": 3, "completion_tokens": 2}})))
+    with ThreadPoolExecutor(16) as pool:
+        list(pool.map(lambda _: [ok.chat("s", "u") for _ in range(200)], range(16)))
+    assert (ok.attempts, ok.input_tokens, ok.output_tokens) == (3200, 9600, 6400)
+    bad = llm.Client("http://fake", "k", "m", sleep=lambda s: None, retries=1,
+                     transport=httpx.MockTransport(lambda request: httpx.Response(503, json={})))
+
+    def call(_):
+        for _ in range(100):
+            with pytest.raises(llm.LLMError):
+                bad.chat("s", "u")
+    with ThreadPoolExecutor(16) as pool:
+        list(pool.map(call, range(16)))
+    assert (bad.attempts, bad.retried, bad.failed) == (3200, 1600, 1600)
+
+
+def test_a_per_call_deadline_replaces_the_clients_own_for_that_call_only():
+    c, seen = client((503, {}), retries=5, backoff_s=2.0, deadline_s=60.0)
+    with pytest.raises(llm.LLMError):
+        c.chat("s", "u", deadline_s=1.0)  # the first backoff (2 s) is past this call's 1 s
+    assert len(seen) == 1
+    c, seen = client((503, {}), (200, completion("ok")), retries=5, backoff_s=0.01, deadline_s=0.0001)
+    assert c.chat("s", "u", deadline_s=30.0) == "ok" and len(seen) == 2
+
+
+def test_only_the_premise_of_the_played_thread_is_told_to_the_next_bit():
+    c, seen, _ = parallel_client(*(thread_reply(premise=f"p{i}") for i in range(6)))
+    g = generate.ThreadGenerator(c)
+    g.generate("cynic", 0, 0, CTX)
+    first = g._bits[0][2]
+    g.played_thread(0, 1)
+    g.generate("optimist", 1, 0, CTX)
+    told = json.loads(seen[3]["messages"][1]["content"])["premises_already_told"]
+    assert told == [first[1]] and len(seen) == 6  # not the premises of the threads the room never heard
+    assert all(json.loads(s["messages"][1]["content"])["premises_already_told"] == told for s in seen[3:])
+    g.played_thread(5, 0)  # a bit that was never generated, or a thread with no premise, is ignored
+    g.played_thread(1, 9)
+    assert g._told == told
+
+
+def test_the_prompt_holds_the_identity_the_rules_and_teens_only_for_teens():
+    c, seen, _ = parallel_client(thread_reply())
+    g = generate.ThreadGenerator(c)
+    g.generate("wordsmith", 0, 0, CTX)
+    g.generate("wordsmith", 1, 0, {**CTX, "age": "teens"})
+    adults, teens = (s["messages"][0]["content"] for s in (seen[0], seen[3]))
+    for text in (adults, teens):
+        assert "slightly anxious robot" in text and "wordplay" in text and "one thread" in text
+        assert "bodies or appearance" in text and "protected groups" in text and "named people" in text
+        assert "premises_this_bit" not in text and "alternative threads" not in text
+    assert "teenagers" in teens and "teenagers" not in adults
+
+
+def test_a_bit_that_got_fewer_threads_still_plays_one_through_the_show(tmp_path):
+    rows, voice = show(tmp_path, Gen(threads=2), Filter(), n_bits=2)
+    for bit in range(2):
+        plays = [r for r in rows if r["event"] == "joke_played" and r["bit"] == bit]
+        assert len(plays) == 5 and len({thread_of(r["text"]) for r in plays}) == 1
+        assert [r["pick_prob"] for r in plays] == [0.5] * 5
+    assert all(len(r["items"]) == 2 for r in rows if r["event"] == "candidates")  # the log shows how many threads it got
+    rows, _ = show(tmp_path / "lost", Gen(threads=2, lost=["LLMError: transport: ReadTimeout"]), Filter(), n_bits=1)
+    cand = [r for r in rows if r["event"] == "candidates"]
+    assert len(cand) == 5 and all(r["threads_lost"] == ["LLMError: transport: ReadTimeout"] for r in cand)
+    rows, _ = show(tmp_path / "all_lost", Gen(fail=True, lost=["LLMError: a", "LLMError: b", "GenerationError: c"]),
+                   Filter(), fallback=BankGenerator(), n_bits=1)
+    cand = [r for r in rows if r["event"] == "candidates"]
+    assert cand and all(r["threads_lost"] == ["LLMError: a", "LLMError: b", "GenerationError: c"] for r in cand)
+    rows, _ = show(tmp_path / "none", Gen(), Filter(), n_bits=1)
+    assert all(r["threads_lost"] == [] for r in rows if r["event"] == "candidates")  # always present, empty when none
+    rows, _ = show(tmp_path / "one", Gen(threads=1), Filter(), n_bits=1)
+    assert [r["pick_prob"] for r in rows if r["event"] == "joke_played"] == [1.0] * 5
+    assert all(len(r["items"]) == 1 for r in rows if r["event"] == "candidates")
 
 
 # --- the show around it ---
@@ -294,15 +552,19 @@ class Filter:
 
 
 class Gen:
-    def __init__(self, tag="ok", fail=False, delay=0.0):
+    def __init__(self, tag="ok", fail=False, delay=0.0, threads=3, lost=()):
         self.generator_id, self.tag, self.fail, self.delay, self.calls = f"gen-{tag}", tag, fail, delay, 0
+        self.lost = tuple(lost)  # the reasons its dropped threads are logged with
+        self.threads = threads  # how many threads the bit got: a bit whose other calls failed has fewer
 
     def generate(self, mode, bit, joke, context):
         self.calls += 1
         time.sleep(self.delay)
         if self.fail:
-            raise llm.LLMError("http 503", 503)
-        return generate.Batch("p", f"prompt {bit}", [f"{self.tag} {bit}.{joke}.{i}" for i in range(3)])
+            err = llm.LLMError("http 503", 503)
+            err.threads_lost = list(self.lost)
+            raise err
+        return generate.Batch("p", f"prompt {bit}", [f"{self.tag} {bit}.{joke}.{i}" for i in range(self.threads)], self.lost)
 
 
 def show(tmp_path, gen, flt, voice=None, fallback=None, bridges=None, n_bits=3, seed=0):
@@ -637,7 +899,7 @@ def test_stack_choice_and_the_live_room_guard(monkeypatch, tmp_path):
     monkeypatch.setenv("LLM_BASE_URL", "http://x")
     monkeypatch.setenv("LLM_MODEL", "m")
     gen, filt, fallback, bridges = main.make_stack("sim")
-    assert isinstance(gen, generate.GeminiGenerator) and isinstance(fallback, BankGenerator) and bridges
+    assert isinstance(gen, generate.ThreadGenerator) and isinstance(fallback, BankGenerator) and bridges
     assert gen.client.retries == generate.RETRIES and filt.client.retries == generate.FILTER_RETRIES
 
 
@@ -783,7 +1045,7 @@ def local_writer(*script):
     transport, seen = server(*script)
     c = llm.Client("http://local/v1", "", "bonsai-2:4b", 10.0, transport=transport, retries=2, deadline_s=12.0,
                    local=True, extra_body=llm.OLLAMA_NO_THINK, json_schema=True)
-    return generate.GeminiGenerator(c), seen
+    return generate.ThreadGenerator(c), seen
 
 
 def ps(*models, context=8192):
@@ -807,7 +1069,7 @@ def test_warm_up_loads_a_local_writer_once_without_touching_the_shows_client():
     assert asked == ["http://local/api/ps"]
     assert seen[0]["model"] == "bonsai-2:4b" and seen[0]["reasoning_effort"] == "none"
     assert gen.client.attempts == 0 and gen.client.timeout == 10.0  # a copy carried the long timeout
-    assert generate.warm_up(generate.GeminiGenerator(llm.Client("http://g", "k", "m"))) is None
+    assert generate.warm_up(generate.ThreadGenerator(llm.Client("http://g", "k", "m"))) is None
     assert generate.warm_up(BankGenerator()) is None
 
 

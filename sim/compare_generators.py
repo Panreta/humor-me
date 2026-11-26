@@ -42,7 +42,7 @@ import numpy as np
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DATA = ROOT / "data" / "model_comparison"
 sys.path.insert(0, str(ROOT / "backend"))
-from app import generate, llm, safety  # noqa: E402
+from app import generate_v3 as generate, llm, safety  # noqa: E402  frozen gen-v3: Exp 24's stored run was made with it (D-110)
 from sim import cache  # noqa: E402
 from sim.blind import plain  # noqa: E402
 from sim.env import AGES, ENERGIES, VENUES  # noqa: E402

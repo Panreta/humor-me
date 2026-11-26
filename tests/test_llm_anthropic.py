@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "backend"))
 
-from app import generate, llm, llm_anthropic  # noqa: E402
+from app import generate, generate_v3, llm, llm_anthropic  # noqa: E402
 
 REQ = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
 
@@ -193,8 +193,10 @@ def test_a_schema_is_sent_as_structured_output_and_a_bare_true_sends_none():
 
 def test_the_generators_and_filters_reply_schemas_are_what_their_parsers_accept():
     from app import safety
-    assert set(generate.REPLY_SCHEMA["required"]) == {"premises", "threads"}
+    assert set(generate.REPLY_SCHEMA["required"]) == {"premise", "jokes"}
     assert generate.REPLY_SCHEMA["additionalProperties"] is False
+    assert set(generate.REPLY_SCHEMA["properties"]) == {"premise", "jokes"}  # nothing the parser would not read
+    assert set(generate_v3.REPLY_SCHEMA["required"]) == {"premises", "threads"}  # Exp 24's, frozen
     item = safety.REPLY_SCHEMA["properties"]["verdicts"]["items"]
     assert set(item["required"]) == {"id", "ok", "reason"} and item["additionalProperties"] is False
     sent = []
@@ -229,9 +231,9 @@ def test_if_the_reask_fails_the_first_bad_reply_is_returned_not_the_error():
 
 def test_generator_runs_on_the_claude_client():
     import json
-    reply = json.dumps({"premises": ["a", "b", "c"], "threads": [[f"line {j} of {i}." for j in range(5)] for i in range(3)]})
-    c, sdk = client(message(text(reply)))
-    batch = generate.GeminiGenerator(c).generate("neurotic", 0, 0, {"venue": "bar", "energy": "low", "age": "mixed"})
+    reply = json.dumps({"premise": "a", "jokes": [f"line {j}." for j in range(5)]})
+    c, sdk = client(message(text(reply)), message(text(reply)), message(text(reply)))
+    batch = generate.ThreadGenerator(c).generate("neurotic", 0, 0, {"venue": "bar", "energy": "low", "age": "mixed"})
     assert len(batch.texts) == 3
     assert sdk.calls[0]["output_config"]["format"]["schema"] == generate.REPLY_SCHEMA
 

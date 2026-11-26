@@ -18,7 +18,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
-from app import generate, llm  # noqa: E402
+from app import generate_v3 as generate, llm  # noqa: E402  frozen gen-v3, as Exp 24 ran it (D-110)
 from sim import cache  # noqa: E402
 from sim import compare_generators as cg  # noqa: E402
 

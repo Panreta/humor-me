@@ -988,3 +988,20 @@ def test_the_ballot_shows_no_punctuation_that_gives_a_model_away(data, monkeypat
     assert not set(ballot) & set("’‘“”—–…")
     stored = cg.final(rec_of(QWEN, "p00"))["threads"][0][0]
     assert "—" in stored  # display only: the stored bit keeps what the model wrote
+
+
+def test_exp_24_harness_is_frozen_on_gen_v3_and_its_digests_are_the_stored_runs(monkeypatch):
+    """D-110: the show moved to gen-v4, but Exp 24's stored calls (data/model_comparison/gen-2a512264) were made with
+    gen-v3, and `score` asserts the digest. A change to the frozen module, or to what it hashes, fails here first."""
+    from app import generate as live, generate_v3
+    from sim import screen_local
+    monkeypatch.setattr(cg, "MODELS", SHIPPED)  # the autouse fixture adds a stand-in reference, which the digest hashes
+    assert cg.generate is generate_v3 and screen_local.generate is generate_v3
+    assert cg.gen_digest() == "2a512264"
+    assert screen_local.prompt_digest() == "9cfd7e12"
+    assert generate_v3.PROMPT_ID == "gen-v3" and live.PROMPT_ID == "gen-v4"
+    assert generate_v3.SYSTEM != live.SYSTEM and cg.generate.GeminiGenerator.__module__ == "app.generate_v3"
+    assert not hasattr(live, "GeminiGenerator") and not hasattr(live, "premises_this_bit")
+    for name in ("MODES", "TEENS_RULE", "FILTER_TIMING", "FILTER_RETRIES"):  # frozen copies, equal to the live ones today
+        assert getattr(generate_v3, name) == getattr(live, name)
+    assert generate_v3.MODES is not live.MODES  # a copy: editing the live dict cannot reach Exp 24
