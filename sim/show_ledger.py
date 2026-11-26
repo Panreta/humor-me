@@ -33,6 +33,7 @@ import argparse
 import datetime
 import hashlib
 import itertools
+import math
 import json
 import pathlib
 import re
@@ -50,7 +51,7 @@ from sim.evaluate_gaps import ZERO_S, show_report as gap_report  # noqa: E402
 from sim.stage_timing import bits_of  # noqa: E402
 
 NAME = "show_ledger"
-VERSION = 2  # bump when the record changes shape, so an unchanged set of logs still re-records
+VERSION = 3  # bump when the record changes shape, so an unchanged set of logs still re-records
 BITS_DIR = ROOT / "reports" / "show_bits"
 ALPHA = 0.05
 LIVE, SIM = "live", "simulated audience"
@@ -59,16 +60,20 @@ BANK_PREFIX = "bank"
 # What a first show of a setup changed, for the chart's markers. Judgment calls; each names its decision.
 CHANGES = {
     "writer": {"bank-v1": "hand-written bank only", "gen-v3": "T9 LLM writer",
-               "gen-v4": "D-110 one call per thread, 3 in parallel", "gen-v5": "D-111 connected-bit prompt live"},
-    "model": {"bonsai-2:4b": "D-107 local writer"},
+               "gen-v4": "D-110 one call per thread", "gen-v5": "D-111 addendum: connected-bit prompt live"},
+    "model": {"bonsai-2:4b": "D-109 shows write with bonsai"},
+    "reply_fixes": "D-111 reply-format fixes",
     "prediction": "D-115 next bit prepared early",
-    "bridge": {"repeat-ok": "", "skip-heard": "D-112 skips heard lines"},
+    "bridge": {"repeat-ok": "D-91 cached bridge lines", "skip-heard": "D-112 skips heard lines"},
 }
 # Plain words first, the code name in brackets after them, wherever a person reads a setup.
 PROMPT_WORDS = {"gen-v3": "3 threads in one reply", "gen-v4": "one call per thread, 3 in parallel",
                 "gen-v5": "connected-bit prompt, each line builds on the last"}
 MODEL_WORDS = {"gemini-flash-lite-latest": "Gemini", "bonsai-2:4b": "local (bonsai)"}
 BRIDGE_WORDS = {"no-cache": "no cached lines", "repeat-ok": "may replay heard lines", "skip-heard": "skips heard lines"}
+# The first merged pull request whose code has the change; a show on older code lacks it (D-111's reply fixes, D-115's guess).
+REPLY_FIXES_PR = 79
+GUESS_PR = 83
 
 
 def writer_parts(generator_id: str) -> tuple[str, str]:
@@ -84,8 +89,13 @@ def bridge_rule(rows: list[dict]) -> str:
     return "skip-heard" if c.get("skip_heard") else "repeat-ok"
 
 
+def code_id(rec: dict) -> str:
+    """The prompt's code name; gen-v4 shows on code before D-111's reply-format fixes are a different setup."""
+    return rec["prompt"] + (" before D-111 fixes" if rec.get("reply_fixes") is False else "")
+
+
 def setup_of(rec: dict) -> str:
-    return f"{rec['generator_id']} / guess {'on' if rec['prediction'] else 'off'} / bridges {rec['bridge']}"
+    return f"{rec['generator_id']}{' before D-111 fixes' if rec['reply_fixes'] is False else ''} / guess {'on' if rec['prediction'] else 'off'} / bridges {rec['bridge']}"
 
 
 def lost_class(reason: str) -> str:
@@ -140,29 +150,45 @@ def mean(xs: list) -> float | None:
     return sum(xs) / len(xs) if xs else None
 
 
-def pr_of(sha: str, ref: str = "main") -> dict:
-    """The merge into `ref` that first brought `sha` in ("#80", branch), else the short sha. `git` failing is not an error."""
+def pr_of(sha: str, ref: str = "main", cwd: pathlib.Path = ROOT) -> dict:
+    """The pull request a show's code belongs to ("#80", branch), else the short sha. A sha that is itself a merge on
+    `ref`'s first-parent line is that merge; any other commit gets the first merge that brought it in. `git` failing is
+    not an error."""
     short = sha[:7]
     try:
         def git(*a):
-            return subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True, timeout=20, check=True).stdout.strip()
-        first = git("rev-list", "--first-parent", "--ancestry-path", "--reverse", f"{sha}..{ref}").splitlines()
-        subject = git("log", "-1", "--format=%s", first[0] if first else sha)
+            return subprocess.run(["git", *a], cwd=cwd, capture_output=True, text=True, timeout=20, check=True).stdout.strip()
+        full = git("rev-parse", "--verify", f"{sha}^{{commit}}")
+        if full in git("rev-list", "--first-parent", ref).splitlines():
+            merge = full
+        else:
+            first = git("rev-list", "--first-parent", "--ancestry-path", "--reverse", f"{full}..{ref}").splitlines()
+            merge = first[0] if first else full
+        subject = git("log", "-1", "--format=%s", merge)
     except (OSError, subprocess.SubprocessError):
         return {"sha": short, "pr": None, "branch": None}
     m = re.match(r"Merge pull request #(\d+) from \S+?/(\S+)", subject)
     return {"sha": short, "pr": int(m.group(1)) if m else None, "branch": m.group(2) if m else None}
 
 
-def main_head(ref: str = "main") -> str:
+def main_head(ref: str = "main", cwd: pathlib.Path = ROOT) -> str:
     try:
-        return subprocess.run(["git", "rev-parse", ref], cwd=ROOT, capture_output=True, text=True, timeout=20).stdout.strip()
+        return subprocess.run(["git", "rev-parse", ref], cwd=cwd, capture_output=True, text=True, timeout=20).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return ""
 
 
-def show_row(session: str, rows: list[dict]) -> dict:
+def local_time(at: float) -> datetime.datetime:
+    """The show's start on the machine's clock (so an evening show lands on its own day); UTC when the OS cannot say."""
+    try:
+        return datetime.datetime.fromtimestamp(at, datetime.timezone.utc).astimezone()
+    except (OSError, OverflowError, ValueError):
+        return datetime.datetime.fromtimestamp(at, datetime.timezone.utc)
+
+
+def show_row(session: str, rows: list[dict], pr: dict | None = None) -> dict:
     start = rows[0]
+    pr = pr or {"sha": start["git_sha"][:7], "pr": None, "branch": None}
     ends = [r["status"] for r in rows if r["event"] == "show_end"]
     ratings = [r["value"] for r in rows if r["event"] == "rating"]
     gaps = gap_report(session, rows)
@@ -176,13 +202,19 @@ def show_row(session: str, rows: list[dict]) -> dict:
     waits = gaps["gaps"]
     guesses = gaps["guesses"]
     prompt, model = writer_parts(start["generator_id"])
+    n_bits = sum(r["event"] == "bit_end" for r in rows)
+    guessed = any(r["event"] == "prediction" for r in rows)
+    # A show cut short before its first guess has no prediction rows; its code decides (PREDICT_NEXT_BIT defaults on).
+    inferred = not guessed and n_bits < 2 and pr["pr"] is not None and pr["pr"] >= GUESS_PR
+    when = local_time(start["at"])
     rec = {
         "session": session, "at": start["at"],
-        "started_utc": datetime.datetime.fromtimestamp(start["at"], datetime.timezone.utc).strftime("%Y-%m-%d %H:%M"),
+        "started": when.strftime("%Y-%m-%d %H:%M"), "utc_offset": when.strftime("%z")[:3] + ":" + when.strftime("%z")[3:],
         "room": start["room"], "status": ends[-1] if ends else "none",
-        "bits_played": sum(r["event"] == "bit_end" for r in rows), "jokes_played": played,
-        "git_sha": start["git_sha"][:7], "generator_id": start["generator_id"], "prompt": prompt, "model": model,
-        "prediction": any(r["event"] == "prediction" for r in rows), "bridge": bridge_rule(rows),
+        "bits_played": n_bits, "jokes_played": played,
+        "git_sha": start["git_sha"][:7], "pr": pr,
+        "reply_fixes": (pr["pr"] is None or pr["pr"] >= REPLY_FIXES_PR) if prompt == "gen-v4" else None, "generator_id": start["generator_id"], "prompt": prompt, "model": model,
+        "prediction": guessed or inferred, "prediction_inferred": inferred, "bridge": bridge_rule(rows),
         "rating": ratings[-1] if ratings else None,
         "audience": {"kind": LIVE if live else SIM, "reaction_n": len(levels), "reaction_mean": mean(levels),
                      "bit_rewards_n": len(rewards), "reward_mean": mean(rewards)},
@@ -197,6 +229,7 @@ def show_row(session: str, rows: list[dict]) -> dict:
     }
     rec["setup"] = setup_of(rec)
     rec["setup_label"] = setup_words(rec)
+    rec["code_label"] = code_label(rec)
     return rec
 
 
@@ -214,6 +247,11 @@ def permutation_p(a: list[int], b: list[int]) -> float:
     return hits / total
 
 
+def smallest_p(n: int, k: int) -> float:
+    """The smallest p a test of groups of n and k can give (two extreme splits): what these sizes can ever show."""
+    return 2 / math.comb(n + k, k)
+
+
 def change_label(prev: dict | None, cur: dict) -> str:
     if prev is None:
         return "first show"
@@ -222,6 +260,8 @@ def change_label(prev: dict | None, cur: dict) -> str:
         parts.append(CHANGES["writer"].get(cur["prompt"], cur["prompt"]))
     elif cur["model"] != prev["model"]:
         parts.append(CHANGES["model"].get(cur["model"], cur["model"]))
+    elif prev["reply_fixes"] is False and cur["reply_fixes"] is not False:
+        parts.append(CHANGES["reply_fixes"])
     if cur["prediction"] and not prev["prediction"]:
         parts.append(CHANGES["prediction"])
     if cur["bridge"] != prev["bridge"]:
@@ -248,8 +288,8 @@ def setup_row(key: str, shows: list[dict], first: dict, prev: dict | None) -> di
             lost_by_class[k] = lost_by_class.get(k, 0) + v
     return {
         "setup": key, "label": setup_words(first), "code_label": code_label(first), "generator_id": first["generator_id"], "prediction": first["prediction"], "bridge": first["bridge"],
-        "first_session": first["session"], "first_started_utc": first["started_utc"], "change": change_label(prev, first),
-        "pr": pr_label(first), "shows": len(shows), "finished": len(done), "aborted": len(shows) - len(done),
+        "first_session": first["session"], "first_started": first["started"], "first_at": first["at"], "change": change_label(prev, first),
+        "pr": pr_label(first), "reply_fixes": first["reply_fixes"], "shows": len(shows), "finished": len(done), "aborted": len(shows) - len(done),
         "rating": {"n": len(ratings), "live_n": len(live_ratings), "values": ratings, "mean": mean(ratings),
                    "min": ratings[0] if ratings else None, "max": ratings[-1] if ratings else None},
         "delivery": {"bank_share": mean([x["bank_share"] for x in d]),
@@ -267,32 +307,34 @@ def pr_label(show: dict) -> str:
 
 
 def adjacent_tests(setups: list[dict]) -> list[dict]:
+    """`within_noise` is null when the test cannot say: too few ratings, or the sizes cannot reach p below ALPHA at all
+    (`p_min`). Only then is true ("the gap could be a reshuffle") or false ("unlikely to be a reshuffle") evidence."""
     rated = [s for s in setups if s["rating"]["n"]]
     out = []
     for a, b in zip(rated, rated[1:]):
         x, y = a["rating"]["values"], b["rating"]["values"]
         ok = len(x) >= 2 and len(y) >= 2
         p = permutation_p(x, y) if ok else None
+        p_min = smallest_p(len(x), len(y)) if ok else None
+        can_reject = ok and p_min < ALPHA
         out.append({"from": a["setup"], "to": b["setup"], "n": [len(x), len(y)], "diff_of_means": b["rating"]["mean"] - a["rating"]["mean"],
-                    "p": p, "within_noise": p is None or p >= ALPHA})
+                    "p": p, "p_min": p_min, "within_noise": (p >= ALPHA) if can_reject else None})
     return out
 
 
 def run(directory: str | pathlib.Path = SESSIONS, key: str = "", ref: str = "main") -> dict:
     """`key` only distinguishes cache entries (see `digest`); the logs are read from `directory`."""
-    shows, unreadable = [], []
+    shows, unreadable, prs = [], [], {}
     for path in sorted(pathlib.Path(directory).glob("*.jsonl")):
         try:
             rows = read_session(path)
             if not rows or rows[0]["event"] != "show_start":
                 raise ValueError("no show_start")
-            shows.append(show_row(path.stem, rows))
+            sha = rows[0]["git_sha"]
+            shows.append(show_row(path.stem, rows, prs.setdefault(sha, pr_of(sha, ref))))
         except (OSError, ValueError, KeyError) as e:
             unreadable.append({"session": path.stem, "reason": type(e).__name__})
     shows.sort(key=lambda s: s["at"])
-    cache_pr: dict[str, dict] = {}
-    for s in shows:
-        s["pr"] = cache_pr.setdefault(s["git_sha"], pr_of(s["git_sha"], ref))
     groups: dict[str, list[dict]] = {}
     for s in shows:
         groups.setdefault(s["setup"], []).append(s)
@@ -324,7 +366,7 @@ def stored() -> dict | None:
 
 def table(res: dict) -> str:
     head = ["Setup (in start order)", "What changed (and the PR its first show ran on)", "Shows", "Ratings (n)", "Mean", "Range", "Bank share", "Threads lost per show",
-            "Median wait (s)", "Total wait per show (s)", "Bridge lines", "Guess right / made"]
+            "Typical wait (average of per-show medians, s)", "Total wait per show (s)", "Bridge lines", "Guess right / made"]
     rows = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     for s in res["setups"]:
         r, d = s["rating"], s["delivery"]
@@ -335,7 +377,13 @@ def table(res: dict) -> str:
     out = "\n".join(rows)
     notes, labels = [], {s["setup"]: s["label"] for s in res["setups"]}
     for t in res["adjacent"]:
-        verdict = "too few ratings to test" if t["p"] is None else f"p = {t['p']:.2f}" + (", within noise" if t["within_noise"] else ", unlikely to be noise alone")
+        if t["p"] is None:
+            verdict = "too few ratings to tell (a setup has fewer than 2)"
+        else:
+            verdict = (f"a random reshuffle of the same ratings gives a gap this big {t['p']:.0%} of the time; "
+                       f"at these sizes the best possible is {t['p_min']:.0%}, so ")
+            verdict += ("too few ratings to tell" if t["within_noise"] is None else
+                        "the gap could be a reshuffle" if t["within_noise"] else "the gap is unlikely to be a reshuffle")
         notes.append(f"- {labels[t['from']]} to {labels[t['to']]} (next rated setup), n {t['n'][0]} and {t['n'][1]}: mean {t['diff_of_means']:+.2f}, {verdict}")
     live = [s for s in res["shows"] if s["room"] == "live"]
     out += "\n\nAdjacent rated setups, exact permutation test:\n" + "\n".join(notes)
@@ -359,8 +407,9 @@ CODE_NAMES = [
     ("bank-v1", "hand-written bank only", "D-66", "#40"),
     ("gen-v3 Gemini", "Gemini writer, 3 threads in one reply", "D-82", "#50"),
     ("gen-v3 bonsai", "local (bonsai) writer, 3 threads in one reply", "D-107, D-109", "#77"),
-    ("gen-v4", "one call per thread, 3 in parallel", "D-110", "#78"),
-    ("gen-v5", "connected-bit prompt, each line builds on the last", "D-111", "#84"),
+    ("gen-v4 before D-111 fixes", "one call per thread, 3 in parallel, before the reply-format fixes", "D-110", "#78"),
+    ("gen-v4", "one call per thread, 3 in parallel, with the reply-format fixes", "D-110, D-111", "#78, #79"),
+    ("gen-v5", "connected-bit prompt, each line builds on the last", "D-111 addendum", "#84"),
     ("+ guess", "next bit prepared early", "D-115", "#83"),
     ("+ skip-heard", "skips heard lines", "D-112", "#80"),
 ]
@@ -374,16 +423,19 @@ def code_table() -> str:
 def code_label(rec: dict) -> str:
     """The short chart label: the code name only (plots use this; text uses `setup_words`)."""
     base = rec["prompt"] + (" " + {"gemini-flash-lite-latest": "Gemini", "bonsai-2:4b": "bonsai"}.get(rec["model"], rec["model"]) if rec["prompt"] == "gen-v3" else "")
+    base = base + (" before D-111 fixes" if rec.get("reply_fixes") is False else "")
     return base + (" + skip-heard" if rec["bridge"] == "skip-heard" else "") + (" + guess" if rec["prediction"] else "")
 
 
 def setup_words(rec: dict) -> str:
-    """The setup in plain words (what was different), no version names."""
+    """The setup in plain words (what was different), then its code name in brackets."""
     if rec["prompt"].startswith(BANK_PREFIX):
         writer = f"hand-written bank only ({rec['prompt']})"
     else:
-        writer = f"{MODEL_WORDS.get(rec['model'], rec['model'])} writer, {PROMPT_WORDS.get(rec['prompt'], rec['prompt'])} ({rec['prompt']})"
-    return f"{writer}; next bit prepared {'early' if rec['prediction'] else 'after'}; {BRIDGE_WORDS[rec['bridge']]}"
+        early = ", before the reply-format fixes" if rec.get("reply_fixes") is False else ""
+        writer = f"{MODEL_WORDS.get(rec['model'], rec['model'])} writer, {PROMPT_WORDS.get(rec['prompt'], rec['prompt'])}{early} ({code_id(rec)})"
+    guess = "early" if rec["prediction"] else "after"
+    return f"{writer}; next bit prepared {guess}; {BRIDGE_WORDS[rec['bridge']]}"
 
 
 def bridge_note(row: dict) -> str:
@@ -393,12 +445,28 @@ def bridge_note(row: dict) -> str:
     return BRIDGE_NOTE["filler"]
 
 
-def gap_note(wait: float | None, fillers: int) -> str:
+def gap_note(wait: float | None, kinds: list[str]) -> str:
+    """The wait and the bridge lines played in it, by kind: "filler" while the next bit was written, "cached" replayed."""
+    filler, replayed = sum(k != "cached" for k in kinds), sum(k == "cached" for k in kinds)
+    n = len(kinds)
+    if not n:
+        lines = "no bridge lines"
+    elif not replayed:
+        lines = f"{n} filler line{'s' * (n != 1)}"
+    elif not filler:
+        lines = f"{n} bridge line{'s' * (n != 1)}, {'all ' if n > 1 else ''}replayed"
+    else:
+        lines = f"{n} bridge lines ({filler} filler, {replayed} replayed)"
     if wait is None:
-        return "wait not measured (a pause or a failed first line)" + (f", {fillers} filler line{'s' * (fillers != 1)}" if fillers else "")
-    if wait <= ZERO_S and not fillers:
+        return "wait not measured (a pause or a failed first line)" + (f", {lines}" if n else "")
+    if wait <= ZERO_S and not n:
         return "no wait"
-    return f"waited {wait:.0f} s, " + (f"{fillers} filler line{'s' * (fillers != 1)}" if fillers else "no filler lines")
+    return f"waited {wait:.0f} s, {lines}"
+
+
+def ended_words(rec: dict) -> str:
+    n = f"{rec['bits_played']} bit{'s' * (rec['bits_played'] != 1)}"
+    return {"finished": f"finished, {n}", "aborted": f"aborted after {n}"}.get(rec["status"], f"no end row, {n}")
 
 
 def show_markdown(rec: dict, rows: list[dict]) -> str:
@@ -410,10 +478,10 @@ def show_markdown(rec: dict, rows: list[dict]) -> str:
     first = {b: min(played[(b, ln["joke"])]["audio_start_at"] for ln in v) for b, v in lines.items()}
     last = {b: max(played[(b, ln["joke"])]["audio_start_at"] for ln in v) for b, v in lines.items()}
     audience = rec["audience"]["kind"]
-    out = [f"# Show {rec['session']}", "", f"- Date (UTC): {rec['started_utc']}", f"- Setup: {rec['setup_label']}",
+    out = [f"# Show {rec['session']}", "", f"- Date (local, UTC{rec['utc_offset']}): {rec['started']}", f"- Setup: {rec['setup_label']}",
            f"- Room: {'live' if rec['room'] == 'live' else 'simulated'}",
            f"- Your rating: {rec['rating'] if rec['rating'] is not None else 'none'}",
-           f"- How it ended: {rec['status']}, {rec['bits_played']} bits", ""]
+           f"- How it ended: {ended_words(rec)}", ""]
 
     def bridge_lines(group: list[dict]) -> list[str]:
         return [f"*({bridge_note(r)})* {r['text']}" for r in group] + [""] * bool(group)
@@ -425,7 +493,7 @@ def show_markdown(rec: dict, rows: list[dict]) -> str:
         gap = [r for r in bridges if lo < r["audio_start_at"] < first[bit]]
         placed.update(id(r) for r in gap)
         if i:
-            out += [f"*Gap before this bit: {gap_note(waits.get(bit), len(gap))}.*", ""]
+            out += [f"*Gap before this bit: {gap_note(waits.get(bit), [r.get("kind", "filler") for r in gap])}.*", ""]
         elif gap:
             out += ["*Before the first bit:*", ""]
         out += bridge_lines(gap)
@@ -442,22 +510,35 @@ def show_markdown(rec: dict, rows: list[dict]) -> str:
     return "\n".join(out)
 
 
+def clear_exported(out: pathlib.Path) -> None:
+    """Remove the files an earlier export wrote (and folders left empty), so a renamed or dropped show leaves nothing stale."""
+    if not out.exists():
+        return
+    for f in out.rglob("*.md"):
+        f.unlink()
+    for d in sorted((d for d in out.rglob("*") if d.is_dir()), reverse=True):
+        if not any(d.iterdir()):
+            d.rmdir()
+
+
 def export(directory: str | pathlib.Path = SESSIONS, out: pathlib.Path = BITS_DIR, ref: str = "main") -> list[pathlib.Path]:
     """Write each show as a plain file that reads top to bottom like the show, filler included (D-116: committed on purpose).
     Only text the writer or the bank generated and the show played is read: `joke_played.text` and `bridge.text`, with
     the reaction level of each. Nothing said by people in the room is ever read; the log schema has no such field (it
     holds keys and levels, the room's venue/energy/age tags and a rating; speech lives in the separate, uncommitted WAV).
     Returns the files written (the index last)."""
-    entries, written = [], []
+    clear_exported(out)
+    entries, written, prs = [], [], {}
     for path in sorted(pathlib.Path(directory).glob("*.jsonl")):
         try:
             rows = read_session(path)
             if not rows or rows[0]["event"] != "show_start":
                 continue
-        except (OSError, ValueError):
+            sha = rows[0]["git_sha"]
+            rec = show_row(path.stem, rows, prs.setdefault(sha, pr_of(sha, ref)))
+        except (OSError, ValueError, KeyError):
             continue
-        rec = show_row(path.stem, rows)
-        folder = out / slug(rec["setup_label"])
+        folder = out / slug(rec["code_label"])
         folder.mkdir(parents=True, exist_ok=True)
         target = folder / f"{rec['session']}.md"
         target.write_text(show_markdown(rec, rows), encoding="utf-8")
@@ -468,9 +549,9 @@ def export(directory: str | pathlib.Path = SESSIONS, out: pathlib.Path = BITS_DI
              "or the bank; nothing said by people in the room. Newest first.", ""]
     for setup in dict.fromkeys(r["setup"] for r in entries):
         group = [r for r in entries if r["setup"] == setup]
-        folder = slug(group[0]["setup_label"])
-        index += [f"## {group[0]['setup_label']}", "", "| Date (UTC) | Room | How it ended | Your rating | Show |", "|---|---|---|---|---|"]
-        index += [f"| {r['started_utc']} | {'live' if r['room'] == 'live' else 'simulated'} | {r['status']} | "
+        folder = slug(group[0]["code_label"])
+        index += [f"## {group[0]['setup_label']}", "", f"| Date (local, UTC{group[0]['utc_offset']}) | Room | How it ended | Your rating | Show |", "|---|---|---|---|---|"]
+        index += [f"| {r['started']} | {'live' if r['room'] == 'live' else 'simulated'} | {ended_words(r)} | "
                   f"{r['rating'] if r['rating'] is not None else 'none'} | [{r['session']}]({folder}/{r['session']}.md) |" for r in group]
         index.append("")
     out.mkdir(parents=True, exist_ok=True)

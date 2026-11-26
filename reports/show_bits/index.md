@@ -7,8 +7,9 @@
 | bank-v1 | hand-written bank only | D-66 | #40 |
 | gen-v3 Gemini | Gemini writer, 3 threads in one reply | D-82 | #50 |
 | gen-v3 bonsai | local (bonsai) writer, 3 threads in one reply | D-107, D-109 | #77 |
-| gen-v4 | one call per thread, 3 in parallel | D-110 | #78 |
-| gen-v5 | connected-bit prompt, each line builds on the last | D-111 | #84 |
+| gen-v4 before D-111 fixes | one call per thread, 3 in parallel, before the reply-format fixes | D-110 | #78 |
+| gen-v4 | one call per thread, 3 in parallel, with the reply-format fixes | D-110, D-111 | #78, #79 |
+| gen-v5 | connected-bit prompt, each line builds on the last | D-111 addendum | #84 |
 | + guess | next bit prepared early | D-115 | #83 |
 | + skip-heard | skips heard lines | D-112 | #80 |
 
@@ -16,71 +17,76 @@ Each show reads top to bottom as it was heard, filler lines included. The lines 
 
 ## local (bonsai) writer, connected-bit prompt, each line builds on the last (gen-v5); next bit prepared early; skips heard lines
 
-| Date (UTC) | Room | How it ended | Your rating | Show |
+| Date (local, UTC-08:00) | Room | How it ended | Your rating | Show |
 |---|---|---|---|---|
-| 2026-11-26 11:09 | simulated | finished | 4 | [b07292501fbd](local-bonsai-writer-connected-bit-prompt-each-line-builds-on-the-last-gen-v5-next-bit-prepared-early-skips-heard-lines/b07292501fbd.md) |
+| 2026-11-26 03:09 | simulated | finished, 8 bits | 4 | [b07292501fbd](gen-v5-skip-heard-guess/b07292501fbd.md) |
 
 ## local (bonsai) writer, one call per thread, 3 in parallel (gen-v4); next bit prepared early; skips heard lines
 
-| Date (UTC) | Room | How it ended | Your rating | Show |
+| Date (local, UTC-08:00) | Room | How it ended | Your rating | Show |
 |---|---|---|---|---|
-| 2026-11-26 10:34 | simulated | finished | 2 | [94aef761a5e6](local-bonsai-writer-one-call-per-thread-3-in-parallel-gen-v4-next-bit-prepared-early-skips-heard-lines/94aef761a5e6.md) |
-| 2026-11-26 09:44 | simulated | finished | 2 | [2ab2d1c2c682](local-bonsai-writer-one-call-per-thread-3-in-parallel-gen-v4-next-bit-prepared-early-skips-heard-lines/2ab2d1c2c682.md) |
-| 2026-11-26 09:37 | simulated | finished | 3 | [a7290b75cf24](local-bonsai-writer-one-call-per-thread-3-in-parallel-gen-v4-next-bit-prepared-early-skips-heard-lines/a7290b75cf24.md) |
-| 2026-11-26 09:31 | simulated | finished | 3 | [5ea47db7b248](local-bonsai-writer-one-call-per-thread-3-in-parallel-gen-v4-next-bit-prepared-early-skips-heard-lines/5ea47db7b248.md) |
+| 2026-11-26 02:34 | simulated | finished, 8 bits | 2 | [94aef761a5e6](gen-v4-skip-heard-guess/94aef761a5e6.md) |
+| 2026-11-26 01:44 | simulated | finished, 8 bits | 2 | [2ab2d1c2c682](gen-v4-skip-heard-guess/2ab2d1c2c682.md) |
+| 2026-11-26 01:44 | simulated | aborted after 0 bits | none | [459d47bb396a](gen-v4-skip-heard-guess/459d47bb396a.md) |
+| 2026-11-26 01:37 | simulated | finished, 8 bits | 3 | [a7290b75cf24](gen-v4-skip-heard-guess/a7290b75cf24.md) |
+| 2026-11-26 01:31 | simulated | finished, 8 bits | 3 | [5ea47db7b248](gen-v4-skip-heard-guess/5ea47db7b248.md) |
 
 ## local (bonsai) writer, one call per thread, 3 in parallel (gen-v4); next bit prepared after; skips heard lines
 
-| Date (UTC) | Room | How it ended | Your rating | Show |
+| Date (local, UTC-08:00) | Room | How it ended | Your rating | Show |
 |---|---|---|---|---|
-| 2026-11-26 09:44 | simulated | aborted | none | [459d47bb396a](local-bonsai-writer-one-call-per-thread-3-in-parallel-gen-v4-next-bit-prepared-after-skips-heard-lines/459d47bb396a.md) |
-| 2026-11-26 08:29 | simulated | finished | none | [9fedcfa07c3f](local-bonsai-writer-one-call-per-thread-3-in-parallel-gen-v4-next-bit-prepared-after-skips-heard-lines/9fedcfa07c3f.md) |
-| 2026-11-26 08:11 | simulated | aborted | none | [4ee0e5658e25](local-bonsai-writer-one-call-per-thread-3-in-parallel-gen-v4-next-bit-prepared-after-skips-heard-lines/4ee0e5658e25.md) |
-| 2026-11-26 08:01 | simulated | finished | 2 | [c514a01f04f7](local-bonsai-writer-one-call-per-thread-3-in-parallel-gen-v4-next-bit-prepared-after-skips-heard-lines/c514a01f04f7.md) |
-| 2026-11-26 07:52 | simulated | finished | 1 | [0e102d77d795](local-bonsai-writer-one-call-per-thread-3-in-parallel-gen-v4-next-bit-prepared-after-skips-heard-lines/0e102d77d795.md) |
+| 2026-11-26 00:29 | simulated | finished, 8 bits | none | [9fedcfa07c3f](gen-v4-skip-heard/9fedcfa07c3f.md) |
+| 2026-11-26 00:11 | simulated | aborted after 3 bits | none | [4ee0e5658e25](gen-v4-skip-heard/4ee0e5658e25.md) |
+| 2026-11-26 00:01 | simulated | finished, 8 bits | 2 | [c514a01f04f7](gen-v4-skip-heard/c514a01f04f7.md) |
+| 2026-11-25 23:52 | simulated | finished, 8 bits | 1 | [0e102d77d795](gen-v4-skip-heard/0e102d77d795.md) |
 
 ## local (bonsai) writer, one call per thread, 3 in parallel (gen-v4); next bit prepared after; may replay heard lines
 
-| Date (UTC) | Room | How it ended | Your rating | Show |
+| Date (local, UTC-08:00) | Room | How it ended | Your rating | Show |
 |---|---|---|---|---|
-| 2026-11-26 06:46 | simulated | finished | 2 | [6c09c721b0bb](local-bonsai-writer-one-call-per-thread-3-in-parallel-gen-v4-next-bit-prepared-after-may-replay-heard-lines/6c09c721b0bb.md) |
-| 2026-11-26 05:16 | simulated | finished | 3 | [e204ec80e62e](local-bonsai-writer-one-call-per-thread-3-in-parallel-gen-v4-next-bit-prepared-after-may-replay-heard-lines/e204ec80e62e.md) |
+| 2026-11-25 22:46 | simulated | finished, 8 bits | 2 | [6c09c721b0bb](gen-v4/6c09c721b0bb.md) |
+
+## local (bonsai) writer, one call per thread, 3 in parallel, before the reply-format fixes (gen-v4 before D-111 fixes); next bit prepared after; may replay heard lines
+
+| Date (local, UTC-08:00) | Room | How it ended | Your rating | Show |
+|---|---|---|---|---|
+| 2026-11-25 21:16 | simulated | finished, 8 bits | 3 | [e204ec80e62e](gen-v4-before-d-111-fixes/e204ec80e62e.md) |
 
 ## local (bonsai) writer, 3 threads in one reply (gen-v3); next bit prepared after; may replay heard lines
 
-| Date (UTC) | Room | How it ended | Your rating | Show |
+| Date (local, UTC-08:00) | Room | How it ended | Your rating | Show |
 |---|---|---|---|---|
-| 2026-11-26 05:03 | simulated | aborted | none | [e9a42ccc6b36](local-bonsai-writer-3-threads-in-one-reply-gen-v3-next-bit-prepared-after-may-replay-heard-lines/e9a42ccc6b36.md) |
-| 2026-11-26 04:42 | simulated | finished | 1 | [d3ef092dfafe](local-bonsai-writer-3-threads-in-one-reply-gen-v3-next-bit-prepared-after-may-replay-heard-lines/d3ef092dfafe.md) |
+| 2026-11-25 21:03 | simulated | aborted after 2 bits | none | [e9a42ccc6b36](gen-v3-bonsai/e9a42ccc6b36.md) |
+| 2026-11-25 20:42 | simulated | finished, 8 bits | 1 | [d3ef092dfafe](gen-v3-bonsai/d3ef092dfafe.md) |
 
 ## Gemini writer, 3 threads in one reply (gen-v3); next bit prepared after; no cached lines
 
-| Date (UTC) | Room | How it ended | Your rating | Show |
+| Date (local, UTC-08:00) | Room | How it ended | Your rating | Show |
 |---|---|---|---|---|
-| 2026-11-16 21:21 | simulated | aborted | none | [6e5b302c30e1](gemini-writer-3-threads-in-one-reply-gen-v3-next-bit-prepared-after-no-cached-lines/6e5b302c30e1.md) |
-| 2026-11-16 20:53 | simulated | aborted | none | [fd58dfb12a94](gemini-writer-3-threads-in-one-reply-gen-v3-next-bit-prepared-after-no-cached-lines/fd58dfb12a94.md) |
-| 2026-11-16 18:33 | live | aborted | none | [c661dc3dc690](gemini-writer-3-threads-in-one-reply-gen-v3-next-bit-prepared-after-no-cached-lines/c661dc3dc690.md) |
-| 2026-11-16 06:38 | live | finished | 3 | [43251e36e02d](gemini-writer-3-threads-in-one-reply-gen-v3-next-bit-prepared-after-no-cached-lines/43251e36e02d.md) |
-| 2026-11-16 06:29 | simulated | finished | 2 | [a086dcc40da8](gemini-writer-3-threads-in-one-reply-gen-v3-next-bit-prepared-after-no-cached-lines/a086dcc40da8.md) |
-| 2026-11-16 06:20 | simulated | finished | 2 | [64422d8243ee](gemini-writer-3-threads-in-one-reply-gen-v3-next-bit-prepared-after-no-cached-lines/64422d8243ee.md) |
-| 2026-11-16 06:13 | simulated | finished | 4 | [08c5b28d5a81](gemini-writer-3-threads-in-one-reply-gen-v3-next-bit-prepared-after-no-cached-lines/08c5b28d5a81.md) |
+| 2026-11-16 13:21 | simulated | aborted after 1 bit | none | [6e5b302c30e1](gen-v3-gemini/6e5b302c30e1.md) |
+| 2026-11-16 12:53 | simulated | aborted after 0 bits | none | [fd58dfb12a94](gen-v3-gemini/fd58dfb12a94.md) |
+| 2026-11-16 10:33 | live | aborted after 0 bits | none | [c661dc3dc690](gen-v3-gemini/c661dc3dc690.md) |
+| 2026-11-15 22:38 | live | finished, 8 bits | 3 | [43251e36e02d](gen-v3-gemini/43251e36e02d.md) |
+| 2026-11-15 22:29 | simulated | finished, 8 bits | 2 | [a086dcc40da8](gen-v3-gemini/a086dcc40da8.md) |
+| 2026-11-15 22:20 | simulated | finished, 8 bits | 2 | [64422d8243ee](gen-v3-gemini/64422d8243ee.md) |
+| 2026-11-15 22:13 | simulated | finished, 8 bits | 4 | [08c5b28d5a81](gen-v3-gemini/08c5b28d5a81.md) |
 
 ## hand-written bank only (bank-v1); next bit prepared after; no cached lines
 
-| Date (UTC) | Room | How it ended | Your rating | Show |
+| Date (local, UTC-08:00) | Room | How it ended | Your rating | Show |
 |---|---|---|---|---|
-| 2026-11-16 05:03 | simulated | aborted | none | [d896a8d6a515](hand-written-bank-only-bank-v1-next-bit-prepared-after-no-cached-lines/d896a8d6a515.md) |
-| 2026-11-16 05:03 | simulated | aborted | none | [a9218f0d743c](hand-written-bank-only-bank-v1-next-bit-prepared-after-no-cached-lines/a9218f0d743c.md) |
-| 2026-11-16 05:02 | simulated | aborted | none | [bc97211046fa](hand-written-bank-only-bank-v1-next-bit-prepared-after-no-cached-lines/bc97211046fa.md) |
-| 2026-11-16 05:00 | simulated | aborted | none | [416462474f25](hand-written-bank-only-bank-v1-next-bit-prepared-after-no-cached-lines/416462474f25.md) |
-| 2026-11-16 05:00 | simulated | aborted | none | [b8fd898197f7](hand-written-bank-only-bank-v1-next-bit-prepared-after-no-cached-lines/b8fd898197f7.md) |
-| 2026-11-16 04:56 | simulated | aborted | none | [76e6f88c25aa](hand-written-bank-only-bank-v1-next-bit-prepared-after-no-cached-lines/76e6f88c25aa.md) |
-| 2026-11-16 04:53 | simulated | aborted | none | [75a82991f4ba](hand-written-bank-only-bank-v1-next-bit-prepared-after-no-cached-lines/75a82991f4ba.md) |
-| 2026-11-16 04:45 | simulated | aborted | none | [cdf7d33eb686](hand-written-bank-only-bank-v1-next-bit-prepared-after-no-cached-lines/cdf7d33eb686.md) |
-| 2026-11-16 04:42 | simulated | aborted | none | [6bcc50b08c70](hand-written-bank-only-bank-v1-next-bit-prepared-after-no-cached-lines/6bcc50b08c70.md) |
-| 2026-11-16 04:37 | simulated | aborted | none | [958afab488df](hand-written-bank-only-bank-v1-next-bit-prepared-after-no-cached-lines/958afab488df.md) |
-| 2026-11-16 04:00 | simulated | finished | none | [8cdeae59a177](hand-written-bank-only-bank-v1-next-bit-prepared-after-no-cached-lines/8cdeae59a177.md) |
-| 2026-11-16 03:44 | simulated | finished | none | [d47c171d52c4](hand-written-bank-only-bank-v1-next-bit-prepared-after-no-cached-lines/d47c171d52c4.md) |
-| 2026-11-16 03:42 | simulated | aborted | none | [b16bb7d936b1](hand-written-bank-only-bank-v1-next-bit-prepared-after-no-cached-lines/b16bb7d936b1.md) |
-| 2026-11-16 03:36 | simulated | finished | none | [b1fbbd59312a](hand-written-bank-only-bank-v1-next-bit-prepared-after-no-cached-lines/b1fbbd59312a.md) |
-| 2026-11-16 03:35 | simulated | aborted | none | [3cfc5f0caada](hand-written-bank-only-bank-v1-next-bit-prepared-after-no-cached-lines/3cfc5f0caada.md) |
+| 2026-11-15 21:03 | simulated | aborted after 0 bits | none | [d896a8d6a515](bank-v1/d896a8d6a515.md) |
+| 2026-11-15 21:03 | simulated | aborted after 0 bits | none | [a9218f0d743c](bank-v1/a9218f0d743c.md) |
+| 2026-11-15 21:02 | simulated | aborted after 4 bits | none | [bc97211046fa](bank-v1/bc97211046fa.md) |
+| 2026-11-15 21:00 | simulated | aborted after 2 bits | none | [416462474f25](bank-v1/416462474f25.md) |
+| 2026-11-15 21:00 | simulated | aborted after 0 bits | none | [b8fd898197f7](bank-v1/b8fd898197f7.md) |
+| 2026-11-15 20:56 | simulated | aborted after 5 bits | none | [76e6f88c25aa](bank-v1/76e6f88c25aa.md) |
+| 2026-11-15 20:53 | simulated | aborted after 3 bits | none | [75a82991f4ba](bank-v1/75a82991f4ba.md) |
+| 2026-11-15 20:45 | simulated | aborted after 7 bits | none | [cdf7d33eb686](bank-v1/cdf7d33eb686.md) |
+| 2026-11-15 20:42 | simulated | aborted after 3 bits | none | [6bcc50b08c70](bank-v1/6bcc50b08c70.md) |
+| 2026-11-15 20:37 | simulated | aborted after 4 bits | none | [958afab488df](bank-v1/958afab488df.md) |
+| 2026-11-15 20:00 | simulated | finished, 8 bits | none | [8cdeae59a177](bank-v1/8cdeae59a177.md) |
+| 2026-11-15 19:44 | simulated | finished, 8 bits | none | [d47c171d52c4](bank-v1/d47c171d52c4.md) |
+| 2026-11-15 19:42 | simulated | aborted after 1 bit | none | [b16bb7d936b1](bank-v1/b16bb7d936b1.md) |
+| 2026-11-15 19:36 | simulated | finished, 8 bits | none | [b1fbbd59312a](bank-v1/b1fbbd59312a.md) |
+| 2026-11-15 19:35 | simulated | aborted after 1 bit | none | [3cfc5f0caada](bank-v1/3cfc5f0caada.md) |

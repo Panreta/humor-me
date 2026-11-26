@@ -10,6 +10,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "backend"))
 
 from sim import cache, show_ledger as sl  # noqa: E402
 
+REAL_PR_OF = sl.pr_of  # the git test must not use the stub below
+
 JOKE = "ZEBRA-JOKE"       # a played line
 BRIDGE = "ZEBRA-BRIDGE"   # a bridge line
 SECRET = "ZEBRA-SECRET"   # text in fields that are not played lines
@@ -72,7 +74,7 @@ def test_setups_group_by_writer_guess_and_bridge_in_start_order(logs):
     assert [s["setup"] for s in res["setups"]] == ["gen-v3:m / guess off / bridges no-cache", "gen-v4:m / guess off / bridges skip-heard",
                                                    "gen-v4:m / guess on / bridges skip-heard"]
     assert [s["shows"] for s in res["setups"]] == [1, 1, 2]
-    assert res["setups"][2]["change"] == "D-115 next bit prepared early" and res["setups"][1]["change"] == "D-110 one call per thread, 3 in parallel + D-112 skips heard lines"
+    assert res["setups"][2]["change"] == "D-115 next bit prepared early" and res["setups"][1]["change"] == "D-110 one call per thread + D-112 skips heard lines"
 
 
 def test_bridge_rule_reads_the_cache_row():
@@ -123,14 +125,14 @@ def test_rating_stats_and_exact_permutation_test(logs):
     a, b = res["setups"]
     assert (a["rating"]["mean"], a["rating"]["min"], a["rating"]["max"]) == (2.5, 2, 3)
     (t,) = res["adjacent"]
-    assert t["n"] == [2, 2] and t["diff_of_means"] == 2.0 and t["p"] == pytest.approx(2 / 6) and t["within_noise"]
+    assert t["n"] == [2, 2] and t["diff_of_means"] == 2.0 and t["p"] == pytest.approx(2 / 6) and t["within_noise"] is None  # 2 v 2 cannot reach 0.05, so no claim
 
 
 def test_a_setup_with_one_rating_is_not_tested(logs):
     put(logs, "a", show("a", 100, gen="gen-v3:m", rating=2))
     put(logs, "b", show("b", 200, gen="gen-v5:m", rating=4))
     (t,) = sl.run(logs)["adjacent"]
-    assert t["p"] is None and t["within_noise"]
+    assert t["p"] is None and t["within_noise"] is None
 
 
 def test_delivery_signals_bank_lost_threads_and_guesses(logs):
@@ -171,7 +173,7 @@ def test_export_reads_the_show_top_to_bottom_in_play_order_with_labels(logs, tmp
     assert "Your rating: 4" in live and "Your rating: none" in sim and "Room: live" in live and "Room: simulated" in sim
     assert "## Bit 1 — Cynic" in live
     index = (out / "index.md").read_text(encoding="utf-8")
-    assert "| Date (UTC) | Room | How it ended | Your rating | Show |" in index
+    assert "| Room | How it ended | Your rating | Show |" in index and "Date (local, UTC" in index
     assert index.index("sim1") < index.index("live1")  # newest first
     assert "Setup: m writer, one call per thread, 3 in parallel (gen-v4); next bit prepared after; may replay heard lines" in live
     assert index.index("## Code names") < index.index("| bank-v1 | hand-written bank only | D-66 | #40 |") < index.index("## m writer")
@@ -201,10 +203,13 @@ def test_gap_notes_match_the_ledger_numbers(logs, tmp_path):
 
 
 def test_gap_note_wording():
-    assert sl.gap_note(0.0, 0) == "no wait"
-    assert sl.gap_note(14.2, 2) == "waited 14 s, 2 filler lines"
-    assert sl.gap_note(5.0, 0) == "waited 5 s, no filler lines"
-    assert sl.gap_note(None, 1).startswith("wait not measured")
+    assert sl.gap_note(0.0, []) == "no wait"
+    assert sl.gap_note(14.2, ["filler", "filler"]) == "waited 14 s, 2 filler lines"
+    assert sl.gap_note(5.0, []) == "waited 5 s, no bridge lines"
+    assert sl.gap_note(5.0, ["cached", "cached"]) == "waited 5 s, 2 bridge lines, all replayed"
+    assert sl.gap_note(5.0, ["cached"]) == "waited 5 s, 1 bridge line, replayed"
+    assert sl.gap_note(5.0, ["cached", "filler", "filler"]) == "waited 5 s, 3 bridge lines (2 filler, 1 replayed)"
+    assert sl.gap_note(None, ["filler"]).startswith("wait not measured")
     assert sl.bridge_note({"text": "x"}) == "filler while the next bit is written"
     assert sl.bridge_note({"kind": "cached", "source": {"session": "abc"}}) == "replayed line from show abc"
 
@@ -258,3 +263,89 @@ def test_chart_labels_are_code_names_only():
     assert sl.code_label(rec) == "gen-v4 + skip-heard + guess"
     assert sl.code_label({**rec, "prompt": "gen-v3", "model": "gemini-flash-lite-latest", "prediction": False, "bridge": "no-cache"}) == "gen-v3 Gemini"
     assert sl.code_label({**rec, "prompt": "bank-v1", "model": "", "prediction": False, "bridge": "no-cache"}) == "bank-v1"
+
+
+def test_gap_note_counts_replayed_lines_apart_from_filler(logs, tmp_path):
+    put(logs, "a", show("a", 100, bits=2, bridge_kinds=["cached"]))
+    text = next(f for f in sl.export(logs, tmp_path / "b") if f.name == "a.md").read_text(encoding="utf-8")
+    assert "*Gap before this bit: waited 1 s, 1 bridge line, replayed.*" in text and "filler" not in text.split("Gap before")[1].split("\n")[0]
+
+
+def test_a_rating_test_that_cannot_reach_005_is_not_called_noise(logs):
+    assert sl.smallest_p(2, 2) == pytest.approx(2 / 6) and sl.smallest_p(3, 4) == pytest.approx(2 / 35) and sl.smallest_p(5, 5) < 0.05
+    put(logs, "a1", show("a1", 100, gen="gen-v3:m", rating=1))
+    put(logs, "a2", show("a2", 110, gen="gen-v3:m", rating=1))
+    put(logs, "b1", show("b1", 200, gen="gen-v5:m", rating=5))
+    put(logs, "b2", show("b2", 210, gen="gen-v5:m", rating=5))
+    (t,) = sl.run(logs)["adjacent"]
+    assert t["p"] == pytest.approx(2 / 6) and t["p_min"] == pytest.approx(2 / 6) and t["within_noise"] is None  # cannot reject: no claim either way
+    assert "too few ratings to tell" in sl.table(sl.run(logs)) and "could be a reshuffle" not in sl.table(sl.run(logs))
+
+
+def test_a_test_that_can_reject_says_which_way(logs):
+    for i, (gen, r) in enumerate([("gen-v3:m", 1)] * 5 + [("gen-v5:m", 5)] * 5):
+        put(logs, f"s{i}", show(f"s{i}", 100 + i, gen=gen, rating=r))
+    (t,) = sl.run(logs)["adjacent"]
+    assert t["p_min"] < sl.ALPHA and t["p"] == t["p_min"] and t["within_noise"] is False
+
+
+def test_pr_of_credits_a_merge_commit_to_itself_and_a_branch_commit_to_its_merge(tmp_path):
+    import subprocess
+
+    def git(*a):
+        return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *a], cwd=tmp_path,
+                              capture_output=True, text=True, check=True).stdout.strip()
+    git("init", "-q", "-b", "main")
+    (tmp_path / "f").write_text("0")
+    git("add", "f"); git("commit", "-q", "-m", "root")
+    shas = {}
+    for n in (1, 2):
+        git("checkout", "-q", "-b", f"feat/x{n}")
+        (tmp_path / "f").write_text(str(n))
+        git("commit", "-qam", f"work {n}")
+        shas[f"branch{n}"] = git("rev-parse", "HEAD")
+        git("checkout", "-q", "main")
+        git("merge", "-q", "--no-ff", f"feat/x{n}", "-m", f"Merge pull request #{n}0 from someone/feat/x{n}")
+        shas[f"merge{n}"] = git("rev-parse", "HEAD")
+    assert REAL_PR_OF(shas["merge1"], cwd=tmp_path)["pr"] == 10  # not the next merge, #20
+    assert REAL_PR_OF(shas["merge2"], cwd=tmp_path) == {"sha": shas["merge2"][:7], "pr": 20, "branch": "feat/x2"}
+    assert REAL_PR_OF(shas["branch2"], cwd=tmp_path)["pr"] == 20
+    assert REAL_PR_OF(shas["branch1"], cwd=tmp_path)["pr"] == 10
+    assert REAL_PR_OF("deadbeef", cwd=tmp_path)["pr"] is None
+
+
+def test_gen_v4_before_the_reply_fixes_is_its_own_setup(logs, monkeypatch):
+    prs = {"aaaaaaa": 78, "bbbbbbb": 79}
+    monkeypatch.setattr(sl, "pr_of", lambda sha, ref="main": {"sha": sha[:7], "pr": prs.get(sha[:7]), "branch": "b"})
+    for sid, sha in (("old", "aaaaaaa"), ("new", "bbbbbbb")):
+        rows = show(sid, 100 if sid == "old" else 200, rating=2)
+        rows[0]["git_sha"] = sha + "1234"
+        put(logs, sid, rows)
+    res = sl.run(logs)
+    assert [s["code_label"] for s in res["setups"]] == ["gen-v4 before D-111 fixes", "gen-v4"]
+    assert res["setups"][1]["change"].startswith("D-111 reply-format fixes")
+    assert "(gen-v4 before D-111 fixes)" in res["setups"][0]["label"] and "before the reply-format fixes" in res["setups"][0]["label"]
+
+
+def test_a_show_cut_short_on_guess_code_is_filed_with_the_guess(logs, monkeypatch):
+    monkeypatch.setattr(sl, "pr_of", lambda sha, ref="main": {"sha": sha[:7], "pr": 83, "branch": "early-prep"})
+    put(logs, "cut", show("cut", 100, status="aborted", bits=1))
+    put(logs, "full", show("full", 200, guess=True, rating=3))
+    res = sl.run(logs)
+    cut = next(s for s in res["shows"] if s["session"] == "cut")
+    assert cut["prediction"] is True and cut["prediction_inferred"] and len(res["setups"]) == 1
+
+
+def test_export_removes_stale_files(logs, tmp_path):
+    out = tmp_path / "bits"
+    (out / "old-setup").mkdir(parents=True)
+    (out / "old-setup" / "gone.md").write_text("stale", encoding="utf-8")
+    put(logs, "ok", show("ok", 100))
+    files = sl.export(logs, out)
+    assert not (out / "old-setup").exists() and {f.name for f in files} == {"ok.md", "index.md"}
+
+
+def test_dates_are_local_with_their_offset(logs):
+    put(logs, "a", show("a", 1_700_000_000))
+    (s,) = sl.run(logs)["shows"]
+    assert len(s["started"]) == 16 and s["utc_offset"][0] in "+-" and s["utc_offset"][3] == ":"

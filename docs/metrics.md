@@ -926,37 +926,45 @@ Decision: [D-115](agent/decisions-detail.md#d-115). Sim only, no model calls. Ra
 
 Decision: [D-116](agent/decisions-detail.md#d-116). Raw: `reports/metrics/show_ledger.json`. Code: `sim/show_ledger.py`. Chart: `reports/figures/decision-plot/exp32-show-ledger.png`. The played lines: `reports/show_bits/`.
 
-**The plain answer.** Your ratings have stayed between 1 and 4 across every setup, and no difference between setups is bigger than noise (1 to 4 ratings each). What clearly changed is the wait: the next-bit guess cut the total wait per show from about 110 s to about 20 s.
+**The plain answer.** Your ratings have stayed between 1 and 4 in every setup, and there are too few ratings (1 to 4 per setup) to tell any setup from another. What clearly changed is the wait: with the next bit prepared early, the total wait per show fell from 115 s to 22 s. (D-115's own live check gives 108.7 s to 21.6 s because it counted a different set of shows as "before": it included show `6c09c721b0bb`, which the ledger files under the setup before D-112, since that show still replayed heard lines.)
 
-36 logged shows (15 from the hand bank, 21 written by a model), all readable; 18 finished, 18 aborted (12 of the aborted are bank test runs). Only 1 live show finished (rated 3). Sim-room reactions are the made-up audience's, so they are not counted as quality. Setups in the order they started:
+36 logged shows (15 from the hand bank, 21 written by a model), all readable; 18 finished, 18 aborted (12 of the aborted are bank test runs). Only 1 live show finished (rated 3). Sim-room reactions are the made-up audience's, so they are not counted as quality. Dates are local time. Setups in the order they started:
 
-| Setup | What changed (and the PR its first show ran on) | Finished shows | Your ratings | Mean | Lines from the bank | Threads lost per show | Median wait (s) | Total wait per show (s) | Guess right |
+| Setup | What changed (and the PR its first show ran on) | Finished shows | Your ratings | Mean | Lines from the bank | Threads lost per show | Typical wait (average of per-show medians, s) | Total wait per show (s) | Guess right |
 |---|---|---|---|---|---|---|---|---|---|
-| Gemini writer, 3 threads in one reply (gen-v3); next bit prepared after; no cached lines | T9 LLM writer (#56 docs/slides-update) | 4 | 2, 2, 3, 4 | 2.75 | 22% | 0.0 | 11.3 | 84 | - |
-| local (bonsai) writer, 3 threads in one reply (gen-v3); next bit prepared after; may replay heard lines | D-107 local writer (#78 feat/per-thread-generator) | 1 | 1 | 1.00 | 28% | 0.0 | 13.2 | 79 | - |
-| local (bonsai) writer, one call per thread, 3 in parallel (gen-v4); next bit prepared after; may replay heard lines | D-110 one call per thread, 3 in parallel (#79 feat/connected-threads) | 2 | 2, 3 | 2.50 | 0% | 1.5 | 12.8 | 92 | - |
-| local (bonsai) writer, one call per thread, 3 in parallel (gen-v4); next bit prepared after; skips heard lines | D-112 skips heard lines (#82 feat/judge-v2) | 3 | 1, 2 (1 unrated) | 1.50 | 1% | 0.7 | 16.5 | 115 | - |
-| local (bonsai) writer, one call per thread, 3 in parallel (gen-v4); next bit prepared early; skips heard lines | D-115 next bit prepared early (#85 docs/live-predict-results) | 4 | 2, 2, 3, 3 | 2.50 | 0% | 0.0 | 0.0 | 22 | 23 of 28 |
-| local (bonsai) writer, connected-bit prompt, each line builds on the last (gen-v5); next bit prepared early; skips heard lines | D-111 connected-bit prompt live (#84 feat/exp27-extension) | 1 | 4 | 4.00 | 5% | 2.0 | 0.0 | 20 | 6 of 7 |
+| Gemini writer, 3 threads in one reply (gen-v3); next bit prepared after; no cached lines | T9 LLM writer (#55 feat/t11-rating-acceptance) | 4 | 2, 2, 3, 4 | 2.75 | 22% | 0.0 | 11.3 | 84 | - |
+| local (bonsai) writer, 3 threads in one reply (gen-v3); next bit prepared after; may replay heard lines | D-109 shows write with bonsai + D-91 cached bridge lines (#77 feat/bonsai-writer) | 1 | 1 | 1.00 | 28% | 0.0 | 13.2 | 79 | - |
+| local (bonsai) writer, one call per thread, 3 in parallel, before the reply-format fixes (gen-v4 before D-111 fixes); next bit prepared after; may replay heard lines | D-110 one call per thread (#78 feat/per-thread-generator) | 1 | 3 | 3.00 | 0% | 3.0 | 12.8 | 95 | - |
+| local (bonsai) writer, one call per thread, 3 in parallel (gen-v4); next bit prepared after; may replay heard lines | D-111 reply-format fixes (#79 feat/connected-threads) | 1 | 2 | 2.00 | 0% | 0.0 | 12.9 | 89 | - |
+| local (bonsai) writer, one call per thread, 3 in parallel (gen-v4); next bit prepared after; skips heard lines | D-112 skips heard lines (#81 feat/stage-timing) | 3 | 1, 2 (1 unrated) | 1.50 | 1% | 0.7 | 16.5 | 115 | - |
+| local (bonsai) writer, one call per thread, 3 in parallel (gen-v4); next bit prepared early; skips heard lines | D-115 next bit prepared early (#83 feat/early-prep) | 4 | 2, 2, 3, 3 | 2.50 | 0% | 0.0 | 0.0 | 22 | 23 of 28 |
+| local (bonsai) writer, connected-bit prompt, each line builds on the last (gen-v5); next bit prepared early; skips heard lines | D-111 addendum: connected-bit prompt live (#84 feat/exp27-extension) | 1 | 4 | 4.00 | 5% | 2.0 | 0.0 | 20 | 6 of 7 |
 
-**Code names.** The version names in brackets in the table (and in `reports/show_bits/`) mean:
+**Code names.** The names in brackets in the table (and in `reports/show_bits/`) mean:
 
 | Code name | What it is | Decision | PR |
 |---|---|---|---|
 | bank-v1 | hand-written bank only | D-66 | #40 |
 | gen-v3 Gemini | Gemini writer, 3 threads in one reply | D-82 | #50 |
 | gen-v3 bonsai | local (bonsai) writer, 3 threads in one reply | D-107, D-109 | #77 |
-| gen-v4 | one call per thread, 3 in parallel | D-110 | #78 |
-| gen-v5 | connected-bit prompt, each line builds on the last | D-111 | #84 |
+| gen-v4 before D-111 fixes | one call per thread, 3 in parallel, before the reply-format fixes | D-110 | #78 |
+| gen-v4 | one call per thread, 3 in parallel, with the reply-format fixes | D-110, D-111 | #78, #79 |
+| gen-v5 | connected-bit prompt, each line builds on the last | D-111 addendum | #84 |
 | + guess | next bit prepared early | D-115 | #83 |
 | + skip-heard | skips heard lines | D-112 | #80 |
 
-The chart uses the code names only.
+The chart uses the code names only. "Before D-111 fixes" is the one-call-per-thread writer on code from before the counted reply format and the re-ask (a show on #78 code, which is why it is its own setup).
 
-The hand-bank shows (3 finished, 12 aborted, no ratings) are in the ledger, not in the table. Lost threads were timeouts and badly shaped replies; the gen-v5 show lost 2 of 3 threads in one bit to a timeout.
+The hand-bank shows (3 finished, 12 aborted, no ratings) are in the ledger, not in the table. Lost threads were timeouts and badly shaped replies; the show on the connected-bit prompt (gen-v5) lost 2 of 3 threads in one bit to a timeout. One finished show, `9fedcfa07c3f`, was not rated.
 
-**Noise.** Exact tests between neighbouring rated setups: gen-v4 repeats allowed vs skips heard, p = 0.67; skips heard vs guess, p = 0.27. Both are within noise. The others have a setup with a single rating and cannot be tested. The gen-v5 rating of 4 is one show.
+**Noise.** Exact test between neighbouring rated setups; with 1 to 4 ratings a side none can reach the usual 5% line, so none says anything either way:
+- gen-v3 Gemini to gen-v3 bonsai: n 4 and 1, mean -1.75: too few ratings to tell (a setup has fewer than 2)
+- gen-v3 bonsai to gen-v4 before D-111 fixes: n 1 and 1, mean +2.00: too few ratings to tell (a setup has fewer than 2)
+- gen-v4 before D-111 fixes to gen-v4: n 1 and 1, mean -1.00: too few ratings to tell (a setup has fewer than 2)
+- gen-v4 to gen-v4 + skip-heard: n 1 and 2, mean -0.50: too few ratings to tell (a setup has fewer than 2)
+- gen-v4 + skip-heard to gen-v4 + skip-heard + guess: n 2 and 4, mean +1.00: a random reshuffle of the same ratings gives a gap this big 27% of the time, and these sizes can never do better than 13%, so too few ratings to tell
+- gen-v4 + skip-heard + guess to gen-v5 + skip-heard + guess: n 4 and 1, mean +1.50: too few ratings to tell (a setup has fewer than 2)
 
-**What is made up.** Every sim-room reaction and reward (the audience in `sim/audience.yaml`). Waits depend on it only through when reactions arrive. The setups are different shows, not paired runs, and the rater is one person.
+**What is made up.** Every sim-room reaction and reward (the audience in `sim/audience.yaml`). Waits depend on it only through when reactions arrive. The setups are different shows, not paired runs, and the rater is one person. Show `459d47bb396a` (aborted before its first bit) is filed under next-bit-guess because its code is the guess code.
 
 **After each show:** `python -m sim.show_ledger --record`, `python -m sim.show_ledger export`, then `python scripts/run_notebook.py notebooks/decision-plot.ipynb`.
