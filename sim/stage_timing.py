@@ -36,6 +36,10 @@ question and is not the bar. The fixes it chooses between:
   safety_s          -> (c) safety-check each thread as it arrives, overlapping the filter with generation
   generate_s, render_s, bank_s, other_s -> none of (a) to (c): the writer (Exp 26) or the voice speed is the limit,
                        reported only.
+A bit prepared on a right guess of its mode (D-115, `prep.speculative`) is marked and left out of the counted bits and
+the shares: its stage seconds overlap the previous bit's jokes, so they say nothing about its wait. Its wait and bridge
+count still show in the per-show columns (the `basis`), which is the before/after measure for D-115: bits 1 and up,
+wait p50/p95 and bridges per bit, for the shows 6c09c721b0bb and 0e102d77d795 (before) against shows after the change.
 The 25%, the 1.1x, the 16-bit and 2-show minimums, and the share definition are judgment calls, not measured.
 """
 import argparse
@@ -104,6 +108,7 @@ def bits_of(rows: list[dict]) -> list[dict]:
         out.append({"bit": bit, "wait_s": max(0.0, played["audio_start_at"] - began),
                     "bridges": sum(r["event"] == "bridge" and r["bit"] == bit for r in rows),
                     "prepped": p is not None, "failed": bool(p and p.get("first_render_failed")),
+                    "speculative": bool(p and p.get("speculative")),
                     "paused": overlaps(began, played["audio_start_at"], pauses),
                     "generate_s": p and p["generate_s"], "safety_s": p and p["safety_s"], "bank_s": p and p.get("bank_s"),
                     "other_s": p and p.get("other_s"), "render_queue_s": queue, "render_s": render,
@@ -117,8 +122,10 @@ def stats(values: list) -> dict:
 
 
 def counted(bits: list[dict]) -> list[dict]:
-    """The bits that decide: prepped, not bit 0, no pause in the wait, first render not failed."""
-    return [b for b in bits if b["prepped"] and b["bit"] >= 1 and not b["paused"] and not b["failed"]]
+    """The bits that decide: prepped, not bit 0, no pause in the wait, first render not failed, not prepared on a
+    guess (D-115: its stage seconds ran during the previous bit's jokes, so they are not part of its wait)."""
+    return [b for b in bits if b["prepped"] and b["bit"] >= 1 and not b["paused"] and not b["failed"]
+            and not b["speculative"]]
 
 
 def totals(bits: list[dict]) -> dict:
@@ -127,17 +134,32 @@ def totals(bits: list[dict]) -> dict:
             **{k: sum(b[k] or 0.0 for b in bits) for k in STAGES}}
 
 
+def guess_stats(rows: list[dict]) -> dict:
+    """What the next-bit guesses of a show did (D-115), from its `prediction` rows: how many, how many right, how many used,
+    the same for guesses whose copy was taught the partial reward (`learned`; the sim's bar is for these), and the safety
+    requests wasted on wrong ones. The live hit rate can be lower than Exp 31's: a bit with fewer than 3 labels at the
+    guess falls back to the model as it is, which the sim found right far less often."""
+    g = [r for r in rows if r["event"] == "prediction"]
+    learned = [r for r in g if r.get("learned")]
+    return {"n": len(g), "hits": sum(r["hit"] for r in g), "adopted": sum(bool(r.get("adopted", r["hit"])) for r in g),
+            "learned_n": len(learned), "learned_hits": sum(r["hit"] for r in learned),
+            "wasted_prefetch": sum(bool(r.get("spec_prefetched")) and not r.get("adopted", r["hit"]) for r in g)}
+
+
 def show_report(session: str, rows: list[dict]) -> dict:
     bits = bits_of(rows)
     generator = rows[0]["generator_id"]
     use = counted(bits)
     included = bool(use) and not generator.startswith("bank")
     basis = use if any(b["prepped"] for b in bits) else [b for b in bits if b["bit"] >= 1]
+    # the wait and bridge columns keep the bits prepared on a guess: that wait is what D-115 shortens
+    waiting = list(basis) + [b for b in bits if b["speculative"] and b["bit"] >= 1 and not b["paused"] and not b["failed"]]
     return {"session": session, "room": rows[0]["room"], "generator_id": generator, "included": included,
             "bits": len(bits), "bits_with_prep": sum(b["prepped"] for b in bits), "bits_counted": len(use),
             "dropped_paused": sum(b["prepped"] and b["bit"] >= 1 and b["paused"] for b in bits),
             "dropped_render_failed": sum(b["prepped"] and b["bit"] >= 1 and b["failed"] for b in bits),
-            "wait_s": stats([b["wait_s"] for b in basis]), "bridges": stats([b["bridges"] for b in basis]),
+            "speculative_bits": sum(b["speculative"] for b in bits), "guesses": guess_stats(rows),
+            "wait_s": stats([b["wait_s"] for b in waiting]), "bridges": stats([b["bridges"] for b in waiting]),
             **{k: stats([b[k] for b in basis]) for k in STAGES},
             "sums": totals(use) if included else None}
 
@@ -183,7 +205,9 @@ def run(sessions: list[str] | None = None, directory: str | pathlib.Path = SESSI
     bits = [b for _, rows in use for b in counted(bits_of(rows))]
     zero = [b for _, rows in use for b in bits_of(rows) if b["prepped"] and b["bit"] == 0]
     sums = [r["sums"] for r in reports if r["included"]]
-    pooled = {"shows_counted": len(use), "bits_counted": len(bits), "wait_s": stats([b["wait_s"] for b in bits]),
+    keys = ("n", "hits", "adopted", "learned_n", "learned_hits", "wasted_prefetch")
+    guesses = {k: sum(r["guesses"][k] for r in reports if r["included"]) for k in keys}
+    pooled = {"guesses": guesses, "shows_counted": len(use), "bits_counted": len(bits), "wait_s": stats([b["wait_s"] for b in bits]),
               "shares": shares(sums) if sums else {k: None for k in STAGES},
               **{k: stats([b[k] for b in bits]) for k in STAGES}}
     bit0 = {"bits": len(zero), "wait_s": stats([b["wait_s"] for b in zero]), **{k: stats([b[k] for b in zero]) for k in STAGES}}
@@ -230,7 +254,13 @@ def table(res: dict) -> str:
                 + " | ".join(cell(z[k]) for k in STAGES) + " |")
     share = " | ".join("-" if p["shares"][k] is None else f"{p['shares'][k]:.0%}" for k in STAGES)
     rows.append(f"| share of the total wait (the rule's number) | | | | | {share} |")
-    return "Seconds, p50 / p95; the last row is each stage's total over the total wait.\n\n" + "\n".join(rows)
+    g = res["pooled"].get("guesses") or {"n": 0}
+    guess = ""
+    if g["n"]:
+        guess = (f"\n\nNext-bit guesses (D-115), counted shows: {g['hits']}/{g['n']} right, {g['adopted']} used; of the guesses "
+                 f"made on 3 labels (the sim's case) {g['learned_hits']}/{g['learned_n']} right; {g['wasted_prefetch']} safety "
+                 "requests wasted on wrong ones. Exp 31's sim hit rate was about 0.7; fewer labels give fewer right guesses.")
+    return "Seconds, p50 / p95; the last row is each stage's total over the total wait.\n\n" + "\n".join(rows) + guess
 
 
 def verdict(res: dict) -> str:

@@ -30,6 +30,7 @@ SIM_RESULT = {"started_at", "generate_s", "safety_s", "bank_s", "render_wait_s",
 
 class SlowGenerator:
     generator_id = "slow"
+    speculative_safe = True  # no state a guessed prep could disturb
 
     def __init__(self, clock, per_call):
         self.clock, self.per_call = clock, per_call
@@ -218,7 +219,7 @@ def test_the_first_line_logs_how_long_a_bridge_made_the_room_wait_after_the_bit_
     asyncio.run(run_show(load_director([], seed=1), "sim", REAL_CTX, generator=Gen(delay=0.1), safety=Filter(),
                          selector=UniformSelector(0), tts=voice, player=RealPlayer(voice, seconds=0.4),
                          source=SimRoom(REAL_CTX, 0), clock=RealClock(), log=log, n_bits=3, config=FAST,
-                         bridge_lines=["b1", "b2", "b3", "b4"]))
+                         bridge_lines=["b1", "b2", "b3", "b4"], predict=False))  # the end-of-bit path: the bridge fills the wait
     rows = read_session(log.path)
     ready = {r["bit"]: r["ready_at"] for r in preps(rows)}
     played = [r for r in rows if r["event"] == "joke_played"]
@@ -405,3 +406,33 @@ def test_named_sessions_only_and_the_record_holds_seconds_and_ids_never_text(tmp
     assert JOKE_TEXT not in saved and "aaaaaaaaaaaa" in saved
     assert st.stored() == json.loads(saved)["results"]
     assert "Biggest stage" in st.verdict(res) and "| aaaaaaaaaaaa" in st.table(res)
+
+
+def test_a_bit_prepared_on_a_guess_is_marked_and_kept_out_of_the_stage_shares_but_not_the_wait_columns(tmp_path):
+    for seed in range(8):  # a right guess is likely, not certain, in any one show
+        clock = FakeClock()
+        log = SessionLog(tmp_path)
+        asyncio.run(run_show(director(seed=seed), "sim", CTX, generator=SlowGenerator(clock, 0.0), safety=SlowSafety(clock, 0, 0),
+                             selector=UniformSelector(0), tts=SlowVoice(clock, 0.0), player=FakePlayer(clock),
+                             source=SimRoom(CTX, seed), clock=clock, log=log, n_bits=6, jokes_per_bit=5))
+        rows = read_session(log.path)
+        spec = {r["bit"] for r in preps(rows) if r.get("speculative")}
+        if spec:
+            break
+    guessed = {r["bit"] for r in rows if r["event"] == "prediction"}
+    assert spec and spec <= guessed  # a right guess marks its prep row; a wrong one leaves no speculative row
+    bits = st.bits_of(rows)
+    assert {b["bit"] for b in bits if b["speculative"]} == spec
+    assert not any(b["speculative"] for b in st.counted(bits))
+    report = st.show_report("s", rows)
+    assert report["speculative_bits"] == len(spec)
+    assert report["wait_s"]["n"] == len([b for b in bits if b["bit"] >= 1])  # the wait columns still hold them
+
+
+def test_the_report_counts_guesses_hits_by_whether_the_copy_learned_and_wasted_prefetches():
+    def row(hit, learned, adopted, prefetched):
+        return {"event": "prediction", "hit": hit, "learned": learned, "adopted": adopted, "spec_prefetched": prefetched}
+    rows = [row(True, True, True, True), row(False, True, False, True), row(True, False, False, False), row(False, False, False, False)]
+    got = st.guess_stats(rows)
+    assert got == {"n": 4, "hits": 2, "adopted": 1, "learned_n": 2, "learned_hits": 1, "wasted_prefetch": 1}
+    assert st.guess_stats([])["n"] == 0

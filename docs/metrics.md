@@ -850,3 +850,43 @@ Delivered and lost: A 57 and 3, B 60 and 0; bit wall p95 A 12.04 s, B 9.68 s; 0 
 **Not run yet.** After your next shows: `python -m sim.stage_timing <session ids> --record` (seconds from the local logs, no model call), then `python scripts/run_notebook.py`. Raw: `reports/metrics/stage_timing.json`. Decision: [D-113](agent/decisions-detail.md#d-113).
 
 The rule (revised after review, before any data) counts bits 1 and up of LLM-generator shows and reports bit 0 apart. A stage's share is its total seconds over the total wait. The largest share is fixed first if it is at least 25% and its 95% interval for `share - 1.1 x runner-up`, resampling shows, is above 0; otherwise "inconclusive". It needs 2 shows and 16 bits. Stages map to fixes (a) end the bridge early (bridge overhang), (b) render the first joke ahead of bridge renders (voice queue), (c) check each thread's safety as it arrives (safety). A dominant writer or voice has no fix among these. Command: `python -m sim.stage_timing <show ids> --record`.
+
+## Next bit: decide at joke 3, or guess it (Exp 31, 2026-11-26)
+
+Decision: [D-115](agent/decisions-detail.md#d-115). Sim only, no model calls. Raw: `reports/metrics/early_decision.json` (a) and `reports/metrics/early_guess.json` (b). Code: `sim/evaluate_early.py`, `sim/evaluate_predict.py`.
+
+**(a) Deciding at joke 3 costs laughs, so it is not shipped.** The director picks the next bit after joke 3 of the current one, on a partial reward, and is updated with that bit only at its end, so every pick is one update behind. Paired on seeds against deciding at the bit's end, laughs per show at 5 shows (1,000 seeds). Bar fixed before running: far end of the 95% CI no lower than -1.0 laugh per show in every room. It is missed in 8 of 10 rooms.
+
+| Room | Decide at bit end | After joke 3: change (paired 95% CI) | Far end | After joke 5 (whole bit, still one update behind) | Bar (far end at least -1.0) |
+|---|---|---|---|---|---|
+| judge, gaps x0.5 | 41.1 | -1.33 ± 0.11 | -1.43 | -1.32 ± 0.11 | FAIL |
+| judge, gaps x1 | 42.4 | -1.34 ± 0.11 | -1.45 | -1.39 ± 0.11 | FAIL |
+| judge, gaps x2 | 46.6 | -1.28 ± 0.13 | -1.41 | -1.31 ± 0.13 | FAIL |
+| human, gaps x0.5 | 40.6 | -1.28 ± 0.10 | -1.38 | -1.29 ± 0.10 | FAIL |
+| human, gaps x1 | 40.6 | -1.26 ± 0.10 | -1.36 | -1.24 ± 0.10 | FAIL |
+| human, gaps x2 | 40.7 | -1.26 ± 0.10 | -1.35 | -1.27 ± 0.10 | FAIL |
+| judge, noise x0.5 | 40.5 | -1.94 ± 0.11 | -2.05 | -1.96 ± 0.11 | FAIL |
+| judge, noise x2 | 47.7 | -0.82 ± 0.10 | -0.92 | -0.84 ± 0.10 | pass |
+| judge, fatigue 0 | 44.8 | -0.86 ± 0.13 | -0.99 | -0.88 ± 0.13 | pass |
+| judge, fatigue 0.3 | 40.6 | -1.98 ± 0.12 | -2.10 | -1.99 ± 0.11 | FAIL |
+
+**Read it:** the loss is the same whether the decision sees 1, 3 or all 5 jokes (after joke 5 is as bad as after joke 3), so the cost is the one-update delay, not the partial reward. It grows with less noise and with more fatigue. It is about 3% of a show. The 30-show rows are in the JSON and did not decide. Under a looser bar of -0.02 reward per bit (2.4 laughs per show) every room would pass; the bar was not changed after the result.
+
+**(b) Guessing instead: decide as before, guess ahead.** After joke 3 the show asks a throwaway copy of the director, taught the reactions so far, which mode it would pick, and writes that bit while jokes 4 and 5 play. The real decision, the director's random draws and the rewards are untouched (tests compare the whole log with the guess on and off). Only the hit rate matters. Bar fixed before running: lower end of the 95% CI at least 0.5 in every room at 5 shows (1,000 seeds). The guess shipped is the better of `learn` (the copy is taught the partial reward first) and `now` (the model as it is) in "judge, gaps x1".
+
+| Room | Hit rate, `learn` (95% CI) | Lower end | Guess = greedy mode | `now` hit rate | Seconds saved per show (estimate) | Bar (lower end at least 0.5) |
+|---|---|---|---|---|---|---|
+| judge, gaps x0.5 | 0.715 ± 0.005 | 0.710 | 0.85 | 0.47 | 50 | pass |
+| judge, gaps x1 | 0.716 ± 0.005 | 0.712 | 0.85 | 0.48 | 50 | pass |
+| judge, gaps x2 | 0.726 ± 0.005 | 0.722 | 0.87 | 0.52 | 51 | pass |
+| human, gaps x0.5 | 0.711 ± 0.005 | 0.706 | 0.85 | 0.46 | 50 | pass |
+| human, gaps x1 | 0.711 ± 0.005 | 0.707 | 0.85 | 0.46 | 50 | pass |
+| human, gaps x2 | 0.711 ± 0.005 | 0.707 | 0.85 | 0.46 | 50 | pass |
+| judge, noise x0.5 | 0.748 ± 0.004 | 0.743 | 0.89 | 0.48 | 52 | pass |
+| judge, noise x2 | 0.697 ± 0.005 | 0.692 | 0.83 | 0.47 | 49 | pass |
+| judge, fatigue 0 | 0.715 ± 0.005 | 0.711 | 0.85 | 0.49 | 50 | pass |
+| judge, fatigue 0.3 | 0.721 ± 0.004 | 0.716 | 0.86 | 0.48 | 50 | pass |
+
+**Read it:** the guess is right about 7 times in 10 in every room; the ceiling is about 0.83, because exploring (eps = 0.2) picks a random mode no guess can foresee, and the guess equals the greedy mode 83 to 89% of the time. The bar is met everywhere. Seconds saved per show = hit rate x about 10 s of prep (show `0e102d77d795`) x 7 gaps: an **estimate**, not measured live. A miss throws the prep away and costs one local writer call plus, if it got that far, one safety prefetch (cents); a thrown-away writer call may also queue ahead of the real bit's on Ollama, so a miss can be slower than no guess (not measured). The live hit rate can be lower: the sim always has 3 labels at joke 3, and `python -m sim.stage_timing` reports the live rate. **Live check, not run by the agent:** after your next shows run `python -m sim.stage_timing <ids>` and compare each show's wait p50/p95 and bridges per bit with `6c09c721b0bb` and `0e102d77d795`.
+
+**What the sim depends on:** the made-up `audience.yaml` values `noise`, `fatigue` and the gaps in `base` (all varied above), and the eps = 0.2 explore rate, the uniform prior and the 5-show horizon. Real rooms with sharper preferences than these would make the guess right more often.
