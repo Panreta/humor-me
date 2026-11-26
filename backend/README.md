@@ -165,6 +165,17 @@ python -m sim.thread_coherence rescore --judge v2             # only if `score` 
 
 Rule, fixed before the run: keep v2 if it agrees with you on more of the 20 than v1 (a tie keeps v1); the kept judge may re-score Exp 27 only if it disagrees with you on under 40% (`rescore` refuses otherwise). Then `python scripts/run_notebook.py` and commit `judge_calibration.json` (and `thread_coherence_rescore.json` if it ran). Threads and your labels live under `data/thread_coherence/calib-<digest>/` (gitignored: never commit).
 
+## Exp 27 extension to 100 prompts (D-111 addendum)
+
+Exp 30 kept judge v2, and v2 over Exp 27's 20 prompts gave +0.133 with a CI of 0.0 to +0.25 (failed at exactly 0). So the user extends Exp 27 to 100 prompts, with no new labels. Run from the checkout that holds `data/thread_coherence/` (the 20 prompts' bits must be in it; the command stops if not), Ollama up with `OLLAMA_NUM_PARALLEL=3` and `OLLAMA_CONTEXT_LENGTH=8192`, nothing else loaded, `ANTHROPIC_API_KEY` set for the second command.
+
+```bash
+python -m sim.thread_coherence run --n 100 --env-file backend/.env                 # writes only the missing bits (c20 to c99, 80 x 2 arms, about 15 to 25 min), no judge call -> reports/metrics/thread_coherence_n100.json
+python -m sim.thread_coherence rescore --judge v2 --n 100 --env-file backend/.env   # judges all 100 prompts with v2 (c00 to c19 cached, about 470 new Haiku calls, a few cents) -> reports/metrics/thread_coherence_rescore_n100.json
+```
+
+`run` can be stopped and restarted. Bar: v2's paired B - A over 100 prompts, CI lower bound above 0. There is no review step: v1's spot-check is superseded by v2. If `run` leaves a bit with no thread because of a timeout, move its file out of `data/thread_coherence/run-<digest>/bits/` (do not delete) and run again before `rescore`, and tell the agent how many. Then `python scripts/run_notebook.py` and commit the two metrics files.
+
 ## Cached bits run (Exp 23)
 
 After a live show, run three simulated shows on `GENERATOR=llm`, then score them from the repo root. Plain, it prints and saves nothing; `--record` keeps numbers and ids only (`reports/metrics/cached_bits.json`):
