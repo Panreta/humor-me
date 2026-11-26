@@ -20,7 +20,7 @@ export type ShowSetup = {
   operator: string;
   room: Room;
   consent: boolean;
-  // What the operator approved on the pre-show panel (D-117); left out when nothing was approved.
+  // What the operator approved on the pre-show panel (D-119); left out when nothing was approved.
   tonight?: { facts: string[]; market: string | null; gists: string[] };
 };
 

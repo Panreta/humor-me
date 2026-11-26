@@ -1,4 +1,4 @@
-"""Exp 33's harness (sim/tonight.py): fetch with fakes, the filter bar, the pairs, the blind review and the verdict.
+"""Exp 35's harness (sim/tonight.py): fetch with fakes, the filter bar, the pairs, the blind review and the verdict.
 Nothing here calls a model or the network."""
 import json
 import pathlib

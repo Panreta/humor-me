@@ -249,5 +249,5 @@ data/model_comparison/
 # Exp 27 connected threads: generated joke text, judge verdicts and your review answers; local only
 data/thread_coherence/
 
-# Tonight's context (D-117): the day's fetched headlines and Exp 33's generated text and answers; local only
+# Tonight's context (D-119): the day's fetched headlines and Exp 35's generated text and answers; local only
 data/tonight/

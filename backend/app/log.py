@@ -22,7 +22,7 @@ EVENTS = {
     # The mode guessed for a bit while the one before it played its last jokes, and whether the director then picked it
     # (D-115). Written right after the bit's `bit_decision`; absent when no guess was made.
     "prediction": ("bit", "predicted", "decided", "hit", "started_at"),
-    # Tonight's approved context (D-117): written once right after show_start, then one `tonight_use` row for each played
+    # Tonight's approved context (D-119): written once right after show_start, then one `tonight_use` row for each played
     # bit that took a headline as its topic.
     "tonight": ("facts", "market", "gists", "report"),
     "tonight_use": ("bit", "gist"),

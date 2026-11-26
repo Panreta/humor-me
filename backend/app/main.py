@@ -90,7 +90,7 @@ def tonight_check_facts(facts: list[str]) -> list[dict]:
 
 @app.get("/tonight")
 async def get_tonight(refresh: bool = False) -> dict:
-    """Tonight's market line and gists for the pre-show panel (D-117). `enabled` false means the panel stays hidden."""
+    """Tonight's market line and gists for the pre-show panel (D-119). `enabled` false means the panel stays hidden."""
     if not tonight.enabled():
         return {"enabled": False}
     try:
@@ -229,7 +229,7 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
         # with every bit on the bank.
         generator, safety, fallback, bridge_lines = make_stack(msg["room"])
         if tonight.enabled() and msg.get("tonight") and (set_tonight := getattr(generator, "set_tonight", None)):
-            try:  # D-117: a failed check means no tonight context, never a failed show
+            try:  # D-119: a failed check means no tonight context, never a failed show
                 if ctx := await asyncio.to_thread(tonight_vet, msg["tonight"]):
                     set_tonight(ctx)
                     if hasattr(safety, "allow_caps"):

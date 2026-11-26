@@ -103,7 +103,7 @@ TEENS_SEXUAL = _any(
 TEENS_CRUDE = _any(r"damn", r"hell", r"crap", r"sucks?", r"ass", r"piss(?:ed)?", r"bastards?")
 
 TITLE_NAME = re.compile(r"\b(?:Mr|Mrs|Ms|Miss|Dr|Prof)\.?\s+[A-Z]")
-# Holidays, shopping days and big events (D-117): allowed capitalized in jokes and in tonight's gists. Their words join
+# Holidays, shopping days and big events (D-119): allowed capitalized in jokes and in tonight's gists. Their words join
 # CAPS_OK below, so the day and month logic applies to them unchanged.
 OCCASIONS = frozenset({
     "Thanksgiving", "Christmas", "Halloween", "Easter", "Hanukkah", "Diwali", "Eid", "Ramadan", "Passover", "Lunar New Year",
@@ -111,7 +111,7 @@ OCCASIONS = frozenset({
     "Fourth of July", "Independence Day", "Labor Day", "Memorial Day", "Veterans Day", "Mother's Day", "Father's Day",
     "St. Patrick's Day"})
 # Matched as whole names and blanked before the capitals scan, so "Black Friday" passes but a lone "Black", "New" or
-# "Patrick" mid-sentence is still read as a possible name, as before D-117.
+# "Patrick" mid-sentence is still read as a possible name, as before D-119.
 OCCASION_RE = re.compile(r"(?<![A-Za-z])(?:" + "|".join(
     re.escape(name).replace("'s", "(?:'s|’s)").replace(r"St\.", r"St\.?") for name in sorted(OCCASIONS, key=len, reverse=True))
     + r")(?:'s|’s)?(?![A-Za-z])")
@@ -357,7 +357,7 @@ def prefetch(texts: list[str], age: str, client: llm.Client | None = None, allow
 
 
 def check(text: str, age: str, allow_caps: frozenset = frozenset()) -> Verdict:
-    """Rules, then the cached LLM verdict from `prefetch`. No cached verdict means rejected. `allow_caps` (D-117) are
+    """Rules, then the cached LLM verdict from `prefetch`. No cached verdict means rejected. `allow_caps` (D-119) are
     capitalized words the rules let through mid-sentence, such as a team name in an approved headline; the first-name and
     title checks still apply to them."""
     try:

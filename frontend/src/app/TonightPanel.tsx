@@ -9,7 +9,7 @@ const MAX_FACTS = 1; // mirrors MAX_TONIGHT_FACTS in backend/app/tonight.py
 type Fetched = { enabled: boolean; market?: { line: string } | null; gists?: string[]; errors?: string[] };
 export type Approved = { facts: string[]; market: string | null; gists: string[] };
 
-// The pre-show panel (D-117): the market line, one checkbox per headline gist (all unchecked), and one optional line.
+// The pre-show panel (D-119): the market line, one checkbox per headline gist (all unchecked), and one optional line.
 // Renders nothing when the backend has TONIGHT off or cannot be reached, so the show starts as it always did.
 export default function TonightPanel({ onChange }: { onChange: (approved: Approved | undefined) => void }) {
   const [data, setData] = useState<Fetched | null>(null);

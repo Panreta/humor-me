@@ -1,4 +1,4 @@
-"""Tonight's context (D-117): the parsers, the gist filter, the name check, the day cache, the per-show draw, the generator's
+"""Tonight's context (D-119): the parsers, the gist filter, the name check, the day cache, the per-show draw, the generator's
 request, the log rows and the websocket payload. Synthetic samples and fakes only: no network, no model."""
 import asyncio
 import datetime
@@ -21,7 +21,7 @@ from tests.test_generate import CTX, FAST, FakePlayer, FakeVoice, Filter, parall
 from tests.test_replay import START, react, same  # noqa: E402
 
 # Synthetic samples in the formats checked on 2026-11-26 (Google News RSS; FRED's SP500 CSV, which marks a day with no close as ".").
-# Stooq, the first choice, answered scripts with an HTML browser check (D-117).
+# Stooq, the first choice, answered scripts with an HTML browser check (D-119).
 CSV = """observation_date,SP500
 2026-11-20,5000.0
 2026-11-21,5010.0
@@ -485,7 +485,7 @@ def test_the_endpoints_hide_the_panel_when_off_and_never_raise(monkeypatch):
     assert client.post("/tonight/check", json={"facts": ["it's snowing"]}).json()["verdicts"][0]["ok"] is True
 
 
-# --- names the gist may keep: holidays and events everywhere, teams only when their gist was approved (D-117) ---
+# --- names the gist may keep: holidays and events everywhere, teams only when their gist was approved (D-119) ---
 
 def test_a_holiday_or_event_stays_capitalized_in_a_gist_and_in_a_joke():
     for gist in ("A parade is postponed on Thanksgiving.", "Shoppers line up for Black Friday deals.",

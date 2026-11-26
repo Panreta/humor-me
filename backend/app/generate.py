@@ -150,7 +150,7 @@ class ThreadGenerator:
     `played_thread`, not the alternatives that were generated). Two threads of a bit may share a premise: the calls do
     not see each other, as independent samples of one prompt must not (D-110)."""
 
-    tonight = None  # a TonightContext (D-117), set by the server for a show with approved context; a subclass that skips __init__ runs without
+    tonight = None  # a TonightContext (D-119), set by the server for a show with approved context; a subclass that skips __init__ runs without
 
     def __init__(self, client: llm.Client, *, budget_s: float = GENERATOR_TIMING[1], prompt_id: str | None = None,
                  told: list[str] | None = None):
@@ -200,7 +200,7 @@ class ThreadGenerator:
         if not isinstance(got, Exception) and got and thread < len(got[2]):
             self._told.append(got[2][thread])
             if self.tonight:
-                self.tonight.played(bit)  # D-117: only a played bit spends its headline
+                self.tonight.played(bit)  # D-119: only a played bit spends its headline
 
     def set_tonight(self, tonight) -> None:
         self.tonight = tonight
@@ -218,7 +218,7 @@ class ThreadGenerator:
         teens = TEENS_RULE if context["age"] not in safety.STANDARD_AGES else ""
         system = PROMPTS[self.prompt_id].format(mode=mode, mode_note=MODES[mode], jokes=JOKES, teens=teens)
         fields = {"venue": context["venue"], "energy": context["energy"], "premises_already_told": self._told}
-        if self.tonight and bit is not None:  # D-117: background for every bit, a headline topic for bits 2 and 6
+        if self.tonight and bit is not None:  # D-119: background for every bit, a headline topic for bits 2 and 6
             system = f"{system}{tonight_mod.SEP}{tonight_mod.PARAGRAPH}"
             fields |= {k: v for k, v in (("tonight", self.tonight.background()), ("topic", self.tonight.draw(bit))) if v}
         user = json.dumps(fields)
@@ -331,7 +331,7 @@ class LiveSafety:
 
     def __init__(self, client: llm.Client):
         self.client = client
-        self.allow_caps: frozenset = frozenset()  # D-117: the show sets it from tonight's approved gists; empty otherwise
+        self.allow_caps: frozenset = frozenset()  # D-119: the show sets it from tonight's approved gists; empty otherwise
 
     def prefetch(self, texts: list[str], age: str) -> None:
         safety.prefetch(texts, age, self.client, self.allow_caps)

@@ -1,4 +1,4 @@
-"""Tonight's context (D-117): what is happening today, as background for the writer. Three inputs: one optional line the
+"""Tonight's context (D-119): what is happening today, as background for the writer. Three inputs: one optional line the
 operator types, the S&P 500's last daily move (FRED), and today's top headlines turned into nameless one-sentence gists. The
 operator approves them on the operator screen before the show; only approved items reach the writer.
 

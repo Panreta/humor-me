@@ -1,9 +1,9 @@
-"""Exp 33 (D-117): does tonight's context (a headline as the topic, one optional fact, the market line) make a bit funnier and
+"""Exp 35 (D-119): does tonight's context (a headline as the topic, one optional fact, the market line) make a bit funnier and
 more "of tonight", and does the gist filter hand the operator material they would approve?
 
 Usage (`ANTHROPIC_API_KEY` set for the gist step; Ollama up with `OLLAMA_NUM_PARALLEL=3` and `OLLAMA_CONTEXT_LENGTH=8192` for `run`):
     python -m sim.tonight fetch [--env-file backend/.env]   # today's headlines + market, gist and filter, then you approve each gist
-    python -m sim.tonight run [--env-file backend/.env]     # 10 pairs, both arms with the live writer -> data/tonight/exp33/
+    python -m sim.tonight run [--env-file backend/.env]     # 10 pairs, both arms with the live writer -> data/tonight/exp35/
     python -m sim.tonight review                            # you compare the 10 pairs, sides hidden and randomized
     python -m sim.tonight score [--record]                  # the numbers with your answers (no model calls) -> reports/metrics/tonight.json
 
@@ -13,7 +13,7 @@ name check; the safety check. Then for each gist that survived you answer (1) ap
 a name? and you may type 0 or 1 line about tonight (`MAX_TONIGHT_FACTS`, safety-checked). One day of headlines: a small
 sample, and it is today's, so the fetch cannot be repeated later. The answers are saved in `fetch.json`.
 
-Bar 1 (the filter, gates, set by Claude, user to confirm): of the gists the filter kept, you reject at most 20% (a
+Bar 1 (the filter, gates, set by Claude, confirmed by the user 2026-11-26): of the gists the filter kept, you reject at most 20% (a
 rejection is "not approved", a flagged name counts), AND 0 kept gists contain a real name (you flag them). Reported with a
 Wilson 95% interval for the reject share. With a handful of gists the interval is wide: a pass says "not clearly bad".
 
@@ -23,12 +23,12 @@ tonight context. Arm B is the live prompt plus tonight: the gist as the bit's to
 fetched), as the show sends them (`ThreadGenerator.set_tonight`, bit 2). The thread played is thread 0.
 
 `review`: left/right blind, seeded. You answer (a) which is funnier and (b) which feels more like it is happening tonight.
-Bar 2 (gates, set by Claude, user to confirm): B wins at least 5 of 10 on (a); a tie is not a win. (b) is reported with a
+Bar 2 (gates, set by Claude, confirmed by the user 2026-11-26): B wins at least 5 of 10 on (a); a tie is not a win. (b) is reported with a
 Wilson 95% interval, no bar. 10 pairs only detect large differences: with a true 70% preference for B, 5 wins is reached
 about 95% of the time, and under a coin flip it is still reached about 62% of the time, so the gate is "not clearly worse".
 
 Adopt (flip the `TONIGHT` default on, same PR) only when both bars pass. No `audience.yaml` value is involved: no sim room
-reward is read. Generated text, headlines and your answers live only under `data/tonight/exp33/` (gitignored); the metrics
+reward is read. Generated text, headlines and your answers live only under `data/tonight/exp35/` (gitignored); the metrics
 hold numbers.
 
 Code changes elsewhere (the generator, the paragraph) change the digest: rerun with `--rerun` after one.
@@ -55,12 +55,12 @@ from sim.env import AGES, ENERGIES, VENUES  # noqa: E402
 NAME = "tonight"
 ARMS = ("A", "B")  # A: no tonight context, B: tonight context
 N_PAIRS = 10
-SEED = "exp33"
+SEED = "exp35"
 PAIR_SEED = 33
 BIT = 2  # a headline bit: ThreadGenerator draws the gist for bits where bit % 4 == 2
 MAX_REJECT_SHARE = 0.20
 FUNNY_WINS = 5
-DATA = app_tonight.DATA / "exp33"
+DATA = app_tonight.DATA / "exp35"
 
 
 def fetch_path(directory: pathlib.Path | None = None) -> pathlib.Path:
@@ -362,7 +362,7 @@ def run(n_pairs: int = N_PAIRS, seed: str = SEED, digest_: str = "") -> dict:
     client = generate.writer_client()
     pairs_, directory = slots(rec, n_pairs, seed), run_dir(rec, n_pairs, seed)
     if gather(directory, pairs_) is None and not getattr(client, "local", False):
-        raise SystemExit("Exp 33 writes with the local writer: set JOKE_WRITER_PROVIDER=ollama")
+        raise SystemExit("Exp 35 writes with the local writer: set JOKE_WRITER_PROVIDER=ollama")
     records = generate_bits(client, rec, pairs_, directory)
     return summarize(rec, records, read_answers(directory), on_gpu=tc.writer_on_gpu(directory))
 
@@ -410,7 +410,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("command", choices=("fetch", "run", "review", "score"))
     ap.add_argument("--rerun", action="store_true", help="run: recompute from the run folder even if a record exists")
-    ap.add_argument("--record", action="store_true", help="score: save the result as the Exp 33 record")
+    ap.add_argument("--record", action="store_true", help="score: save the result as the Exp 35 record")
     ap.add_argument("--env-file")
     a = ap.parse_args()
     if a.env_file:
