@@ -158,15 +158,32 @@ class ThreadGenerator:
         self.budget_s = budget_s
         self._bits: dict[int, tuple[str, list[list[str]], list[str], list[str]] | Exception] = {}
         self._told: list[str] = list(told or [])  # premises already told: a later bit of a show starts with some
+        self._spec: dict[tuple[int, str], tuple | Exception] = {}  # bits written on a guess, not yet adopted
 
     def generate(self, mode: str, bit: int, joke: int, context: dict) -> Batch:
         if bit not in self._bits:
             self._bits[bit] = self._fetch(mode, context)
-        got = self._bits[bit]
+        return self._batch(self._bits[bit], mode, bit, joke)
+
+    def _batch(self, got, mode: str, bit: int, joke: int) -> Batch:
         if isinstance(got, Exception):
             raise got
         prompt, lines, _, lost = got
         return Batch(f"{self.prompt_id}:{mode}:{bit}:{joke}", prompt, lines[joke], tuple(lost))
+
+    # A bit prepared on a guess of its mode (D-115) is kept apart, keyed by the mode it was written for, so a wrong guess
+    # can neither answer the real request for that bit nor add its premise to the told list. Only `adopt` moves it over.
+    def generate_speculative(self, mode: str, bit: int, joke: int, context: dict) -> Batch:
+        if (bit, mode) not in self._spec:
+            self._spec[(bit, mode)] = self._fetch(mode, context)
+        return self._batch(self._spec[(bit, mode)], mode, bit, joke)
+
+    def adopt(self, bit: int, mode: str) -> None:
+        if (bit, mode) in self._spec:
+            self._bits[bit] = self._spec.pop((bit, mode))
+
+    def discard(self, bit: int, mode: str) -> None:
+        self._spec.pop((bit, mode), None)
 
     def played_thread(self, bit: int, thread: int) -> None:
         got = self._bits.get(bit)

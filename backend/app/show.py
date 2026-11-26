@@ -1,5 +1,6 @@
 """The show loop: `run_show` runs one show against whatever voice, room and clock it is given."""
 import asyncio
+import copy
 import logging
 import random
 import secrets
@@ -11,6 +12,7 @@ import numpy as np
 
 from app.cache import CachedBit, screen
 from app.log import SessionLog
+from app.predict import predict_mode
 from app.pauses import Pauses, overlaps
 from app.reward import VERSION, reward_v1
 from app.rooms import REACTION
@@ -154,18 +156,39 @@ def _marginal(i: int, passing: list[int], tied: list[int]) -> float:
     return (own + borrowed) / len(tied)
 
 
-async def _prepare(bit, mode, context, *, generator, fallback, safety, selector, tts, clock, log, jokes_per_bit, spawn):
+class _Deferred:
+    """Stands in for the log while a bit is prepared on a guess: its rows are kept and written, marked speculative,
+    only if the guess is adopted. A thrown-away prep leaves nothing in the log (invariant 6 needs what the room heard)."""
+
+    def __init__(self):
+        self.rows: list[tuple[str, dict]] = []
+
+    def write(self, event: str, **fields) -> None:
+        self.rows.append((event, fields))
+
+    def flush(self, log: SessionLog) -> None:
+        for event, fields in self.rows:
+            log.write(event, **fields, speculative=True)
+
+
+async def _prepare(bit, mode, context, *, generator, fallback, safety, selector, tts, clock, log, jokes_per_bit, spawn,
+                   gate: list[asyncio.Task] = (), speculative: bool = False, on_pick=None):
     """Everything a bit needs before its first line: candidates, the safety verdicts and the first render.
+    `speculative` (D-115) prepares the bit for a guessed mode: the generator keeps it apart (`generate_speculative`),
+    and the thread picked is handed to `on_pick` instead of being told to the generator, so a wrong guess leaves no
+    cached thread and no premise behind. `gate` is the current bit's own renders: the voice is serial, so the first
+    line waits until they are done and the lines the room is about to hear are never queued behind it.
     The bit plays one thread; a joke whose candidate in that thread was rejected takes another thread's passing
     candidate, and a joke with none falls back to the hand-checked bank (rules only)."""
     age = context["age"]
     started = clock.now()  # every duration below is on the show clock, the timebase of the audio times in the log
+    generate = getattr(generator, "generate_speculative", generator.generate) if speculative else generator.generate
     batches: list[Batch | None] = []
     reasons: list[str] = []
     lost: dict[int, list[str]] = {}
     for joke in range(jokes_per_bit):
         try:
-            batches.append(await asyncio.to_thread(generator.generate, mode, bit, joke, context))
+            batches.append(await asyncio.to_thread(generate, mode, bit, joke, context))
             reasons.append("")
         except Exception as e:  # a bad reply or a dead provider must not stop the show
             batches.append(None)
@@ -181,7 +204,7 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
             reasons[joke] = "every candidate rejected"
     judged_at = clock.now()
     picked = _pick_thread(batches, passing, selector)
-    if picked and (told := getattr(generator, "played_thread", None)):
+    if picked and (told := on_pick or getattr(generator, "played_thread", None)):
         told(bit, picked[0])  # so the next bit is not told a premise the room never heard
     plans: list[_Plan] = []
     bank_s, bank_fallbacks = 0.0, 0
@@ -208,7 +231,9 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
                 await plan.bank()
                 bank_s += max(0.0, clock.now() - consulted)
         plans.append(plan)
-    rendering = clock.now()
+    rendering = clock.now()  # a guessed bit's gate wait counts here: it is time spent waiting for the voice
+    if gate:
+        await asyncio.wait(gate)  # they may fail; _speak handles that, here only their end matters
     _start_render(plans, 0, tts, clock, spawn)
     if first := next((p for p in plans if p.render), None):
         # The bit is ready only when its first line is audio, or the bridge ends into a render wait. A failed render
@@ -443,13 +468,31 @@ async def _bridge(prep: asyncio.Task, rendered: list, player, used: list, *, bit
                   kind="filler")
 
 
+# While a bit's last jokes play, guess the next bit's mode and prepare it (D-115). The decision at the bit's end is
+# unchanged; a right guess has the next bit ready, a wrong one is thrown away. Guess after this many jokes.
+PREDICT_NEXT_BIT = True
+GUESS_AFTER_JOKE = 3
+
+
+@dataclass
+class _Guess:
+    """The next bit prepared on a guessed mode while the current bit plays its last jokes."""
+    bit: int
+    mode: int
+    task: asyncio.Task
+    rows: _Deferred
+    selector: Selector  # a copy, so the guess never moves the real selector's random state
+    picked: list  # the thread the prep picked, told to the generator only if the guess is adopted
+    started_at: float
+
+
 async def run_show(director, room: str, context: dict, *, generator: Generator, safety: SafetyFilter,
                    selector: Selector, tts: TTS, player: Player, source: RewardSource, clock: Clock, log: SessionLog,
                    explore_seed: int | None = None, operator: str = "sim", git_sha: str = "unknown",
                    audio: dict | None = None, n_bits: int = 8, jokes_per_bit: int = 5, config=REACTION,
                    fallback: Generator | None = None, bridge_lines: list[str] | None = None,
                    cached: dict[str, list[CachedBit]] | None = None, pauses: Pauses | None = None,
-                   cache_info=None, bridge_seed: int | None = None) -> None:
+                   cache_info=None, bridge_seed: int | None = None, predict: bool = PREDICT_NEXT_BIT) -> None:
     """One show. `director` is an EpsilonSoft over LinUCB, already warm: the caller replays the career into it
     (app.director.load_director) so this loop never decides which rooms count."""
     modes = AudienceEnv().modes
@@ -492,6 +535,16 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
     opened: asyncio.Task | None = None
     try:
         last_action = last_reward = None
+        guess: _Guess | None = None
+        # A stateful generator that cannot keep a guessed bit apart would answer the real request with the guess's lines.
+        can_guess = predict and jokes_per_bit > GUESS_AFTER_JOKE and (
+            hasattr(generator, "generate_speculative") or not hasattr(generator, "played_thread"))
+
+        def prepare(bit, action, **kw):
+            return spawn(_prepare(bit, modes[action], context, generator=generator, fallback=fallback, safety=safety,
+                                  selector=kw.pop("selector", selector), tts=tts, clock=clock, log=kw.pop("log", log),
+                                  jokes_per_bit=jokes_per_bit, spawn=spawn, **kw))
+
         for bit in range(n_bits):
             obs = {"t": bit, "n_bits": n_bits, "context": Context(**context), "last_mode": last_action,
                    "last_reward": last_reward}
@@ -503,9 +556,26 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
                       scores={m: float(x) for m, x in zip(modes, scores)}, greedy=modes[greedy],
                       action=modes[action], probs={m: float(p) for m, p in zip(modes, probs)})
             source.begin_bit(action)
-            prep = spawn(_prepare(bit, modes[action], context, generator=generator, fallback=fallback, safety=safety,
-                                  selector=selector, tts=tts, clock=clock, log=log, jokes_per_bit=jokes_per_bit,
-                                  spawn=spawn))
+            held = None
+            if guess is not None:
+                hit = guess.mode == action
+                log.write("prediction", bit=bit, predicted=modes[guess.mode], decided=modes[action], hit=hit,
+                          started_at=guess.started_at)
+                if hit:
+                    selector = guess.selector  # it made the picks the real one would have, from the same state
+                    getattr(generator, "adopt", lambda *_: None)(bit, modes[action])
+                    if guess.picked and (told := getattr(generator, "played_thread", None)):
+                        told(bit, guess.picked[0])
+                    held = guess.rows  # written once the prep has ended: it may still be running
+                    prep = guess.task
+                else:
+                    guess.task.cancel()
+                    getattr(generator, "discard", lambda *_: None)(bit, modes[guess.mode])
+                    prep = prepare(bit, action)
+                guess = None
+            else:
+                prep = prepare(bit, action)
+            boundary = clock.now()
             if bit == 0 and pool:
                 # Bit 0 cannot start for 7 to 12 s (generate, filter, first render): play the best cached bit of its
                 # mode, else the best of any, and render it now, while the voice is free.
@@ -516,6 +586,11 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
                 await _bridge(prep, rendered, player, bridges_used, bit=bit, clock=clock, log=log, pauses=pauses, pool=pool,
                               mode=modes[action])
             plans = await prep
+            if held is not None:
+                held.flush(log)
+            if plans and plans[0].ready_from is not None:
+                # A bit prepared on a right guess was ready before the previous one ended; only the time after counts.
+                plans[0].ready_from = max(plans[0].ready_from, boundary)
             if bit == 0:
                 # after bit 0's first line, so the voice is not busy when the show opens
                 rest = _round_robin(pool, opener[:OPEN_CAP]) if pool else []
@@ -523,8 +598,21 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
                     spawn(_render_cached(rest[:CACHED_RENDERS], tts, clock, after=opened))
                 if bridge_lines:
                     spawn(render_bridges())
-            levels = [await _joke(bit, joke, plans, tts=tts, player=player, source=source, clock=clock, log=log,
-                                  config=config, spawn=spawn, pauses=pauses) for joke in range(jokes_per_bit)]
+            levels = []
+            for joke in range(jokes_per_bit):
+                levels.append(await _joke(bit, joke, plans, tts=tts, player=player, source=source, clock=clock, log=log,
+                                          config=config, spawn=spawn, pauses=pauses))
+                if can_guess and joke + 1 == GUESS_AFTER_JOKE and bit + 1 < n_bits:
+                    for j in range(joke + 1, jokes_per_bit):
+                        _start_render(plans, j, tts, clock, spawn)  # this bit's own lines go first on the voice
+                    # On a copy: the real director, its random draws and the real selector are not touched.
+                    mode = predict_mode(inner, obs, action, levels, n_bits=n_bits)
+                    picked, rows = [], _Deferred()
+                    fork = copy.deepcopy(selector)
+                    task = prepare(bit + 1, mode, selector=fork, log=rows, speculative=True,
+                                   on_pick=lambda b, t, picked=picked: picked.append(t),
+                                   gate=[p.render for p in plans[joke + 1:] if p.render])
+                    guess = _Guess(bit + 1, mode, task, rows, fork, picked, clock.now())
             reward = reward_v1(levels)
             log.write("bit_end", bit=bit, n_labels=sum(lv is not None for lv in levels), reward_version=VERSION,
                       reward=reward)

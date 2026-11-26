@@ -19,6 +19,9 @@ EVENTS = {
                     "audio_start_at", "audio_end_at"),
     # Where a bit's wait went (D-113): stage durations on the show clock, written when the bit is ready to play.
     "prep": ("bit", "started_at", "generate_s", "safety_s", "render_wait_s", "ready_at", "bank_fallbacks"),
+    # The mode guessed for a bit while the one before it played its last jokes, and whether the director then picked it
+    # (D-115). Written right after the bit's `bit_decision`; absent when no guess was made.
+    "prediction": ("bit", "predicted", "decided", "hit", "started_at"),
     "bridge": ("bit", "text", "tts_seconds", "audio_start_at", "audio_end_at"),
     "cache": ("bits",),  # the cached bits the show could draw on, written right after show_start (D-91)
     "reaction": ("bit", "joke", "source", "level", "key", "latency_s"),
@@ -82,7 +85,7 @@ def validate(record: dict) -> None:
     event = record["event"]
     if not isinstance(event, str) or event not in EVENTS:
         raise ValueError(f"unknown event {event!r}")
-    if event in ("prep", "bridge", "cache", "pause", "resume") and record["schema"] < 2:
+    if event in ("prep", "bridge", "cache", "pause", "resume", "prediction") and record["schema"] < 2:
         raise ValueError(f"a schema 1 log has no {event} event")
     _need_keys(event, record, EVENTS[event])
     for (name, field), allowed in CHOICES.items():
@@ -123,8 +126,19 @@ def validate(record: dict) -> None:
             raise ValueError("prep.ready_at is before prep.started_at")
         if record.get("first_render_failed") is not None and not isinstance(record["first_render_failed"], bool):
             raise ValueError("prep.first_render_failed must be a boolean")
+        if record.get("speculative") is not None and not isinstance(record["speculative"], bool):
+            raise ValueError("prep.speculative must be a boolean")  # D-115: prepared on a guess that was then adopted
         if not (_is_int(record["bank_fallbacks"]) and record["bank_fallbacks"] >= 0):
             raise ValueError("prep.bank_fallbacks must be a non-negative integer")
+    if event == "prediction":
+        if not isinstance(record["hit"], bool):
+            raise ValueError("prediction.hit must be a boolean")
+        if not (isinstance(record["predicted"], str) and isinstance(record["decided"], str)):
+            raise ValueError("prediction.predicted and .decided must be mode names")
+        if record["hit"] != (record["predicted"] == record["decided"]):
+            raise ValueError("prediction.hit must say whether predicted equals decided")
+        if not _is_number(record["started_at"]):
+            raise ValueError("prediction.started_at must be a number")
     if event == "joke_played" and record.get("bridge_overhang_s") is not None:  # optional (D-113): the bit's first line
         if not _is_number(record["bridge_overhang_s"]) or record["bridge_overhang_s"] < 0:
             raise ValueError("joke_played.bridge_overhang_s must be a non-negative number")

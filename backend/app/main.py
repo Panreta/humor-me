@@ -15,6 +15,7 @@ from app.generate import llm_stack, warm_up
 from app.live import AnnouncedSim, BankOnlySafety, ButtonSource, WebSocketPlayer, git_sha, load_sessions
 from app.log import SESSIONS, SessionLog, read_session
 from app.pauses import Pauses
+from app.predict import enabled as predict_enabled
 from app.protocol import ProtocolError, check_pause, parse
 from app.recording import Recorder
 from app.rooms import REACTION, RealClock
@@ -189,7 +190,8 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
                            player=WebSocketPlayer(ws.send_json, ws.send_bytes, played), source=source,
                            clock=clock, log=show_log, pauses=live.pauses, explore_seed=seed, operator=msg["operator"],
                            audio=audio, git_sha=sha, config=reaction_config, fallback=fallback,
-                           bridge_lines=bridge_lines, cached=pool.bits, cache_info=pool)
+                           bridge_lines=bridge_lines, cached=pool.bits, cache_info=pool,
+                           predict=predict_enabled())
         finally:
             live.running = False
         status = "finished"

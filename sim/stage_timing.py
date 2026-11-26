@@ -36,6 +36,10 @@ question and is not the bar. The fixes it chooses between:
   safety_s          -> (c) safety-check each thread as it arrives, overlapping the filter with generation
   generate_s, render_s, bank_s, other_s -> none of (a) to (c): the writer (Exp 26) or the voice speed is the limit,
                        reported only.
+A bit prepared on a right guess of its mode (D-115, `prep.speculative`) is marked and left out of the counted bits and
+the shares: its stage seconds overlap the previous bit's jokes, so they say nothing about its wait. Its wait and bridge
+count still show in the per-show columns (the `basis`), which is the before/after measure for D-115: bits 1 and up,
+wait p50/p95 and bridges per bit, for the shows 6c09c721b0bb and 0e102d77d795 (before) against shows after the change.
 The 25%, the 1.1x, the 16-bit and 2-show minimums, and the share definition are judgment calls, not measured.
 """
 import argparse
@@ -104,6 +108,7 @@ def bits_of(rows: list[dict]) -> list[dict]:
         out.append({"bit": bit, "wait_s": max(0.0, played["audio_start_at"] - began),
                     "bridges": sum(r["event"] == "bridge" and r["bit"] == bit for r in rows),
                     "prepped": p is not None, "failed": bool(p and p.get("first_render_failed")),
+                    "speculative": bool(p and p.get("speculative")),
                     "paused": overlaps(began, played["audio_start_at"], pauses),
                     "generate_s": p and p["generate_s"], "safety_s": p and p["safety_s"], "bank_s": p and p.get("bank_s"),
                     "other_s": p and p.get("other_s"), "render_queue_s": queue, "render_s": render,
@@ -117,8 +122,10 @@ def stats(values: list) -> dict:
 
 
 def counted(bits: list[dict]) -> list[dict]:
-    """The bits that decide: prepped, not bit 0, no pause in the wait, first render not failed."""
-    return [b for b in bits if b["prepped"] and b["bit"] >= 1 and not b["paused"] and not b["failed"]]
+    """The bits that decide: prepped, not bit 0, no pause in the wait, first render not failed, not prepared on a
+    guess (D-115: its stage seconds ran during the previous bit's jokes, so they are not part of its wait)."""
+    return [b for b in bits if b["prepped"] and b["bit"] >= 1 and not b["paused"] and not b["failed"]
+            and not b["speculative"]]
 
 
 def totals(bits: list[dict]) -> dict:
@@ -133,11 +140,14 @@ def show_report(session: str, rows: list[dict]) -> dict:
     use = counted(bits)
     included = bool(use) and not generator.startswith("bank")
     basis = use if any(b["prepped"] for b in bits) else [b for b in bits if b["bit"] >= 1]
+    # the wait and bridge columns keep the bits prepared on a guess: that wait is what D-115 shortens
+    waiting = [b for b in basis] + [b for b in bits if b["speculative"] and b["bit"] >= 1 and not b["paused"] and not b["failed"]]
     return {"session": session, "room": rows[0]["room"], "generator_id": generator, "included": included,
             "bits": len(bits), "bits_with_prep": sum(b["prepped"] for b in bits), "bits_counted": len(use),
             "dropped_paused": sum(b["prepped"] and b["bit"] >= 1 and b["paused"] for b in bits),
             "dropped_render_failed": sum(b["prepped"] and b["bit"] >= 1 and b["failed"] for b in bits),
-            "wait_s": stats([b["wait_s"] for b in basis]), "bridges": stats([b["bridges"] for b in basis]),
+            "speculative_bits": sum(b["speculative"] for b in bits),
+            "wait_s": stats([b["wait_s"] for b in waiting]), "bridges": stats([b["bridges"] for b in waiting]),
             **{k: stats([b[k] for b in basis]) for k in STAGES},
             "sums": totals(use) if included else None}
 
