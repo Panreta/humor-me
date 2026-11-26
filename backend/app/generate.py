@@ -5,7 +5,9 @@ Failure is the generator's to report and the show's to absorb: `generate` raises
 (the same exception for every joke of that bit, with no second call), and the show falls back to the hand-checked
 bank (app.show._prepare). Retries inside the call live in app.llm.
 """
+import dataclasses
 import json
+import time
 
 from app import llm, safety
 from app.bank import BankGenerator
@@ -16,7 +18,7 @@ JOKES = 5
 TEMPERATURE = 0.9
 PROMPT_ID = "gen-v3"
 
-# The one reply shape `parse` accepts, for providers that can enforce it (Claude structured output).
+# The one reply shape `parse` accepts, for providers that can enforce it (Claude structured output, Ollama json_schema).
 REPLY_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["premises", "threads"],
                 "properties": {"premises": {"type": "array", "items": {"type": "string"}},
                                "threads": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}}}
@@ -68,6 +70,10 @@ RETRIES = 2
 # deadline lets a second try land after a first stall; failing closed past that is unchanged.
 FILTER_TIMING = (12.0, 25.0)
 FILTER_RETRIES = 3
+# A local writer's first request loads it into VRAM (Exp 24: 6.1 s for bonsai-2:4b with nothing else loaded, and
+# Ollama drops an idle model after 5 minutes by default). Inside a bit that would eat the 12 s deadline, so the show
+# pays it once before `show_start`, with the Exp 24 harness's warm-up budget.
+WARMUP_TIMEOUT_S = 300.0
 
 
 class GenerationError(Exception):
@@ -127,6 +133,53 @@ class GeminiGenerator:
         except (llm.LLMError, GenerationError) as e:
             return e
         return f"{system}\n\n{user}", lines, premises
+
+
+def _ollama_json(url: str, timeout: float = 5.0) -> dict:
+    import urllib.request
+    with urllib.request.urlopen(url, timeout=timeout) as r:  # noqa: S310 - the operator's own Ollama server
+        return json.loads(r.read().decode("utf-8"))
+
+
+def gpu_share(client: llm.Client, http=_ollama_json) -> tuple[float | None, list[str]]:
+    """The share of the writer that Ollama put in VRAM, from its own `/api/ps`, and the other models loaded beside it.
+    None when the writer is not listed or the report cannot be read: unknown, which the show treats as not on the GPU."""
+    root = client.base_url.rstrip("/").removesuffix("/v1")
+    try:
+        loaded = http(f"{root}/api/ps").get("models") or []
+    except Exception:
+        return None, []
+    mine = next((m for m in loaded if client.model in (m.get("name"), m.get("model"))), None)
+    others = [m.get("name", "?") for m in loaded if m is not mine]
+    size, vram = (mine or {}).get("size"), (mine or {}).get("size_vram")
+    if not isinstance(size, (int, float)) or not isinstance(vram, (int, float)) or size <= 0:
+        return None, others
+    return min(vram / size, 1.0), others
+
+
+def warm_up(generator, http=_ollama_json) -> float | None:
+    """Loads a local writer before the show and checks it is all on the GPU. One untimed request on a copy of its
+    client, so its counters and the show's deadlines are untouched. Returns the seconds it took, or None when the
+    writer is not local. Raises `llm.LLMError` when the model cannot answer or is not 100% in VRAM (D-109): a writer
+    partly on the CPU answers too slowly for the 12 s deadline, and the show would run on the bank alone."""
+    client = getattr(generator, "client", None)
+    if not getattr(client, "local", False):
+        return None
+    probe = dataclasses.replace(client, timeout=WARMUP_TIMEOUT_S, deadline_s=WARMUP_TIMEOUT_S, retries=0)
+    start = time.monotonic()
+    try:
+        probe.chat("Reply with JSON only.", '{"ready": true}', json_reply=True)
+    except llm.LLMError as e:
+        raise llm.LLMError(f"the writer {client.model} did not load ({e}): is `ollama serve` running at "
+                           f"{client.base_url}, and is the model pulled (`ollama pull {client.model}`)?", e.status) from e
+    took = time.monotonic() - start
+    share, others = gpu_share(client, http)
+    if share is None or share < 1.0:
+        where = "Ollama does not list it" if share is None else f"only {share:.0%} of it is on the GPU"
+        beside = f"; also loaded: {', '.join(others)} (`ollama stop <name>`)" if others else ""
+        raise llm.LLMError(f"the writer {client.model} is not all on the GPU: {where}{beside}. "
+                           "Start the show again once it fits (D-97, D-109)")
+    return took
 
 
 class LiveSafety:

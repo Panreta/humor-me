@@ -11,7 +11,7 @@ from app.bank import BankGenerator
 from app.cache import cached_for
 from app.director import load_director
 from app import llm
-from app.generate import llm_stack
+from app.generate import llm_stack, warm_up
 from app.live import AnnouncedSim, BankOnlySafety, ButtonSource, WebSocketPlayer, git_sha, load_sessions
 from app.log import SESSIONS, SessionLog, read_session
 from app.pauses import Pauses
@@ -168,6 +168,12 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
         sessions, sha, tts = await asyncio.gather(asyncio.to_thread(load_sessions, sessions_dir),
                                                   asyncio.to_thread(git_sha), asyncio.to_thread(get_tts))
         director = load_director(sessions, seed=seed)
+        # Before the microphone and the log: a writer that cannot load stops the show here, not after show_start
+        # with every bit on the bank.
+        generator, safety, fallback, bridge_lines = make_stack(msg["room"])
+        warm_s = await asyncio.to_thread(warm_up, generator)
+        if warm_s is not None:
+            log.info("writer %s loaded in %.1f s", generator.client.model, warm_s)
         clock = live.clock = RealClock()
         show_log = live.log = SessionLog(sessions_dir)
         audio = await _open_recorder(ws, live, show_log) if msg["consent"] else None
@@ -175,7 +181,6 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
             source = live.source = ButtonSource(ws.send_json, clock, live.pauses)
         else:
             source = AnnouncedSim(ws.send_json, msg["context"], secrets.randbits(32))
-        generator, safety, fallback, bridge_lines = make_stack(msg["room"])
         live.running = True  # cleared with no await in between when run_show returns or raises, so a pause after show_end is refused
         try:
             await run_show(director, msg["room"], msg["context"], generator=generator, safety=safety,

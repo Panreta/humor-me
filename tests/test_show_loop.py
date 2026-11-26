@@ -439,3 +439,18 @@ def test_a_pause_is_refused_once_run_show_has_raised(server, monkeypatch):
         ws.send_json({"type": "pause"})
         refusal = json.loads(ws.receive()["text"])
     assert refusal["type"] == "error" and refusal["about"] == "pause"
+
+
+def test_a_writer_that_cannot_load_stops_the_show_before_it_starts(server, monkeypatch):
+    from app import llm
+
+    def down(generator):
+        raise llm.LLMError("the writer bonsai-2:4b did not load: is `ollama serve` running")
+
+    monkeypatch.setattr(main, "warm_up", down)
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json(start("sim"))
+        seen = pump(ws)
+        assert any(m["type"] == "error" and "ollama serve" in m["message"] for m in seen)
+        assert seen[-1]["status"] == "aborted" and seen[-1]["ratable"] is False
+    assert list(server.glob("*.jsonl")) == []  # no show_start: no log, and no bank-only show passed off as one
