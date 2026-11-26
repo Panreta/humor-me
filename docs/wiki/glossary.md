@@ -155,6 +155,11 @@ Used in the rJokes results (notebook Exp 2, 10, 11). Examples are from the 90k l
 | **Bootstrap** | Estimates uncertainty from the data alone: draw a new sample of the same size from the data, with repeats allowed (a **resample**), recompute the number, and repeat. How much it moves gives the CI | 1,000 resamples for Exp 10 |
 | **Cohen's kappa** | How well two labelers agree after subtracting the agreement they'd reach by chance. 1 is perfect and 0 is no better than chance. Raw agreement can mislead: if most jokes get no laugh, always answering "no laugh" looks accurate, but its kappa is 0 | Laugh detector vs the operator's keys |
 
+| **Setup** | The writer prompt and model, whether the next-bit guess is on, and the bridge rule a show ran with. The show ledger groups shows by setup, in the order they started | one call per thread (gen-v4), next bit prepared early, skips heard lines |
+| **Writer code names** | The short names bank-v1, gen-v3, gen-v4 (and gen-v4 before D-111 fixes), gen-v5, "+ guess" and "+ skip-heard" that tag a setup. Plain description first, code name in brackets in text; charts use the code name only | [table in metrics.md](../metrics.md#show-ledger-how-each-setup-did-exp-32-2026-11-26) |
+| **Show ledger** | One row per logged show (room, setup, code version, your rating, delivery numbers, a hash per bit), re-recorded after each show with `python -m sim.show_ledger --record` | `reports/metrics/show_ledger.json` |
+| **Permutation test** | Asks how often a random reshuffle of the same ratings into groups of the same sizes gives a gap in means at least as big as the one seen. Exact when the groups are small enough to list every reshuffle | gen-v4 skips heard vs guess: p = 0.27 |
+
 ## Safety filter terms
 
 Used in the safety filter ([wiki page](safety-filter.md), notebook Exp 19).
