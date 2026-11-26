@@ -109,6 +109,7 @@ What we decided and why, one line each. Click an ID for the full record (options
 | [D-103](agent/decisions-detail.md#d-103) | Nov 25 | In the first Exp 24 run, bonsai timed out 17 times in a row because the Ollama tray app kept restarting a server. Its block was set aside and rerun on a clean server; qwen's clean block stands. (user) |
 | [D-104](agent/decisions-detail.md#d-104) | Nov 25 | Gemma 4 12B, the reference, is dropped: it runs partly on the CPU and can't finish a bit in 12 s. Haiku already shows how far the small models are from a stronger one. The ballot has 3 options again, about 38 minutes. (user) |
 | [D-105](agent/decisions-detail.md#d-105) | Nov 25 | The safety rules took curly apostrophes in words like “I’ve” for names, so a quarter of qwen’s lines were wrongly rejected. Fixed; Exp 24’s safety step is redone for all models (no regeneration), and the vote starts over. (user) |
+| [D-106](agent/decisions-detail.md#d-106) | Nov 25 | Only qwen writes curly quotes, long dashes and ellipses, which would give its bits away on the ballot. The ballot and the judge now show plain punctuation; the saved bits stay as written. (user) |
 
 New decision: add its full entry to the detailed log with the next ID, then a row here in the same PR.
 A test fails if the two files' IDs don't match.
