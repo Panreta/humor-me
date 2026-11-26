@@ -603,6 +603,15 @@ def test_overlapping_ranks_pick_the_cheaper_and_say_inconclusive():
     assert d["pick"] == min((d["best"], d["second"]), key=lambda m: stats()[m]["cost_per_bit_usd"])
 
 
+def test_an_exact_rank_tie_goes_to_the_faster_model_not_the_first_name():
+    qwen, bonsai, haiku = MODELS  # bonsai sorts first by name, so name order would put it ahead
+    s = stats(bonsai_2_4b={"latency_p50_s": 8.0}, qwen3_4b_instruct={"latency_p50_s": 4.0})
+    d = decide(s, ranks_for([[haiku, qwen, bonsai], [haiku, bonsai, qwen]] * 12))
+    assert d["mean_rank_eligible"][qwen] == d["mean_rank_eligible"][bonsai] and d["second"] == qwen
+    d = decide(s, ranks_for([[qwen, bonsai, haiku], [bonsai, qwen, haiku]] * 12))
+    assert d["best"] == qwen and d["second"] == bonsai
+
+
 def test_ineligible_models_cannot_win_and_ranks_are_redone_among_the_rest():
     a, b, c = MODELS
     s = stats(bonsai_2_4b={"latency_p95_s": 12.5})  # the funniest, but past the 12 s deadline
