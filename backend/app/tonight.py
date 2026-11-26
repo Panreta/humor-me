@@ -1,5 +1,5 @@
 """Tonight's context (D-117): what is happening today, as background for the writer. Three inputs: one optional line the
-operator types, the S&P 500's last daily move, and today's top headlines turned into nameless one-sentence gists. The
+operator types, the S&P 500's last daily move (FRED), and today's top headlines turned into nameless one-sentence gists. The
 operator approves them on the operator screen before the show; only approved items reach the writer.
 
 Names stay generic ("a GPU company", "a senator"): the no-real-or-named-people rule is unchanged. Death, disaster, crime
@@ -23,7 +23,7 @@ from app import llm, safety
 
 DATA = pathlib.Path(__file__).resolve().parents[2] / "data" / "tonight"
 NEWS_URL = "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en"
-MARKET_URL = "https://stooq.com/q/d/l/?s=^spx&i=d"
+MARKET_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500"
 USER_AGENT = "humor-me-tonight/1.0"
 FETCH_TIMEOUT_S = 10.0
 MAX_HEADLINES = 10
@@ -61,28 +61,29 @@ def http_get(url: str, timeout: float = FETCH_TIMEOUT_S) -> str:
 
 
 def parse_market(text: str) -> dict:
-    """Stooq's daily CSV (Date,Open,High,Low,Close,Volume): the last two closes. Raises TonightError for anything else,
-    including the browser check Stooq serves to scripts (an HTML page), so the show then runs without a market line."""
-    if not text.lstrip().lower().startswith("date,"):
-        raise TonightError("market reply is not the daily CSV (the site may be asking for a browser check)")
+    """FRED's SP500 CSV (`observation_date,SP500`): the last two numeric closes. FRED marks a day with no close as "." and
+    lags the market by a day or two, so the line names the date. Raises TonightError for anything that is not that CSV."""
+    if not text.lstrip().lower().startswith("observation_date,"):
+        raise TonightError("market reply is not FRED's SP500 CSV")
     rows = []
     for r in csv.DictReader(io.StringIO(text.strip())):
         try:
-            rows.append((r["Date"], float(r["Close"])))
+            rows.append((datetime.date.fromisoformat(r["observation_date"]), float(r["SP500"])))
         except (KeyError, ValueError, TypeError):
-            continue
+            continue  # "." (no close that day) or a damaged row
     rows.sort()
     if len(rows) < 2 or rows[-2][1] <= 0:
-        raise TonightError("market CSV has fewer than two usable closes")
-    (_, prev), (date, close) = rows[-2], rows[-1]
+        raise TonightError("market CSV has fewer than two numeric closes")
+    (_, prev), (day, close) = rows[-2], rows[-1]
     pct = round((close / prev - 1) * 100, 2)
-    return {"date": date, "close": close, "prev_close": prev, "pct": pct, "line": market_line(pct)}
+    return {"date": day.isoformat(), "close": close, "prev_close": prev, "pct": pct, "line": market_line(pct, day)}
 
 
-def market_line(pct: float) -> str:
+def market_line(pct: float, day: datetime.date) -> str:
+    when = f"{day:%b} {day.day}"
     if abs(pct) < 0.05:
-        return "The S&P 500 closed about flat at its last close."
-    return f"The S&P 500 closed {'up' if pct > 0 else 'down'} {abs(pct):.1f}% at its last close."
+        return f"The S&P 500 was about flat on {when}."
+    return f"The S&P 500 {'rose' if pct > 0 else 'fell'} {abs(pct):.1f}% on {when}."
 
 
 def parse_headlines(xml_text: str, limit: int = MAX_HEADLINES) -> list[str]:
@@ -106,34 +107,49 @@ def parse_headlines(xml_text: str, limit: int = MAX_HEADLINES) -> list[str]:
 
 # --- the Haiku step: nameless gists, off-limits categories dropped -----------------------------------------------------
 
-CONDENSE_SYSTEM = """You prepare news for a stand-up robot's background. You get numbered headlines. For each, write a gist and a category.
+KEEP_TYPES = ("occasion", "sports")
+CONDENSE_SYSTEM = """You prepare news for a stand-up robot's background. You get numbered headlines. For each, write a gist, a category and a keep list.
 
-The gist: one plain sentence under 20 words, present tense, with no opinion. Never name a person, company, product, band, team, show or place: say what they are instead ("a GPU company", "a tech CEO", "a senator", "a western state", "a streaming service"). Use no capital letters except the first word and "S&P", "AI", "US", "EU", "UK", "GPU", "CEO".
+The gist: one plain sentence under 20 words, present tense, with no opinion. Never name a person, company, product, band, show or place: say what they are instead ("a GPU company", "a tech CEO", "a senator", "a western state", "a streaming service"). Three kinds of name may stay, capitalized: a holiday, festival or important date ("Thanksgiving", "Black Friday"), a sports team ("the Lakers"), and a sports event ("the Super Bowl"). Use no other capital letters except the first word and "S&P", "AI", "US", "EU", "UK", "GPU", "CEO".
+
+The keep list names every such holiday, team or event you left in the gist, exactly as written there, with its type: "occasion" (holiday, festival, important date) or "sports" (team or sports event). Use an empty list when the gist has none. A team name is never a person's name: never keep a player, coach or owner.
 
 The category is one of: death (someone died, was killed, a funeral, an obituary), disaster (accident, crash, fire, flood, storm damage, outbreak, collapse), crime (arrest, shooting, trial, fraud, abuse), war (war, strikes, terrorism, hostages, military attacks), or none. Politics, money, health, science, sport and culture are none. When the category is not none, still give a gist.
 
-Reply with JSON only: {"items": [{"id": 0, "category": "none", "gist": "..."}, ...]} with exactly one entry per id."""
+Reply with JSON only: {"items": [{"id": 0, "category": "none", "gist": "...", "keep": [{"name": "Thanksgiving", "type": "occasion"}]}, ...]} with exactly one entry per id."""
 CONDENSE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["items"],
                    "properties": {"items": {"type": "array", "items": {
-                       "type": "object", "additionalProperties": False, "required": ["id", "category", "gist"],
+                       "type": "object", "additionalProperties": False, "required": ["id", "category", "gist", "keep"],
                        "properties": {"id": {"type": "integer"}, "gist": {"type": "string"},
-                                      "category": {"type": "string", "enum": ["none", *CATEGORIES]}}}}}}
+                                      "category": {"type": "string", "enum": ["none", *CATEGORIES]},
+                                      "keep": {"type": "array", "items": {
+                                          "type": "object", "additionalProperties": False, "required": ["name", "type"],
+                                          "properties": {"name": {"type": "string"},
+                                                         "type": {"type": "string", "enum": list(KEEP_TYPES)}}}}}}}}}
 
 
-def parse_condensed(reply: str, n: int) -> list[tuple[str, str]]:
-    """[(category, gist)] by headline id. Raises ValueError unless every id 0..n-1 is answered once."""
-    got: dict[int, tuple[str, str]] = {}
+def parse_condensed(reply: str, n: int) -> list[tuple[str, str, list[str]]]:
+    """[(category, gist, kept names)] by headline id. Raises ValueError unless every id 0..n-1 is answered once. A kept
+    name that does not appear in the gist, or has another type, is dropped from the list (never kept on trust)."""
+    got: dict[int, tuple[str, str, list[str]]] = {}
     for item in json.loads(llm.strip_fence(reply))["items"]:
         i, cat, gist = item["id"], item["category"], item["gist"]
         if (isinstance(i, int) and not isinstance(i, bool) and 0 <= i < n and i not in got
                 and cat in ("none", *CATEGORIES) and isinstance(gist, str)):
-            got[i] = (cat, gist.strip())
+            gist = gist.strip()
+            keep = []
+            for k in item.get("keep") or []:
+                name = k.get("name") if isinstance(k, dict) else None
+                if (isinstance(name, str) and name.strip() and k.get("type") in KEEP_TYPES and name.strip() in gist
+                        and name.strip() not in keep):
+                    keep.append(name.strip())
+            got[i] = (cat, gist, keep)
     if len(got) != n:
         raise ValueError("missing or malformed items")
     return [got[i] for i in range(n)]
 
 
-def condense(headlines: list[str], client) -> list[tuple[str, str]]:
+def condense(headlines: list[str], client) -> list[tuple[str, str, list[str]]]:
     user = json.dumps([{"id": i, "headline": h} for i, h in enumerate(headlines)])
     reply = client.chat(CONDENSE_SYSTEM, user, json_reply=CONDENSE_SCHEMA,
                         validate=lambda r: parse_condensed(r, len(headlines)))
@@ -146,26 +162,35 @@ NAME_ALLOW = frozenset({"I", "S&P", "AI", "GPU", "CPU", "CEO", "US", "UK", "EU",
 TOKEN = re.compile(r"[A-Za-z][A-Za-z'’&\-]*")
 
 
-def name_check(gist: str) -> str | None:
-    """The first likely proper name in a gist, else None: a capitalized word that does not start a sentence and is not
-    allowlisted, or a first name from the safety rules' list. Acronyms count unless allowlisted, because an acronym is
-    usually an organisation. Cheap and over-cautious on purpose: `app.safety` still reads the gist after it."""
+def caps_tokens(names) -> frozenset:
+    """The words of kept names, as `safety` and `name_check` see them (a possessive loses its 's)."""
+    return frozenset(w.removesuffix("'s").removesuffix("\u2019s") for n in names for w in TOKEN.findall(n))
+
+
+def name_check(gist: str, allow: frozenset = frozenset()) -> str | None:
+    """The first likely proper name in a gist, else None: a capitalized word that does not start a sentence and is not an
+    allowed one, or a first name from the safety rules' list. Allowed: the small allowlist (`S&P`, `AI`...), the holiday
+    and event words in `safety.OCCASIONS`, and `allow`, the kept names of this gist (a team or sports event). A first name
+    is a name even inside a kept one. Acronyms count unless allowed, because an acronym is usually an organisation.
+    Cheap and over-cautious on purpose: `app.safety` still reads the gist after it."""
     text = gist.strip().replace("U.S.", "US")
     for sentence in safety.SENTENCE_END.split(text):
         for i, w in enumerate(TOKEN.findall(sentence)):
-            base = w.removesuffix("'s").removesuffix("’s")
-            if base in NAME_ALLOW:
+            base = w.removesuffix("'s").removesuffix("\u2019s")
+            if base.lower() in safety.FIRST_NAMES:
+                return w
+            if base in NAME_ALLOW or base in safety.OCCASION_WORDS or base in allow:
                 continue
-            if base.lower() in safety.FIRST_NAMES or (i and base[0].isupper()):
+            if i and base[0].isupper():
                 return w
     return None
 
 
-def vet(texts: list[str], client, age: str = STRICT_AGE) -> dict[str, safety.Verdict]:
+def vet(texts: list[str], client, age: str = STRICT_AGE, allow_caps: frozenset = frozenset()) -> dict[str, safety.Verdict]:
     """Rules, then the LLM verdict, for each text (`app.safety`): the same check every joke gets. Fails closed: without a
     client every text is rejected."""
-    safety.prefetch(texts, age, client)
-    return {t: safety.check(t, age) for t in texts}
+    safety.prefetch(texts, age, client, allow_caps)
+    return {t: safety.check(t, age, allow_caps) for t in texts}
 
 
 def clean_fact(text) -> str | None:
@@ -187,7 +212,7 @@ def build(get, condense_client, safety_client, now: datetime.datetime | None = N
     and an empty result, never a raise: the show then runs as it does without tonight's context."""
     now = now or datetime.datetime.now(datetime.timezone.utc)
     out = {"date": now.astimezone().date().isoformat(), "fetched_at": now.isoformat(timespec="seconds"), "sources": {"news": NEWS_URL, "market": MARKET_URL},
-           "market": None, "gists": [], "report": _zero_report(), "errors": []}
+           "market": None, "gists": [], "keep": {}, "report": _zero_report(), "errors": []}
     try:
         out["market"] = parse_market(get(MARKET_URL))
     except Exception as e:  # noqa: BLE001 - any failure of this half only drops the market line
@@ -201,19 +226,24 @@ def build(get, condense_client, safety_client, now: datetime.datetime | None = N
         out["errors"].append(f"headlines: {type(e).__name__}: {e}"[:200])
         return out
     survivors: list[str] = []
-    for category, gist in pairs:
+    keeps: dict[str, list[str]] = {}
+    for category, gist, keep in pairs:
         if category != "none":
             report["dropped_by_category"][category] += 1
         elif not gist:
             report["dropped_no_gist"] += 1
-        elif name_check(gist):
+        elif name_check(gist, caps_tokens(keep)):
             report["rejected_by_name_check"] += 1
         elif gist not in survivors:
             survivors.append(gist)
-    verdicts = vet(survivors, safety_client)
+            keeps[gist] = keep
+    # One check for the day with every survivor's kept words allowed; `make_context` redoes it for the approved ones only.
+    verdicts = vet(survivors, safety_client, allow_caps=caps_tokens(n for g in survivors for n in keeps[g]))
     for gist in survivors:
         if verdicts[gist].ok:
             out["gists"].append(gist)
+            if keeps[gist]:
+                out["keep"][gist] = keeps[gist]
         else:
             report["rejected_by_safety"] += 1
     report["kept"] = len(out["gists"])
@@ -246,7 +276,10 @@ def load_or_build(build_fn, *, refresh: bool = False, directory: pathlib.Path | 
 class TonightContext:
     """One per show: the approved facts, market line and gists, and which gists were spent."""
 
-    def __init__(self, facts: list[str], market: str | None, gists: list[str], report: dict | None = None):
+    def __init__(self, facts: list[str], market: str | None, gists: list[str], report: dict | None = None,
+                 allowed_names: list[str] | None = None):
+        self.allowed_names = list(allowed_names or [])  # team and event names the approved gists keep, logged
+        self.allow_caps = caps_tokens(self.allowed_names)  # what the show's safety rules let through mid-sentence
         self.facts = list(facts)[:MAX_TONIGHT_FACTS]
         self.market = market
         self.gists = list(gists)
@@ -276,7 +309,8 @@ class TonightContext:
 
     def summary(self) -> dict:
         """The `tonight` log row: what was approved and where it came from (invariant 6)."""
-        return {"facts": self.facts, "market": self.market, "gists": self.gists, "report": {**self.report, "approved": len(self.gists)}}
+        return {"facts": self.facts, "market": self.market, "gists": self.gists, "allowed_names": self.allowed_names,
+                "report": {**self.report, "approved": len(self.gists)}}
 
     def use_row(self, bit: int) -> dict | None:
         return {"gist": self._used[bit]} if bit in self._used else None
@@ -291,7 +325,9 @@ def make_context(payload: dict, cached: dict | None, safety_client) -> TonightCo
     market = (cached or {}).get("market")
     facts = [f for f in (clean_fact(x) for x in payload.get("facts", [])) if f][:MAX_TONIGHT_FACTS]
     gists = [g for g in payload.get("gists", []) if g in known]
-    verdicts = vet(facts + gists, safety_client)
+    keeps = (cached or {}).get("keep", {})
+    allow = caps_tokens(n for g in gists for n in keeps.get(g, []))
+    verdicts = {**vet(facts, safety_client), **vet(gists, safety_client, allow_caps=allow)}
     rejected_at_start = sum(not verdicts[t].ok for t in facts + gists)
     report = {**((cached or {}).get("report") or {}), "rejected_at_start": rejected_at_start,
               "facts_typed": len(payload.get("facts", [])),
@@ -299,5 +335,6 @@ def make_context(payload: dict, cached: dict | None, safety_client) -> TonightCo
               "date": (cached or {}).get("date")}
     use_market = payload.get("market") is not None and market is not None and payload["market"] == market["line"]
     ctx = TonightContext([f for f in facts if verdicts[f].ok], market["line"] if use_market else None,
-                         [g for g in gists if verdicts[g].ok], report)
+                         [g for g in gists if verdicts[g].ok], report,
+                         [n for g in gists if verdicts[g].ok for n in keeps.get(g, [])])
     return None if ctx.empty() else ctx

@@ -232,6 +232,8 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
             try:  # D-117: a failed check means no tonight context, never a failed show
                 if ctx := await asyncio.to_thread(tonight_vet, msg["tonight"]):
                     set_tonight(ctx)
+                    if hasattr(safety, "allow_caps"):
+                        safety.allow_caps = ctx.allow_caps
             except Exception:  # noqa: BLE001
                 log.warning("tonight context dropped: the check failed", exc_info=True)
         pool = await asyncio.to_thread(build_pool, bridge_lines, sessions)

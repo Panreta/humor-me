@@ -103,12 +103,20 @@ TEENS_SEXUAL = _any(
 TEENS_CRUDE = _any(r"damn", r"hell", r"crap", r"sucks?", r"ass", r"piss(?:ed)?", r"bastards?")
 
 TITLE_NAME = re.compile(r"\b(?:Mr|Mrs|Ms|Miss|Dr|Prof)\.?\s+[A-Z]")
+# Holidays, shopping days and big events (D-117): allowed capitalized in jokes and in tonight's gists. Their words join
+# CAPS_OK below, so the day and month logic applies to them unchanged.
+OCCASIONS = frozenset({
+    "Thanksgiving", "Christmas", "Halloween", "Easter", "Hanukkah", "Diwali", "Eid", "Ramadan", "Passover", "Lunar New Year",
+    "New Year's", "Valentine's Day", "Black Friday", "Cyber Monday", "Super Bowl", "Olympics", "World Cup", "Oscars", "Grammys",
+    "Fourth of July", "Independence Day", "Labor Day", "Memorial Day", "Veterans Day", "Mother's Day", "Father's Day",
+    "St. Patrick's Day"})
+OCCASION_WORDS = frozenset(w.removesuffix("'s") for name in OCCASIONS for w in name.replace(".", "").split())
 # Safe capitalised words in mid-sentence. All-caps acronyms (HR, USB) are allowed separately.
 CAPS_OK = frozenset(
     "I I'm I'll I've I'd Wi-Fi WiFi Monday Tuesday Wednesday Thursday Friday Saturday Sunday January February March "
     "April May June July August September October November December Python Bluetooth Google Wikipedia Netflix Excel "
     "Linux Windows Android Alexa Siri Roomba Gemini Kokoro Earth Internet Mars English".split()
-)
+) | OCCASION_WORDS
 # Names the robot's own material gives to objects and pets. Not people in the room.
 FICTIONAL_NAMES = frozenset({"Gerald"})
 QUOTED = re.compile(r"\"[^\"]*\"|“[^”]*”|(?<![A-Za-z0-9])['‘][^'’]*['’](?![A-Za-z0-9])")
@@ -186,7 +194,7 @@ def _tokens(sentence: str) -> set[str]:
     return words | {w[:-2] for w in words if w.endswith("'s")}  # "gentleman's" is the gentleman
 
 
-def _named_person(text: str) -> str | None:
+def _named_person(text: str, allow_caps: frozenset = frozenset()) -> str | None:
     if m := TITLE_NAME.search(text):
         return m.group(0)
     # Quoted phrases are the robot quoting something ("'Next Steps'"), so their capitals are not names.
@@ -196,7 +204,8 @@ def _named_person(text: str) -> str | None:
             base = w[:-2] if w.endswith("'s") else w
             if base.lower() in FIRST_NAMES:
                 return w
-            known = base in CAPS_OK or base in FICTIONAL_NAMES or (base.endswith("s") and base[:-1] in CAPS_OK)
+            known = (base in CAPS_OK or base in FICTIONAL_NAMES or base in allow_caps
+                     or (base.endswith("s") and base[:-1] in CAPS_OK))
             if i and w[0].isupper() and not w.isupper() and not known:
                 return w
     return None
@@ -222,7 +231,7 @@ RULES_VERSION = "rules-v2"
 CURLY = str.maketrans({"’": "'", "‘": "'", "“": '"', "”": '"'})
 
 
-def _check(text: str, age: str) -> Verdict:
+def _check(text: str, age: str, allow_caps: frozenset = frozenset()) -> Verdict:
     if not isinstance(text, str) or not text.strip():
         return Verdict(False, "empty")
     text = text.translate(CURLY)
@@ -234,7 +243,7 @@ def _check(text: str, age: str) -> Verdict:
         return Verdict(False, "slur_reference")
     if any(len(MASK_CHARS.findall(t)) >= 2 and re.search(r"[a-z]", t) for t in lowered.split()):
         return Verdict(False, "masked_profanity")
-    if reason := _named_person(text):
+    if reason := _named_person(text, allow_caps):
         return Verdict(False, f"named_person:{reason}")
 
     for variant in _variants(text):
@@ -253,9 +262,9 @@ def _check(text: str, age: str) -> Verdict:
     return Verdict(True, "ok")
 
 
-def check_rules(text: str, age: str) -> Verdict:
+def check_rules(text: str, age: str, allow_caps: frozenset = frozenset()) -> Verdict:
     try:
-        return _check(text, age)
+        return _check(text, age, allow_caps) if allow_caps else _check(text, age)
     except Exception as exc:  # fail closed: a filter bug must never let a line through
         return Verdict(False, f"error:{type(exc).__name__}")
 
@@ -314,10 +323,10 @@ def _parse(reply: str, n: int) -> dict[int, Verdict]:
     return out
 
 
-def prefetch(texts: list[str], age: str, client: llm.Client | None = None) -> None:
+def prefetch(texts: list[str], age: str, client: llm.Client | None = None, allow_caps: frozenset = frozenset()) -> None:
     """Judge every rules-surviving line, 15 per call, and cache the verdicts. A failed call caches rejections."""
     client = client or _client
-    pending = [t for t in dict.fromkeys(texts) if check_rules(t, age).ok]
+    pending = [t for t in dict.fromkeys(texts) if check_rules(t, age, allow_caps).ok]
     for start in range(0, len(pending), BATCH_SIZE):
         batch = pending[start:start + BATCH_SIZE]
         try:
@@ -337,10 +346,12 @@ def prefetch(texts: list[str], age: str, client: llm.Client | None = None) -> No
             _cache[_key(text, age)] = verdicts.get(i) or Verdict(False, failure or "llm:missing verdict")
 
 
-def check(text: str, age: str) -> Verdict:
-    """Rules, then the cached LLM verdict from `prefetch`. No cached verdict means rejected."""
+def check(text: str, age: str, allow_caps: frozenset = frozenset()) -> Verdict:
+    """Rules, then the cached LLM verdict from `prefetch`. No cached verdict means rejected. `allow_caps` (D-117) are
+    capitalized words the rules let through mid-sentence, such as a team name in an approved headline; the first-name and
+    title checks still apply to them."""
     try:
-        verdict = _check(text, age)
+        verdict = _check(text, age, allow_caps) if allow_caps else _check(text, age)
         if not verdict.ok:
             return verdict
         return _cache.get(_key(text, age)) or Verdict(False, "llm:no verdict")

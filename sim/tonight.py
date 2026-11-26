@@ -7,8 +7,8 @@ Usage (`ANTHROPIC_API_KEY` set for the gist step; Ollama up with `OLLAMA_NUM_PAR
     python -m sim.tonight review                            # you compare the 10 pairs, sides hidden and randomized
     python -m sim.tonight score [--record]                  # the numbers with your answers (no model calls) -> reports/metrics/tonight.json
 
-`fetch` runs the same pipeline the show's `GET /tonight` runs (`app.tonight.build`): Stooq's S&P 500 daily CSV and Google News
-top stories; one Claude Haiku call writes nameless one-sentence gists and drops death, disaster, crime and war; a rule-level
+`fetch` runs the same pipeline the show's `GET /tonight` runs (`app.tonight.build`): FRED's S&P 500 daily CSV and Google News
+top stories; one Claude Haiku call writes nameless one-sentence gists (holidays, festivals and sports teams or events may keep their names) and drops death, disaster, crime and war; a rule-level
 name check; the safety check. Then for each gist that survived you answer (1) approve for the show? and (2) does it contain
 a name? and you may type 0 or 1 line about tonight (`MAX_TONIGHT_FACTS`, safety-checked). One day of headlines: a small
 sample, and it is today's, so the fetch cannot be repeated later. The answers are saved in `fetch.json`.
@@ -98,7 +98,7 @@ def approve(built: dict, read=input, out=print, safety_client=None) -> dict:
             out("Kept." if verdict.ok else f"The safety check refused it ({verdict.reason}); it is left out.")
             fact = typed if verdict.ok else None
     return {"date": built["date"], "fetched_at": built["fetched_at"], "sources": built["sources"], "errors": built["errors"],
-            "market": built["market"], "report": built["report"], "answers": answers,
+            "market": built["market"], "report": built["report"], "keep": built.get("keep", {}), "answers": answers,
             "facts": [fact] if fact else [], "approved": [a["gist"] for a in answers if a["approved"]]}
 
 

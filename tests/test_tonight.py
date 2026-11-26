@@ -1,6 +1,7 @@
 """Tonight's context (D-117): the parsers, the gist filter, the name check, the day cache, the per-show draw, the generator's
 request, the log rows and the websocket payload. Synthetic samples and fakes only: no network, no model."""
 import asyncio
+import datetime
 import json
 import pathlib
 import sys
@@ -19,12 +20,13 @@ from app.show import UniformSelector, run_show  # noqa: E402
 from tests.test_generate import CTX, FAST, FakePlayer, FakeVoice, Filter, parallel_client, thread_reply  # noqa: E402
 from tests.test_replay import START, react, same  # noqa: E402
 
-# Synthetic samples in the formats checked by one fetch on 2026-11-26 (Google News RSS; Stooq's CSV, which now answers
-# scripts with an HTML browser check, see test_a_browser_check_page_is_not_a_market_reply).
-CSV = """Date,Open,High,Low,Close,Volume
-2026-11-23,5000.0,5050.0,4990.0,5010.0,1000
-2026-11-24,5010.0,5070.0,5000.0,5060.0,1100
-2026-11-25,5060.0,5075.0,5010.0,5030.0,900
+# Synthetic samples in the formats checked on 2026-11-26 (Google News RSS; FRED's SP500 CSV, which marks a day with no close as ".").
+# Stooq, the first choice, answered scripts with an HTML browser check (D-117).
+CSV = """observation_date,SP500
+2026-11-20,5000.0
+2026-11-21,5010.0
+2026-11-24,5060.0
+2026-11-25,.
 """
 RSS = """<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Top stories</title>
 <item><title>Chipmaker unveils faster chip - Example Wire</title><link>https://example.test/1</link></item>
@@ -37,21 +39,36 @@ RSS = """<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><titl
 
 # --- parsers ---
 
-def test_market_is_the_last_two_closes_whatever_the_row_order():
+def test_market_is_the_last_two_numeric_closes_and_the_line_names_the_date():
     m = tonight.parse_market(CSV)
-    assert (m["date"], m["close"], m["prev_close"], m["pct"]) == ("2026-11-25", 5030.0, 5060.0, -0.59)
-    assert m["line"] == "The S&P 500 closed down 0.6% at its last close."
+    assert (m["date"], m["close"], m["prev_close"], m["pct"]) == ("2026-11-24", 5060.0, 5010.0, 1.0)
+    assert m["line"] == "The S&P 500 rose 1.0% on Nov 24."
+    fell = tonight.parse_market("observation_date,SP500\n2026-12-02,100\n2026-12-03,99.5\n")
+    assert fell["line"] == "The S&P 500 fell 0.5% on Dec 3."
+
+
+def test_the_market_row_order_does_not_matter():
+    m = tonight.parse_market(CSV)
     shuffled = "\n".join([CSV.splitlines()[0], *reversed(CSV.splitlines()[1:])])
     assert tonight.parse_market(shuffled) == m
 
 
-def test_market_line_up_and_flat():
-    assert tonight.market_line(1.24) == "The S&P 500 closed up 1.2% at its last close."
-    assert "about flat" in tonight.market_line(0.04) and "about flat" in tonight.market_line(-0.04)
+def test_market_line_up_down_and_flat():
+    day = datetime.date(2026, 11, 24)
+    assert tonight.market_line(1.24, day) == "The S&P 500 rose 1.2% on Nov 24."
+    assert tonight.market_line(-0.46, day) == "The S&P 500 fell 0.5% on Nov 24."
+    assert "about flat" in tonight.market_line(0.04, day) and "about flat" in tonight.market_line(-0.04, day)
 
 
-@pytest.mark.parametrize("text", ["<!DOCTYPE html><html>browser check</html>", "", "Date,Open,High,Low,Close,Volume\n",
-                                  "Date,Close\n2026-11-25,abc\n2026-11-24,5000\n"])
+def test_the_source_is_fred_and_no_stooq_is_left():
+    assert tonight.MARKET_URL == "https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500"
+    assert "stooq" not in pathlib.Path(tonight.__file__).read_text(encoding="utf-8").lower()
+
+
+@pytest.mark.parametrize("text", ["<!DOCTYPE html><html>browser check</html>", "", "observation_date,SP500\n",
+                                  "observation_date,SP500\n2026-11-25,.\n2026-11-24,5000\n",
+                                  "observation_date,SP500\n2026-11-25,abc\n2026-11-24,5000\n",
+                                  "Date,Open,High,Low,Close,Volume\n2026-11-24,1,1,1,1,1\n2026-11-25,1,1,1,1,1\n"])
 def test_a_browser_check_page_is_not_a_market_reply(text):
     with pytest.raises(tonight.TonightError):
         tonight.parse_market(text)
@@ -92,11 +109,14 @@ def test_a_capital_after_a_full_stop_starts_a_sentence_and_is_not_a_name():
 # --- the Haiku step ---
 
 def condensed(*items):
-    return json.dumps({"items": [{"id": i, "category": c, "gist": g} for i, (c, g) in enumerate(items)]})
+    """Items are (category, gist) or (category, gist, [kept names as (name, type)])."""
+    return json.dumps({"items": [{"id": i, "category": it[0], "gist": it[1],
+                                  "keep": [{"name": n, "type": t} for n, t in (it[2] if len(it) > 2 else [])]}
+                                 for i, it in enumerate(items)]})
 
 
 def test_condensed_reply_must_answer_every_id_once():
-    assert tonight.parse_condensed(condensed(("none", " a gist "), ("war", "x")), 2) == [("none", "a gist"), ("war", "x")]
+    assert tonight.parse_condensed(condensed(("none", " a gist "), ("war", "x")), 2) == [("none", "a gist", []), ("war", "x", [])]
     for bad in (condensed(("none", "a")), json.dumps({"items": [{"id": 0, "category": "none", "gist": "a"}] * 2}),
                 condensed(("sports", "a"), ("none", "b")), json.dumps({"items": [{"id": 0, "category": "none", "gist": 3},
                                                                                 {"id": 1, "category": "none", "gist": "b"}]}),
@@ -146,7 +166,7 @@ SIX_REPLY = condensed(("none", "a tech company unveils a new chip"), ("death", "
 def test_build_counts_every_drop_and_keeps_what_is_left():
     out = tonight.build(feeds(news=SIX_RSS), FakeClient(SIX_REPLY), FakeClient())
     assert out["gists"] == ["a tech company unveils a new chip"]
-    assert out["market"]["pct"] == -0.59 and out["errors"] == []
+    assert out["market"]["pct"] == 1.0 and out["errors"] == []
     assert out["report"] == {"fetched": 6, "dropped_by_category": {"death": 1, "disaster": 0, "crime": 1, "war": 1},
                              "dropped_no_gist": 0, "rejected_by_name_check": 1, "rejected_by_safety": 1, "kept": 1}
     assert out["sources"] == {"news": tonight.NEWS_URL, "market": tonight.MARKET_URL} and out["fetched_at"]
@@ -168,7 +188,7 @@ def test_a_failed_market_still_gives_the_headlines():
                                          (SIX_RSS, FakeClient("not json"))])
 def test_a_failed_headline_half_still_gives_the_market(news, client):
     out = tonight.build(feeds(news=news), client, FakeClient())
-    assert out["gists"] == [] and out["market"]["pct"] == -0.59 and out["errors"][0].startswith("headlines:")
+    assert out["gists"] == [] and out["market"]["pct"] == 1.0 and out["errors"][0].startswith("headlines:")
 
 
 def test_a_dead_safety_client_rejects_every_gist():
@@ -238,7 +258,8 @@ def test_one_typed_line_at_most_and_nothing_means_no_background():
 
 # --- the approved payload, checked again at show start ---
 
-CACHED = {"market": {"line": "The S&P 500 closed up 0.4% at its last close."}, "gists": ["a chip appears", "a vote happens"],
+CACHED = {"market": {"line": "The S&P 500 rose 0.4% on Nov 24."}, "gists": ["a chip appears", "a vote happens", "the Lakers win a game"],
+          "keep": {"the Lakers win a game": ["Lakers"]},
           "report": {"fetched": 8, "kept": 2}, "sources": {"news": "n", "market": "m"}, "fetched_at": "t", "date": "d"}
 
 
@@ -280,8 +301,8 @@ def test_the_switch_is_off_by_default():
 # --- the writer's request ---
 
 def ctx_of(**kw):
-    return tonight.TonightContext(kw.get("facts", ["it's snowing"]), kw.get("market", "The S&P 500 closed up 0.4% at its last close."),
-                                  kw.get("gists", ["a chip appears", "a vote happens"]))
+    return tonight.TonightContext(kw.get("facts", ["it's snowing"]), kw.get("market", "The S&P 500 rose 0.4% on Nov 24."),
+                                  kw.get("gists", ["a chip appears", "a vote happens"]), None, kw.get("allowed"))
 
 
 def requests_for(gen, c, bit, mode="cynic"):
@@ -315,7 +336,7 @@ def test_every_bit_gets_the_background_and_only_bits_2_and_6_a_topic():
     g.generate("cynic", 1, 0, CTX)
     g.generate("cynic", 2, 0, CTX)
     first, second = (json.loads(next(m["content"] for m in req["messages"] if m["role"] == "user")) for req in (seen[0], seen[3]))
-    assert first["tonight"] == {"facts": ["it's snowing"], "market": "The S&P 500 closed up 0.4% at its last close."}
+    assert first["tonight"] == {"facts": ["it's snowing"], "market": "The S&P 500 rose 0.4% on Nov 24."}
     assert "topic" not in first and second["topic"] == "a chip appears" and second["tonight"] == first["tonight"]
 
 
@@ -364,7 +385,7 @@ def test_a_show_logs_what_was_approved_and_which_headline_each_bit_used(tmp_path
     class Gen(generate.ThreadGenerator):
         def __init__(self):
             self.generator_id, self._told = "gen-t", []
-            self.tonight = ctx_of()
+            self.tonight = ctx_of(allowed=["Lakers"])
 
         def generate(self, mode, bit, joke, context):
             return generate.Batch("p", "prompt", [f"ok {bit}.{joke}.{i}" for i in range(3)], ())
@@ -380,6 +401,7 @@ def test_a_show_logs_what_was_approved_and_which_headline_each_bit_used(tmp_path
     events = [r["event"] for r in rows]
     assert events[0] == "show_start" and events[1] == "tonight"
     assert rows[1]["gists"] == ["a chip appears", "a vote happens"] and rows[1]["report"]["approved"] == 2
+    assert rows[1]["allowed_names"] == ["Lakers"]
     assert [(r["bit"], r["gist"]) for r in rows if r["event"] == "tonight_use"] == [(2, "a chip appears")]
     assert events.index("tonight_use") > events.index("bit_decision")
 
@@ -461,3 +483,73 @@ def test_the_endpoints_hide_the_panel_when_off_and_never_raise(monkeypatch):
     assert client.get("/tonight").json()["gists"] == []
     monkeypatch.setattr(main, "tonight_check_facts", lambda facts: [{"text": f, "ok": True, "reason": "ok"} for f in facts])
     assert client.post("/tonight/check", json={"facts": ["it's snowing"]}).json()["verdicts"][0]["ok"] is True
+
+
+# --- names the gist may keep: holidays and events everywhere, teams only when their gist was approved (D-117) ---
+
+def test_a_holiday_or_event_stays_capitalized_in_a_gist_and_in_a_joke():
+    for gist in ("A parade is postponed on Thanksgiving.", "Shoppers line up for Black Friday deals.",
+                 "Fans plan parties for the Super Bowl.", "Stores stay open on Christmas morning."):
+        assert tonight.name_check(gist) is None and safety.check_rules(gist, "mixed").ok, gist
+    assert safety.check_rules("My family argues every Thanksgiving about the wifi.", "mixed").ok
+    assert safety.OCCASION_WORDS >= {"Thanksgiving", "Black", "Friday", "Super", "Bowl", "Year", "Patrick", "Cyber"}
+
+
+def test_a_team_name_passes_only_for_the_gist_that_kept_it():
+    gist = "A team called the Lakers wins a game."
+    assert tonight.name_check(gist) == "Lakers"
+    assert tonight.name_check(gist, tonight.caps_tokens(["Lakers"])) is None
+    assert tonight.name_check("The Lakers win again.") == "Lakers"  # "The" starts the sentence, the team does not
+    assert tonight.name_check("Fans of the Celtics cheer.", tonight.caps_tokens(["Lakers"])) == "Celtics"
+
+
+def test_a_person_still_fails_even_inside_a_kept_name():
+    allow = tonight.caps_tokens(["Jordan Hawks"])
+    assert tonight.name_check("A team called the Jordan Hawks wins.", allow) == "Jordan"
+    assert safety.check_rules("The Jordan Hawks lost.", "mixed", allow).ok is False
+    assert safety.check_rules("A coach called Dr. Smith resigns.", "mixed", frozenset({"Smith"})).ok is False
+    assert tonight.name_check("A senator meets Priya.", tonight.caps_tokens(["Lakers"])) == "Priya"
+
+
+def test_a_kept_name_must_appear_in_the_gist_and_have_a_known_type():
+    reply = condensed(("none", "A team called the Lakers wins.", [("Lakers", "sports"), ("Celtics", "sports"), ("Wins", "mood")]))
+    assert tonight.parse_condensed(reply, 1) == [("none", "A team called the Lakers wins.", ["Lakers"])]
+    bad = json.dumps({"items": [{"id": 0, "category": "none", "gist": "x", "keep": "Lakers"}]})
+    assert tonight.parse_condensed(bad, 1) == [("none", "x", [])]
+
+
+def test_build_keeps_a_team_gist_and_remembers_the_name_for_the_approved_ones_only():
+    reply = condensed(("none", "A team called the Lakers wins a game.", [("Lakers", "sports")]),
+                      ("none", "A team called the Celtics loses a game."))
+    news = "<rss><channel><item><title>h0 - W</title></item><item><title>h1 - W</title></item></channel></rss>"
+    out = tonight.build(feeds(news=news), FakeClient(reply), FakeClient())
+    assert out["gists"] == ["A team called the Lakers wins a game."] and out["keep"] == {out["gists"][0]: ["Lakers"]}
+    assert out["report"]["rejected_by_name_check"] == 1  # the Celtics gist kept nothing
+    payload = {"facts": [], "market": None, "gists": out["gists"]}
+    ctx = tonight.make_context(payload, out, FakeClient())
+    assert ctx.allowed_names == ["Lakers"] and ctx.allow_caps == frozenset({"Lakers"})
+    assert ctx.summary()["allowed_names"] == ["Lakers"]
+    none = tonight.make_context({"facts": ["it's snowing"], "market": None, "gists": []}, out, FakeClient())
+    assert none.allow_caps == frozenset() and none.allowed_names == []  # not approved: nothing allowed
+
+
+def test_a_joke_with_the_team_name_passes_the_shows_safety_only_with_allow_caps_set():
+    joke = "The Lakers lost again, which is how my battery feels on Mondays."
+    off = generate.LiveSafety(FakeClient())
+    assert off.allow_caps == frozenset() and off.check_rules(joke, "mixed").reason.startswith("named_person")
+    off.prefetch([joke], "mixed")
+    assert off.check(joke, "mixed").ok is False
+    on = generate.LiveSafety(FakeClient())
+    on.allow_caps = frozenset({"Lakers"})
+    on.prefetch([joke], "mixed")
+    assert on.check_rules(joke, "mixed").ok and on.check(joke, "mixed").ok
+    on.prefetch(["Kevin lost again, like the Lakers."], "mixed")
+    assert on.check("Kevin lost again, like the Lakers.", "mixed").ok is False
+
+
+def test_the_safety_defaults_are_unchanged():
+    import inspect
+    for fn in (safety._named_person, safety._check, safety.check_rules, safety.check, safety.prefetch):
+        assert inspect.signature(fn).parameters["allow_caps"].default == frozenset()
+    assert safety.check_rules("Lakers lost.", "mixed").ok  # a sentence-initial word was never a name
+    assert safety.check_rules("I watched the Lakers lose.", "mixed").reason.startswith("named_person")

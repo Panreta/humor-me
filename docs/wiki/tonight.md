@@ -11,13 +11,13 @@ A comic's best material is what everyone already has in their head tonight: the 
 
 | Piece | Where it comes from | How it is used |
 |---|---|---|
-| Market line | The S&P 500's last two daily closes (Stooq), written as one sentence | Background in every bit |
+| Market line | The S&P 500's last two daily closes (FRED), written as one sentence that names the date | Background in every bit |
 | Headline gist | Google News top stories, rewritten as one nameless sentence | Bits 2 and 6 take the next unused one as their topic |
 | One line about tonight | The operator, optional, for example "it's snowing" | Background in every bit |
 
 ## What stays out
 
-- **Names.** One Claude Haiku call rewrites each headline with generic words ("a GPU company", "a tech CEO", "a senator"). A cheap rule then rejects any gist that still has a capitalized name in the middle of a sentence. The no-named-people rule is unchanged.
+- **Names.** One Claude Haiku call rewrites each headline with generic words ("a GPU company", "a tech CEO", "a senator"). A cheap rule then rejects any gist that still has a capitalized name in the middle of a sentence. The no-named-people rule is unchanged. The one exception: holidays, festivals, important dates and sports teams or events may stay capitalized ("Thanksgiving", "the Super Bowl", a team). The big holidays are always fine; a team name is allowed only while its gist is approved, and then the jokes may repeat it.
 - **Tragedies.** The same call labels each headline, and death, disaster, crime and war are dropped before anyone sees them. Politics and health stay, because they are what a room talks about, but they still go through the normal safety check.
 - **Anything the operator did not approve.** The pre-show panel lists the gists, all unticked. Only ticked gists, the market line, and the one typed line (also safety-checked) reach the writer.
 
@@ -25,7 +25,7 @@ A headline is used up only when its bit is actually played, the same rule as D-1
 
 ## What we found
 
-Stooq now answers scripts with a "prove you are a browser" page instead of the CSV, so the market line may be missing. Google News works. See D-117.
+FRED's SP500 file lags the market by a day or two, so the market line names its date. We first tried Stooq, which now answers scripts with a "prove you are a browser" page. Google News works. See D-117.
 
 ## How we test it
 
