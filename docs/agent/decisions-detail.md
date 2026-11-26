@@ -1309,3 +1309,34 @@ Depends on the made-up `audience.yaml` values `noise`, `fatigue` and the `base` 
 - **Ratings beside, not a claim:** before 2, 1, 2 (`9fedcfa07c3f` has none); after 3, 3, 2, 2.
 On the waits in these 4 shows D-115 did what it set out to do; n is small. No new decision.
 
+## <a id="d-116"></a>D-116 · 2026-11-26 — Give each bit a topic and two robot facts so the writer stops landing on the robot's hardware (Exp 32) (user)
+The user chose the problem, the options (character sheet plus topic list now, tonight's context later) and the bars; the lead agent specified it and a Sonnet agent built it. Results: pending, the user runs Exp 32.
+
+**The problem.** In the 35 logged shows, 249 of 882 played jokes (28%) name robot hardware (battery, power, data, charging, processor top). The personality is also bland. Cause, from `ThreadGenerator._fetch`: the writer's only inputs are a one-sentence identity, the mode, venue and energy, and the premises told this show. The told list resets each show, so nothing stops the next show from writing the same bit; and the identity has no specifics to draw on, so the model reaches for its own hardware.
+
+| Option | For | Against | Choice |
+|---|---|---|---|
+| A. Topic list: one everyday topic per bit, never reused across shows on this laptop | Directly breaks the repeat; cheap; no new inputs at show time | A topic alone does not give the robot a voice | Chosen now (user) |
+| B. Operator-typed "tonight" context | Fresh, relevant material | Needs a UI and an operator who types; a later PR | Later PR, not this one. Scope now (user, 2026-11-26): the operator's typed facts about tonight, plus 5 to 10 of the day's headlines from a news RSS feed and the day's stock market move as a number. Both pass the safety check (tragedies and named people are dropped) and the operator approves them on the operator screen before the show |
+| C. Character sheet: specific facts about the robot, 2 per bit, rotated | Gives bits something specific; punches at self (invariant 1) | A fact can pull the bit back to hardware if the model leans on it | Chosen now (user) |
+| D. Topic seeds from rJokes | Large, varied | Copying risk, and the rJokes-text rule | Rejected |
+| E. Train it away (SFT or DPO) | None at show time | Both sharpen what the model already writes; DPO narrows diversity; 60 + 60 pairs is too few. Judgment call, not measured | Rejected |
+
+**Design (C + A).** `backend/app/material.py`, data in `backend/app/material/character-v1.yaml` (facts) and `topics-v1.yaml` (topics; `adult: true` marks the ones a teen room skips; `from: character` marks the robot's own life as a bit's whole topic). One `ShowMaterial` per show with a logged seed orders topics and facts.
+- **Topic.** About 1 bit in 3 (`CHARACTER_EVERY = 3`: bits 1, 4, 7) takes the next unused `from: character` topic, the others the next unused everyday one; an empty pool falls back to the other before anything recycles. Unused means no earlier logged show (any room, sim or live; `used_topics` mirrors `cache.heard_texts`) and no earlier bit this show. When every topic is used, the least recently used of the bit's pool is taken and the row says `recycled: true`.
+- **Facts.** The 2 least used this show, ties by the seeded order.
+- **Used means played.** A topic or fact is spent when the bit's thread is played (`played_thread`), as the told premises are. A bit written on a guess (D-115) spends nothing when discarded; an adopted bit keeps the material it was written with; drawing twice for one bit gives one answer (a draw is a pure function of what has been played). Tested in `tests/test_material.py`.
+- **Request.** With `MATERIAL=1` the user JSON gets `topic` and `robot_facts`, and one fixed paragraph is appended to the system prompt (the PROMPTS entries stay frozen; it works with any prompt id, the live one at run time). The generator id gets `+mat-v1`.
+- **Log (invariant 6).** One `material` row per bit that plays: bit, topic, from, facts, sheet_id, list_id, seed, recycled. Schema stays v2; every reader dispatches on event names, and a test loads a log with these rows through the director, the cache and `load_sessions`.
+- **Setting.** `MATERIAL`, off by default until Exp 32 passes.
+
+**Exp 32 (`sim/material.py`, offline, the user runs it).** 5 consecutive simulated shows of 8 bits, 40 bits per arm, modes and rooms from one fixed seed and identical for both arms. A: the live prompt, material off. B: the same prompt, material on, topics skipping those used in earlier shows of the run (empty history at the start, so it does not depend on this laptop's logs). The played thread is thread 0. Writer: the live one (bonsai-2:4b on Ollama); bits are written one at a time.
+- **Metric 1 (repetition, gates).** Share of bits whose premise and lines are about the robot's own hardware, labeled by a Claude Haiku 5.5 judge with one fixed yes/no question, blind to the arm; a word-list share beside it as a cross-check. **Bar (user): B at most 15% and the paired bootstrap 95% CI of (B - A), paired by bit slot, entirely below 0.** Reported with no bar: the share for character-topic bits against everyday-topic bits.
+- **Metric 2 (user, blind, gates funniness).** 20 pairs (same slot, A against B, sides randomized by seed). For each: (a) which is funnier, (b) which sounds more like a specific character. **Bar (user) for (a): B wins at least 10 of 20; a tie is not a win.** (b) is reported with a Wilson 95% interval, not gated. 20 pairs detect only large differences: if B is truly preferred 60% of the time it reaches 10 wins about 87% of the time, and under a coin flip it still reaches 10 about 59% of the time. So the gate is "not clearly worse", and a pass is weak evidence of "funnier".
+- **Adopt** (flip the `MATERIAL` default to on, in the same PR) only when both bars pass. A failed repetition bar cannot be rescued by the pairs.
+- **What is made up.** No `audience.yaml` value is involved: there is no sim room reward. The slot modes and rooms are seeded draws; the judge's question and the 15% bar are judgment calls (15% is about half of the live 28%).
+- **Commands (user).** `python -m sim.material run --env-file backend/.env`, then `python -m sim.material review`, then `python -m sim.material score --record`.
+
+**Judgment calls, not measured.** 2 facts per bit (not 1 or 3); character topics for 1 bit in 3; the paragraph's wording; that a fact is rotated by least-used rather than random; the 15% bar.
+
+**Result.** Pending, the user runs Exp 32 on this branch; the outcome goes in this entry in the same PR.
