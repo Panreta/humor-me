@@ -1,0 +1,244 @@
+"""Exp 32 (sim/show_ledger.py): setups, live vs sim never pooled, aborted and unreadable logs, rating arithmetic, the
+committed bit files, and re-recording. Synthetic logs only."""
+import json
+import pathlib
+import sys
+
+import pytest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "backend"))
+
+from sim import cache, show_ledger as sl  # noqa: E402
+
+JOKE = "ZEBRA-JOKE"       # a played line
+BRIDGE = "ZEBRA-BRIDGE"   # a bridge line
+SECRET = "ZEBRA-SECRET"   # text in fields that are not played lines
+
+
+@pytest.fixture(autouse=True)
+def no_git(monkeypatch):
+    monkeypatch.setattr(sl, "pr_of", lambda sha, ref="main": {"sha": sha[:7], "pr": None, "branch": None})
+    monkeypatch.setattr(sl, "main_head", lambda ref="main": "head")
+
+
+def show(session, at, room="sim", gen="gen-v4:m", rating=None, status="finished", guess=False, skip_heard=None,
+         cache_row=True, bits=2, bank_bit=None, lost=(), level=2, reason_text=SECRET, bridge_kinds=("filler",)):
+    rows = [{"event": "show_start", "at": at, "room": room, "generator_id": gen, "git_sha": "abcdef1234",
+             "context": {"venue": reason_text, "energy": "low", "age": "mixed"}}]
+    if cache_row:
+        rows.append({"event": "cache", "bits": [], **({} if skip_heard is None else {"skip_heard": skip_heard})})
+    t = at
+    for b in range(bits):
+        rows.append({"event": "bit_decision", "bit": b, "action": "cynic"})
+        if b and b - 1 < len(bridge_kinds):  # played in the gap: after the last line of the bit before, before this bit's first
+            kind = bridge_kinds[b - 1]
+            rows.append({"event": "bridge", "bit": b, "text": f"{BRIDGE} {b}", "audio_start_at": t - 2,
+                         **({} if kind is None else {"kind": kind}), **({"source": {"session": "earlier", "bit": 0, "joke": 0}} if kind == "cached" else {})})
+        for j in range(5):
+            banked = b == bank_bit
+            rows.append({"event": "candidates", "bit": b, "joke": j, "generator_id": "bank-v1" if banked else gen,
+                         "items": [{"text": SECRET, "verdict": "pass", "reason": None}, {"text": SECRET, "verdict": "pass", "reason": None}],
+                         "threads_lost": list(lost) if b == 0 else [], "prompt": SECRET})
+            rows.append({"event": "joke_played", "bit": b, "joke": j, "chosen": 0, "text": f"{JOKE} {b}.{j}",
+                         "audio_start_at": t + 1})
+            rows.append({"event": "reaction", "bit": b, "joke": j, "source": "button" if room == "live" else "sim", "level": level, "key": None})
+            t += 5
+        rows.append({"event": "bit_end", "at": t, "bit": b, "reward": level / 3})
+        if guess and b:
+            rows.append({"event": "prediction", "bit": b, "hit": b % 2 == 1, "learned": True, "adopted": b % 2 == 1})
+    if status:
+        rows.append({"event": "show_end", "at": t, "status": status})
+    if rating is not None:
+        rows.append({"event": "rating", "value": rating})
+    return rows
+
+
+@pytest.fixture
+def logs(tmp_path, monkeypatch):
+    monkeypatch.setattr(sl, "read_session", lambda path: json.loads(path.read_text(encoding="utf-8")))
+    return tmp_path
+
+
+def put(directory, session, rows):
+    (directory / f"{session}.jsonl").write_text(json.dumps(rows), encoding="utf-8")
+
+
+def test_setups_group_by_writer_guess_and_bridge_in_start_order(logs):
+    put(logs, "a", show("a", 100, gen="gen-v3:m", cache_row=False, rating=2))
+    put(logs, "b", show("b", 200, gen="gen-v4:m", skip_heard=True, rating=3))
+    put(logs, "c", show("c", 300, gen="gen-v4:m", skip_heard=True, guess=True, rating=4))
+    put(logs, "d", show("d", 400, gen="gen-v4:m", skip_heard=True, guess=True, rating=2))
+    res = sl.run(logs)
+    assert [s["setup"] for s in res["setups"]] == ["gen-v3:m / guess off / bridges no-cache", "gen-v4:m / guess off / bridges skip-heard",
+                                                   "gen-v4:m / guess on / bridges skip-heard"]
+    assert [s["shows"] for s in res["setups"]] == [1, 1, 2]
+    assert res["setups"][2]["change"] == "D-115 next-bit guess" and res["setups"][1]["change"] == "D-111 gen-v4 fixes + D-112 no heard bridges"
+
+
+def test_bridge_rule_reads_the_cache_row():
+    assert sl.bridge_rule([{"event": "show_start"}]) == "no-cache"
+    assert sl.bridge_rule([{"event": "cache"}]) == "repeat-ok"
+    assert sl.bridge_rule([{"event": "cache", "skip_heard": False}]) == "repeat-ok"
+    assert sl.bridge_rule([{"event": "cache", "skip_heard": True}]) == "skip-heard"
+
+
+def test_live_and_simulated_audience_numbers_are_never_pooled(logs):
+    put(logs, "live", show("live", 100, room="live", level=3, rating=3))
+    put(logs, "sim", show("sim", 200, room="sim", level=0, rating=3))
+    res = sl.run(logs)
+    (setup,) = res["setups"]
+    assert setup["audience"]["live"]["reaction_mean"] == 3 and setup["audience"]["live"]["shows"] == 1
+    assert setup["audience"]["simulated audience"]["reaction_mean"] == 0
+    assert "reaction_mean" not in setup and "reward_mean" not in setup  # no pooled number exists to misread
+    kinds = {s["session"]: s["audience"]["kind"] for s in res["shows"]}
+    assert kinds == {"live": "live", "sim": "simulated audience"}
+
+
+def test_aborted_show_is_a_row_but_counts_nowhere_else(logs):
+    put(logs, "ok", show("ok", 100, rating=4))
+    put(logs, "cut", show("cut", 200, status="aborted", bits=1, rating=1))
+    res = sl.run(logs)
+    cut = next(s for s in res["shows"] if s["session"] == "cut")
+    assert cut["status"] == "aborted" and cut["bits_played"] == 1
+    (setup,) = res["setups"]
+    assert (setup["finished"], setup["aborted"], setup["rating"]["n"], setup["rating"]["mean"]) == (1, 1, 1, 4)
+
+
+def test_unreadable_logs_are_listed_with_the_error_class(logs, monkeypatch):
+    put(logs, "ok", show("ok", 100))
+    (logs / "bad.jsonl").write_text("{", encoding="utf-8")
+    res = sl.run(logs)
+    assert [u["session"] for u in res["unreadable"]] == ["bad"] and res["unreadable"][0]["reason"] == "JSONDecodeError"
+    assert [s["session"] for s in res["shows"]] == ["ok"] and res["n_files"] == 2
+
+
+def test_rating_stats_and_exact_permutation_test(logs):
+    assert sl.permutation_p([1, 1], [5, 5]) == pytest.approx(2 / 6)  # 6 splits, the 2 extreme ones tie the observed gap
+    assert sl.permutation_p([2, 3], [2, 3]) == 1.0
+    put(logs, "a1", show("a1", 100, gen="gen-v3:m", rating=2))
+    put(logs, "a2", show("a2", 110, gen="gen-v3:m", rating=3))
+    put(logs, "b1", show("b1", 200, gen="gen-v5:m", rating=4))
+    put(logs, "b2", show("b2", 210, gen="gen-v5:m", rating=5))
+    res = sl.run(logs)
+    a, b = res["setups"]
+    assert (a["rating"]["mean"], a["rating"]["min"], a["rating"]["max"]) == (2.5, 2, 3)
+    (t,) = res["adjacent"]
+    assert t["n"] == [2, 2] and t["diff_of_means"] == 2.0 and t["p"] == pytest.approx(2 / 6) and t["within_noise"]
+
+
+def test_a_setup_with_one_rating_is_not_tested(logs):
+    put(logs, "a", show("a", 100, gen="gen-v3:m", rating=2))
+    put(logs, "b", show("b", 200, gen="gen-v5:m", rating=4))
+    (t,) = sl.run(logs)["adjacent"]
+    assert t["p"] is None and t["within_noise"]
+
+
+def test_delivery_signals_bank_lost_threads_and_guesses(logs):
+    put(logs, "a", show("a", 100, bank_bit=1, guess=True,
+                        lost=["LLMError: transport: ReadTimeout", "GenerationError: expected a premise and 5 lines", "re-ask failed: X"]))
+    (s,) = sl.run(logs)["shows"]
+    d = s["delivery"]
+    assert d["bank_share"] == 0.5 and d["threads_lost"] == 3 and d["bits_with_lost_threads"] == 1
+    assert d["lost_by_class"] == {"timeout": 1, "bad reply shape": 1, "re-ask failed": 1}
+    assert (d["guesses"], d["guess_hits"], d["bridge_lines"]) == (1, 1, 1)
+
+
+def test_the_record_holds_ids_and_hashes_only(logs):
+    put(logs, "a", show("a", 100, rating=3))
+    text = json.dumps(sl.run(logs))
+    for needle in (JOKE, BRIDGE, SECRET):
+        assert needle not in text
+    (s,) = json.loads(text)["shows"]
+    assert s["bits"][0]["hash"] == sl.bit_hash([f"{JOKE} 0.{j}" for j in range(5)]) and len(s["bits"][0]["hash"]) == 16
+
+
+def test_export_reads_the_show_top_to_bottom_in_play_order_with_labels(logs, tmp_path):
+    put(logs, "live1", show("live1", 100, room="live", bank_bit=0, level=3, rating=4, bridge_kinds=[None], reason_text=SECRET))
+    put(logs, "sim1", show("sim1", 200, room="sim", level=1, bridge_kinds=["cached"]))
+    out = tmp_path / "bits"
+    files = sl.export(logs, out)
+    assert files[-1] == out / "index.md" and len(files) == 3
+    live = next(f for f in files if f.name == "live1.md").read_text(encoding="utf-8")
+    sim = next(f for f in files if f.name == "sim1.md").read_text(encoding="utf-8")
+    # play order: bit 1's lines, then the gap and its bridge line, then bit 2
+    assert live.index("## Bit 1") < live.index(f"{JOKE} 0.0") < live.index(f"{JOKE} 0.4") < live.index("Gap before this bit") \
+        < live.index(f"{BRIDGE} 1") < live.index("## Bit 2") < live.index(f"{JOKE} 1.0")
+    assert "1. " + f"{JOKE} 0.0" in live and "*(from the bank)*" in live and live.count("from the bank") == 5
+    assert f"{JOKE} 1.0 — big laugh" in live
+    assert "*(filler while the next bit is written)* " + f"{BRIDGE} 1" in live  # a row with no kind is filler
+    assert "*(replayed line from show earlier)* " + f"{BRIDGE} 1" in sim
+    assert "(simulated audience: small laugh)" in sim and "simulated audience" not in live
+    assert "Your rating: 4" in live and "Your rating: none" in sim and "Room: live" in live and "Room: simulated" in sim
+    assert "## Bit 1 — Cynic" in live
+    index = (out / "index.md").read_text(encoding="utf-8")
+    assert "| Date (UTC) | Room | How it ended | Your rating | Show |" in index
+    assert index.index("sim1") < index.index("live1")  # newest first
+    assert "writer gen-v4 (m), next-bit guess off, no heard bridges" not in live  # bridge rule comes from the cache row
+    assert "writer gen-v4 (m), next-bit guess off, bridge lines may repeat what the room heard" in live
+    for text in (live, sim, index):
+        assert SECRET not in text  # context fields, candidates, prompts and rejected items are never read
+
+
+def test_opening_and_trailing_bridge_lines_are_placed(logs, tmp_path):
+    rows = show("a", 100)
+    rows.append({"event": "bridge", "bit": 0, "text": "ZEBRA-OPEN", "audio_start_at": 99.5, "kind": "filler"})
+    rows.append({"event": "bridge", "bit": 1, "text": "ZEBRA-TAIL", "audio_start_at": 10_000.0, "kind": "filler"})
+    put(logs, "a", rows)
+    text = next(f for f in sl.export(logs, tmp_path / "b") if f.name == "a.md").read_text(encoding="utf-8")
+    assert text.index("Before the first bit") < text.index("ZEBRA-OPEN") < text.index("## Bit 1")
+    assert text.index(f"{JOKE} 1.4") < text.index("After the last bit") < text.index("ZEBRA-TAIL")
+
+
+def test_gap_notes_match_the_ledger_numbers(logs, tmp_path):
+    put(logs, "a", show("a", 100, bits=3, bridge_kinds=["filler", "filler"]))
+    res = sl.run(logs)
+    (s,) = res["shows"]
+    text = next(f for f in sl.export(logs, tmp_path / "b") if f.name == "a.md").read_text(encoding="utf-8")
+    notes = [ln for ln in text.splitlines() if ln.startswith("*Gap before")]
+    assert notes == ["*Gap before this bit: waited 1 s, 1 filler line.*"] * 2
+    assert s["delivery"]["total_wait_s"] == 2 and s["delivery"]["bridge_lines"] == 2 and s["delivery"]["gaps"] == 2
+
+
+def test_gap_note_wording():
+    assert sl.gap_note(0.0, 0) == "no wait"
+    assert sl.gap_note(14.2, 2) == "waited 14 s, 2 filler lines"
+    assert sl.gap_note(5.0, 0) == "waited 5 s, no filler lines"
+    assert sl.gap_note(None, 1).startswith("wait not measured")
+    assert sl.bridge_note({"text": "x"}) == "filler while the next bit is written"
+    assert sl.bridge_note({"kind": "cached", "source": {"session": "abc"}}) == "replayed line from show abc"
+
+
+def test_export_holds_only_played_text_fields(logs, tmp_path):
+    rows = show("a", 100)
+    for r in rows:
+        if r["event"] == "show_start":
+            r["operator"] = SECRET  # any field that is not a played line must stay out
+            r["audio"] = {"consent": True, "path": SECRET}
+        if r["event"] == "reaction":
+            r["key"] = SECRET
+    put(logs, "a", rows)
+    files = sl.export(logs, tmp_path / "b")
+    assert all(SECRET not in f.read_text(encoding="utf-8") for f in files)
+
+
+def test_export_skips_unreadable_logs(logs, tmp_path):
+    put(logs, "ok", show("ok", 100))
+    (logs / "bad.jsonl").write_text("{", encoding="utf-8")
+    assert [f.name for f in sl.export(logs, tmp_path / "b")] == ["ok.md", "index.md"]
+
+
+def test_re_record_picks_up_a_new_show(logs, tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "METRICS", tmp_path / "metrics")
+    put(logs, "a", show("a", 100, rating=3))
+    first = sl.record(logs)
+    assert [s["session"] for s in first["shows"]] == ["a"]
+    assert sl.record(logs) == first  # nothing changed: loaded, not recomputed
+    put(logs, "b", show("b", 200, rating=1))
+    second = sl.record(logs)
+    assert [s["session"] for s in second["shows"]] == ["a", "b"]
+    assert sl.stored() == second
+
+
+def test_pr_label_falls_back_to_the_sha():
+    assert sl.pr_label({"pr": {"pr": None, "branch": None}, "git_sha": "abcdef1"}) == "abcdef1"
+    assert sl.pr_label({"pr": {"pr": 80, "branch": "feat/x"}, "git_sha": "abcdef1"}) == "#80 feat/x"

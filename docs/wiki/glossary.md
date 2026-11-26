@@ -151,6 +151,9 @@ Used in the rJokes results (notebook Exp 2, 10, 11). Examples are from the 90k l
 | **Inter-annotator agreement** | How often separate human judges give the same answer. It shows how much of a task people themselves agree on | HumorGen's evaluators: 31.7% of pairs |
 | **Bootstrap** | Estimates uncertainty from the data alone: draw a new sample of the same size from the data, with repeats allowed (a **resample**), recompute the number, and repeat. How much it moves gives the CI | 1,000 resamples for Exp 10 |
 | **Cohen's kappa** | How well two labelers agree after subtracting the agreement they'd reach by chance. 1 is perfect and 0 is no better than chance. Raw agreement can mislead: if most jokes get no laugh, always answering "no laugh" looks accurate, but its kappa is 0 | Laugh detector vs the operator's keys |
+| **Setup** | The writer prompt and model, whether the next-bit guess is on, and the bridge rule a show ran with. The show ledger groups shows by setup, in the order they started | gen-v4, guess on, skips heard lines |
+| **Show ledger** | One row per logged show (room, setup, code version, your rating, delivery numbers, a hash per bit), re-recorded after each show with `python -m sim.show_ledger --record` | `reports/metrics/show_ledger.json` |
+| **Permutation test** | Asks how often a random reshuffle of the same ratings into groups of the same sizes gives a gap in means at least as big as the one seen. Exact when the groups are small enough to list every reshuffle | gen-v4 skips heard vs guess: p = 0.27 |
 
 ## Safety filter terms
 

@@ -921,3 +921,28 @@ Decision: [D-115](agent/decisions-detail.md#d-115). Sim only, no model calls. Ra
 - **Against Exp 31(b)'s bar** (hit-rate 95% interval lower end at least 0.5): 23 of 28 right (0.82), Wilson 95% interval 0.64 to 0.92, so the lower end 0.64 clears it. The interval is optimistic: guesses within a show are not independent. All 28 were on 3 labels; 23 used (Exp 31's sim: about 0.7).
 - **Waits:** the median fell from 13.7 s to 0.0 s and bridge lines from 17.5 to 3.5 per show. The 7 gaps that still waited took 6.1 to 18.7 s: 5 follow a wrong guess (12.1 to 18.7 s, the whole prep back in the wait) and 2 a right guess whose prep was not ready (6.1 and 6.2 s). The p95 stays high because a wrong guess waits as long as before; a miss being slower than no guess is not visible (those 5 waits sit inside the before range of 9.8 to 27.4 s).
 - **The number D-115 estimated** (total wait over bits 1+ per show): 108.7 s before, 21.6 s after, about 87 s saved per show against the ~50 s estimate. Different shows, so an indication.
+
+## Show ledger: how each setup did (Exp 32, 2026-11-26)
+
+Decision: [D-116](agent/decisions-detail.md#d-116). Raw: `reports/metrics/show_ledger.json`. Code: `sim/show_ledger.py`. Chart: `reports/figures/decision-plot/exp32-show-ledger.png`. The played lines: `reports/show_bits/`.
+
+**The plain answer.** Your ratings have stayed between 1 and 4 across every setup, and no difference between setups is bigger than noise (1 to 4 ratings each). What clearly changed is the wait: the next-bit guess cut the total wait per show from about 110 s to about 20 s.
+
+36 logged shows (15 from the hand bank, 21 written by a model), all readable; 18 finished, 18 aborted (12 of the aborted are bank test runs). Only 1 live show finished (rated 3). Sim-room reactions are the made-up audience's, so they are not counted as quality. Setups in the order they started:
+
+| Setup | Started with | Finished shows | Your ratings | Mean | Lines from the bank | Threads lost per show | Median wait (s) | Total wait per show (s) | Guess right |
+|---|---|---|---|---|---|---|---|---|---|
+| gen-v3, Gemini, no guess, no cache | first LLM shows | 4 | 2, 2, 3, 4 | 2.75 | 22% | 0 | 11.3 | 84 | - |
+| gen-v3, local writer, no guess | per-thread writer, local model | 1 | 1 | 1.00 | 28% | 0 | 13.2 | 79 | - |
+| gen-v4, no guess, repeats allowed | gen-v4 fixes | 2 | 2, 3 | 2.50 | 0% | 1.5 | 12.8 | 92 | - |
+| gen-v4, no guess, skips heard lines | no heard bridges | 3 | 1, 2 (1 unrated) | 1.50 | 1% | 0.7 | 16.5 | 115 | - |
+| gen-v4, next-bit guess | next-bit guess | 4 | 2, 2, 3, 3 | 2.50 | 0% | 0 | 0.0 | 22 | 23 of 28 |
+| gen-v5, next-bit guess | gen-v5 live | 1 | 4 | 4.00 | 5% | 2 | 0.0 | 20 | 6 of 7 |
+
+The hand-bank shows (3 finished, 12 aborted, no ratings) are in the ledger, not in the table. Lost threads were timeouts and badly shaped replies; the gen-v5 show lost 2 of 3 threads in one bit to a timeout.
+
+**Noise.** Exact tests between neighbouring rated setups: gen-v4 repeats allowed vs skips heard, p = 0.67; skips heard vs guess, p = 0.27. Both are within noise. The others have a setup with a single rating and cannot be tested. The gen-v5 rating of 4 is one show.
+
+**What is made up.** Every sim-room reaction and reward (the audience in `sim/audience.yaml`). Waits depend on it only through when reactions arrive. The setups are different shows, not paired runs, and the rater is one person.
+
+**After each show:** `python -m sim.show_ledger --record`, `python -m sim.show_ledger export`, then `python scripts/run_notebook.py notebooks/decision-plot.ipynb`.
