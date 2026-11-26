@@ -825,15 +825,13 @@ Judge against user: judge "connected" and user "one bit" 2, judge "connected" an
 
 ## Where a bit's wait goes (Exp 29, 2026-11-25)
 
-Run on the 3 shows from before the next-bit guess (D-115), all sim room, gen-v4 bonsai-2:4b, no guess: `0e102d77d795`, `c514a01f04f7`, `9fedcfa07c3f`. Seconds from the local logs, no model call. Command: `python -m sim.stage_timing 0e102d77d795 c514a01f04f7 9fedcfa07c3f --record`. Raw: `reports/metrics/stage_timing.json`. Decision: [D-113](agent/decisions-detail.md#d-113).
+Run on every show on the pre-guess code (c474e51, #81) that logged `prep` rows, all sim room, gen-v4 bonsai-2:4b: `0e102d77d795`, `c514a01f04f7`, `9fedcfa07c3f` (finished) and `4ee0e5658e25` (aborted after bit 2). The rule never excluded aborted shows, so it is applied as written. Seconds from the local logs, no model call. Command: `python -m sim.stage_timing 0e102d77d795 c514a01f04f7 9fedcfa07c3f 4ee0e5658e25 --record`. Raw: `reports/metrics/stage_timing.json`. Decision: [D-113](agent/decisions-detail.md#d-113).
 
 | Bits 1+ counted | Wait p50 / p95 (s) | Generate | Render | Safety | Bridge overhang | Render queue, bank, other |
 |---|---|---|---|---|---|---|
-| 21 (7 per show, none dropped) | 14.2 / 26.7 | 36% | 25% | 22% | 17% | 0% |
+| 23 (7, 7, 7 and 2 per show, none dropped) | 17.0 / 26.7 | 34% | 28% | 22% | 17% | 0% |
 
-**Verdict: no fix to build from this.** The writer leads (36%, runner-up 25%, 95% interval of `share - 1.1 x runner-up` +0.01 to +0.12), so the rule's outcome is "no candidate fix": fixes (a) to (c) touch bridge overhang and safety, which do not lead. The interval's lower end is 0.01, so the lead is thin. Bit 0 alone (3 bits): wait p50 9.8 s. Stage times depend on the writer, the filter and the voice, not on `audience.yaml`. **D-115 has since removed most gaps**, so this matters mainly for the gaps after a wrong guess.
-
-The rule (revised after review, before any data) counts bits 1 and up of LLM-generator shows and reports bit 0 apart. A stage's share is its total seconds over the total wait. The largest share is fixed first if it is at least 25% and its 95% interval for `share - 1.1 x runner-up`, resampling shows, is above 0; otherwise "inconclusive". It needs 2 shows and 16 bits. Stages map to fixes (a) end the bridge early (bridge overhang), (b) render the first joke ahead of bridge renders (voice queue), (c) check each thread's safety as it arrives (safety). A dominant writer or voice has no fix among these. Command: `python -m sim.stage_timing <show ids> --record`.
+**Verdict: inconclusive.** Generate leads (34%) with render second (28%); the 95% interval of `share - 1.1 x runner-up` is -0.13 to +0.12, across 0, so no single stage leads clearly. **No fix is built under either verdict.** On the 3 finished shows alone the writer led at 36% (interval +0.01 to +0.12, "no candidate fix"); the aborted show is voice-led (render 47% of its wait over 2 bits) and flips it. The first 3-show reading was a selection made after seeing the data (flagged in review), not the result. Bit 0 alone (4 bits): wait p50 10.7 s. Stage times depend on the writer, the filter and the voice, not on `audience.yaml`. **D-115 has since removed most gaps**, so this matters mainly for the gaps after a wrong guess.
 
 ## Next bit: decide at joke 3, or guess it (Exp 31, 2026-11-26)
 
@@ -875,18 +873,21 @@ Decision: [D-115](agent/decisions-detail.md#d-115). Sim only, no model calls. Ra
 
 **What the sim depends on:** the made-up `audience.yaml` values `noise`, `fatigue` and the gaps in `base` (all varied above), and the eps = 0.2 explore rate, the uniform prior and the 5-show horizon. Real rooms with sharper preferences than these would make the guess right more often.
 
-**Live check (2026-11-26).** Shows without the guess: `6c09c721b0bb` (before #81, waits from timestamps), `0e102d77d795`, `c514a01f04f7`, `9fedcfa07c3f`. Shows with it (code of #83, all finished): `5ea47db7b248`, `a7290b75cf24`, `2ab2d1c2c682`. All sim room, gen-v4 bonsai-2:4b. Command: `python -m sim.evaluate_gaps --before ... --after ... --record`. Raw: `reports/metrics/live_gaps.json`. **These are different shows, not paired seeds, and n is small.** The made-up sim audience reacted; wait times depend on `audience.yaml` only through when reactions arrive. No bar; ratings are beside, not a claim.
+**Live check (2026-11-26).** Show selection: the 2 shows named in D-115's plan plus every finished show on c474e51 (no guess) or c188c88 (guess), all sim room, gen-v4 bonsai-2:4b. `6c09c721b0bb` is from before D-112, so its bridge lines are cached lines, not filler, and its count includes the bit-0 one; `e204ec80e62e` (gen-v4, #78, before the #79 schema) is left out as a different code version. Command: `python -m sim.evaluate_gaps --before ... --after ... --record`. Raw: `reports/metrics/live_gaps.json`. **These are different shows, not paired seeds, and n is small.** The made-up sim audience reacted; waits start at `bit_end` (0.3 to 2.5 s after the last joke's audio in both sets) and depend on `audience.yaml` only through when reactions arrive. No bar for the waits; ratings are beside, not a claim.
 
-| Show | Guess | Wait p50 / p95 (s), bits 1+ | Zero-wait gaps of 7 | Filler lines | Guesses right / made | Safety wasted | Rating |
-|---|---|---|---|---|---|---|---|
-| 6c09c721b0bb | no | 12.9 / 17.2 | 0 | 16 | - | - | 2 |
-| 0e102d77d795 | no | 13.7 / 17.1 | 0 | 16 | - | - | 1 |
-| c514a01f04f7 | no | 17.4 / 26.7 | 0 | 19 | - | - | 2 |
-| 9fedcfa07c3f | no | 18.3 / 27.4 | 0 | 19 | - | - | none |
-| **before, all (28 gaps)** | | **13.7 / 26.7** | 0 | 70 (17.5 per show) | | | |
-| 5ea47db7b248 | yes | 0.0 / 18.3 | 5 | 4 | 6 / 7 | 1 | 3 |
-| a7290b75cf24 | yes | 0.0 / 12.7 | 6 | 2 | 6 / 7 | 1 | 3 |
-| 2ab2d1c2c682 | yes | 0.0 / 18.7 | 4 | 6 | 5 / 7 | 2 | 2 |
-| **after, all (21 gaps)** | | **0.0 / 18.3** | 15 | 12 (4.0 per show) | 17 / 21 | 4 | |
+| Show | Guess | Wait p50 / p95 (s), bits 1+ | Total wait (s) | Zero-wait gaps of 7 | Bridge lines | Guesses right / made | Safety wasted | Rating |
+|---|---|---|---|---|---|---|---|---|
+| 6c09c721b0bb | no | 12.9 / 17.2 | 88.6 | 0 | 16 | - | - | 2 |
+| 0e102d77d795 | no | 13.7 / 17.1 | 99.8 | 0 | 16 | - | - | 1 |
+| c514a01f04f7 | no | 17.4 / 26.7 | 123.9 | 0 | 19 | - | - | 2 |
+| 9fedcfa07c3f | no | 18.3 / 27.4 | 122.6 | 0 | 19 | - | - | none |
+| **before, all (28 gaps)** | | **13.7 / 26.7** | **108.7 per show** | 0 | 70 (17.5 per show) | | | |
+| 5ea47db7b248 | yes | 0.0 / 18.3 | 24.5 | 5 | 4 | 6 / 7 | 1 | 3 |
+| a7290b75cf24 | yes | 0.0 / 12.7 | 12.7 | 6 | 2 | 6 / 7 | 1 | 3 |
+| 2ab2d1c2c682 | yes | 0.0 / 18.7 | 37.1 | 4 | 6 | 5 / 7 | 2 | 2 |
+| **after, all (21 gaps)** | | **0.0 / 18.3** | **24.7 per show** | 15 | 12 (4.0 per show) | 17 / 21 | 4 | |
 
-**Read it:** the guess was right 17 of 21 times, all 21 on 3 labels (Exp 31's sim: about 0.7, ceiling 0.83); 17 were used. Median wait fell from 13.7 s to 0.0 s and filler lines from 17.5 to 4.0 per show. The 6 gaps that still waited took 6.1 to 18.7 s: 4 follow a wrong guess (12.1 to 18.7 s, the whole prep back in the wait, so the p95 barely moved) and 2 a right guess whose prep was not ready (6.1 and 6.2 s). The cost of a miss (slower than no guess) is not visible: those 4 waits sit inside the before range of 9.8 to 27.4 s. 21 guesses is a small sample: 0.81 against 0.7 is inside its noise.
+**Read it:**
+- **Against Exp 31(b)'s bar** (hit-rate 95% interval lower end at least 0.5): 17 of 21 right (0.81), Wilson 95% interval 0.60 to 0.92, so the lower end 0.60 clears it. The interval is optimistic: guesses within a show are not independent. All 21 were on 3 labels; 17 used (Exp 31's sim: about 0.7).
+- **Waits:** the median fell from 13.7 s to 0.0 s and bridge lines from 17.5 to 4.0 per show. The 6 gaps that still waited took 6.1 to 18.7 s: 4 follow a wrong guess (12.1 to 18.7 s, the whole prep back in the wait) and 2 a right guess whose prep was not ready (6.1 and 6.2 s). The p95 stays high because a wrong guess waits as long as before; a miss being slower than no guess is not visible (those 4 waits sit inside the before range of 9.8 to 27.4 s).
+- **The number D-115 estimated** (total wait over bits 1+ per show): 108.7 s before, 24.7 s after, about 84 s saved per show against the ~50 s estimate. Different shows, so an indication.

@@ -7,10 +7,13 @@ Usage, after the live shows (seconds from the local logs, no model call, never a
 `reports/metrics/live_gaps.json` (ids and numbers only).
 
 Per show: for bits 1 and up, the wait from the previous `bit_end` to the first joke's audio start (the same measure as
-`sim.stage_timing`; a bit whose wait overlaps a pause is dropped), how many waits were zero (at most ZERO_S), the filler
-lines played (all `bridge` rows) and the show's rating. For shows after the change also the guess hit rate, the guesses
-made on 3 labels and the safety requests wasted on wrong guesses. A show from before D-113 has no `prep` rows; its
-waits come from the bridge and joke timestamps, which is all this reads.
+`sim.stage_timing`; a bit whose wait overlaps a pause, or whose first render failed, is dropped), the total of those
+waits, how many were zero (at most ZERO_S), the bridge lines played (all `bridge` rows: cached lines in shows before
+D-112, filler after) and the show's rating. For shows after the change also the guess hit rate with its Wilson 95%
+interval, the guesses made on 3 labels and the safety requests wasted on wrong guesses. A show that did not finish is
+listed under `excluded` and counts nowhere. A show from before D-113 has no `prep` rows; its waits come from `bit_end`
+and joke timestamps, which is all this reads. The wait starts at `bit_end`, which is 0.3 to 2.5 s after the last joke's
+audio in both sets.
 
 No bar: the before and after shows are different shows (not paired seeds), n is small, and the audience is the made-up
 sim one. Wait times depend on `audience.yaml` only through when the reactions arrive. Read it as a live sanity check
@@ -29,36 +32,51 @@ from sim import cache  # noqa: E402
 from sim.compare_generators import fmt  # noqa: E402
 from sim.stage_timing import bits_of, guess_stats, load, stats  # noqa: E402
 
+Z = 1.96
+
 NAME = "live_gaps"
 ZERO_S = 0.1
 
 
+def wilson(k: int, n: int) -> list[float] | None:
+    """95% Wilson interval of a rate; guesses within a show are not independent, so it is optimistic."""
+    if not n:
+        return None
+    p, d = k / n, 1 + Z * Z / n
+    mid, half = (p + Z * Z / (2 * n)) / d, Z * ((p * (1 - p) / n + Z * Z / (4 * n * n)) ** 0.5) / d
+    return [mid - half, mid + half]
+
+
 def show_report(session: str, rows: list[dict]) -> dict:
-    gaps = [b for b in bits_of(rows) if b["bit"] >= 1 and not b["paused"]]
+    gaps = [b for b in bits_of(rows) if b["bit"] >= 1 and not b["paused"] and not b["failed"]]
     ends = [r["status"] for r in rows if r["event"] == "show_end"]
     ratings = [r["value"] for r in rows if r["event"] == "rating"]
     return {"session": session, "room": rows[0]["room"], "generator_id": rows[0]["generator_id"],
             "status": ends[-1] if ends else "none", "rating": ratings[-1] if ratings else None,
-            "gaps": [round(b["wait_s"], 3) for b in gaps], "wait_s": stats([b["wait_s"] for b in gaps]),
+            "gaps": [round(b["wait_s"], 3) for b in gaps], "total_wait_s": sum(b["wait_s"] for b in gaps), "wait_s": stats([b["wait_s"] for b in gaps]),
             "zero_waits": sum(b["wait_s"] <= ZERO_S for b in gaps),
-            "filler_lines": sum(r["event"] == "bridge" for r in rows), "guesses": guess_stats(rows)}
+            "bridge_lines": sum(r["event"] == "bridge" for r in rows), "guesses": guess_stats(rows)}
 
 
 def pool(shows: list[dict]) -> dict:
     waits = [w for s in shows for w in s["gaps"]]
     keys = ("n", "hits", "adopted", "learned_n", "learned_hits", "wasted_prefetch")
-    return {"shows": len(shows), "gaps": len(waits), "wait_s": stats(waits),
-            "zero_waits": sum(s["zero_waits"] for s in shows), "filler_lines": sum(s["filler_lines"] for s in shows),
+    out = {"shows": len(shows), "gaps": len(waits), "wait_s": stats(waits),
+            "total_wait_per_show_s": sum(s["total_wait_s"] for s in shows) / len(shows) if shows else None,
+            "zero_waits": sum(s["zero_waits"] for s in shows), "bridge_lines": sum(s["bridge_lines"] for s in shows),
             "guesses": {k: sum(s["guesses"][k] for s in shows) for k in keys}}
+    out["hit_ci95"] = wilson(out["guesses"]["hits"], out["guesses"]["n"])
+    return out
 
 
 def run(before: list[str], after: list[str], directory: str | pathlib.Path = SESSIONS, key: str = "") -> dict:
     """`key` only distinguishes cache entries (see `digest`); the logs are read from `directory`."""
     shows, bad = load(pathlib.Path(directory), before + after)
     by = {sid: show_report(sid, rows) for sid, rows in shows}
-    b = [by[s] for s in before if s in by]
-    a = [by[s] for s in after if s in by]
-    return {"before": b, "after": a, "before_pooled": pool(b), "after_pooled": pool(a), "unreadable_logs": bad,
+    excluded = [{"session": s["session"], "status": s["status"]} for s in by.values() if s["status"] != "finished"]
+    b = [by[s] for s in before if s in by and by[s]["status"] == "finished"]
+    a = [by[s] for s in after if s in by and by[s]["status"] == "finished"]
+    return {"before": b, "after": a, "excluded": excluded, "before_pooled": pool(b), "after_pooled": pool(a), "unreadable_logs": bad,
             "zero_s": ZERO_S}
 
 
@@ -81,21 +99,28 @@ def stored() -> dict | None:
 
 
 def table(res: dict) -> str:
-    head = ["Show", "Guess", "Gaps (bits 1+)", "Wait p50 / p95 (s)", "Zero-wait gaps", "Filler lines", "Guesses right / made",
+    head = ["Show", "Guess", "Gaps (bits 1+)", "Wait p50 / p95 (s)", "Total wait per show (s)", "Zero-wait gaps", "Bridge lines", "Guesses right / made",
             "Right on 3 labels", "Safety wasted", "Rating"]
     rows = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
 
     def line(name: str, guess: str, s: dict, rating: str) -> str:
         g, w = s["guesses"], s["wait_s"]
         return (f"| {name} | {guess} | {len(s['gaps']) if isinstance(s['gaps'], list) else s['gaps']} | "
-                f"{fmt(w['p50'], '{:.1f}')} / {fmt(w['p95'], '{:.1f}')} | {s['zero_waits']} | {s['filler_lines']} | "
+                f"{fmt(w['p50'], '{:.1f}')} / {fmt(w['p95'], '{:.1f}')} | {fmt(s.get('total_wait_s', s.get('total_wait_per_show_s')), '{:.1f}')} | {s['zero_waits']} | {s['bridge_lines']} | "
                 f"{g['hits']} / {g['n']} | {g['learned_hits']} / {g['learned_n']} | {g['wasted_prefetch']} | {rating} |")
 
     for side, guess in (("before", "no"), ("after", "yes")):
         for s in res[side]:
             rows.append(line(s["session"], guess, s, "-" if s["rating"] is None else str(s["rating"])))
         rows.append(line(f"all {side}", guess, res[f"{side}_pooled"], ""))
-    return "\n".join(rows)
+    g, ci = res["after_pooled"]["guesses"], res["after_pooled"]["hit_ci95"]
+    tail = ""
+    if ci:
+        tail = (f"\n\nGuess hit rate {g['hits']}/{g['n']} = {g['hits'] / g['n']:.2f}, Wilson 95% interval {ci[0]:.2f} to {ci[1]:.2f} "
+                "(optimistic: guesses within a show are not independent); Exp 31's bar was a lower end of at least 0.5.")
+    if res["excluded"]:
+        tail += "\n\nNot finished, counted nowhere: " + ", ".join(f"{e['session']} ({e['status']})" for e in res["excluded"])
+    return "\n".join(rows) + tail
 
 
 def main() -> None:
