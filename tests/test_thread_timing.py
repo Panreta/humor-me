@@ -139,7 +139,8 @@ def test_percentiles_are_nearest_rank_and_a_failed_call_counts_as_infinite_laten
 
 def test_the_digest_follows_the_prompt_and_a_stale_call_is_refused(monkeypatch):
     before = tt.digest()
-    monkeypatch.setattr(generate, "SYSTEM", generate.SYSTEM + " x")
+    live = generate.PROMPT_ID  # the prompt the show runs, not gen-v4's text
+    monkeypatch.setitem(generate.PROMPTS, live, generate.PROMPTS[live] + " x")
     assert tt.digest() != before
     with pytest.raises(AssertionError):
         tt.run(digest_=before)

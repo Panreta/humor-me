@@ -127,7 +127,7 @@ def one_show(tts, age: str, seed: int, n_bits: int) -> dict:
 
 def digest() -> str:
     """Part of the cache key, so a changed prompt, bridge line or timing constant recomputes the experiment."""
-    parts = [generate.PROMPT_ID, generate.SYSTEM, generate.TEENS_RULE, repr(generate.BRIDGES), repr(generate.MODES),
+    parts = [generate.PROMPT_ID, generate.PROMPTS[generate.PROMPT_ID], generate.TEENS_RULE, repr(generate.BRIDGES), repr(generate.MODES),
              str((generate.K, generate.JOKES, generate.TEMPERATURE, generate.GENERATOR_TIMING, generate.FILTER_TIMING,
                   generate.RETRIES, generate.FILTER_RETRIES, show_module.MAX_BRIDGES, llm.MIN_ATTEMPT_S))]
     return hashlib.sha256(chr(10).join(parts).encode()).hexdigest()[:12]
