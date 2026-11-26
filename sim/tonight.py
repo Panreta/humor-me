@@ -415,6 +415,8 @@ def main() -> None:
     a = ap.parse_args()
     if a.env_file:
         from dotenv import load_dotenv
+        if not pathlib.Path(a.env_file).is_file():  # load_dotenv ignores a missing file; in a worktree backend/.env is not there
+            raise SystemExit(f"--env-file {a.env_file} not found; from a worktree use the main checkout's, e.g. ../../../backend/.env")
         load_dotenv(a.env_file, override=True)
     os.environ.setdefault("JOKE_WRITER_PROVIDER", "ollama")
     if a.command == "fetch":
