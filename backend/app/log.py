@@ -38,7 +38,7 @@ CHOICES = {
 # Optional fields: checked only when present, so a log written before they existed stays valid.
 OPTIONAL_CHOICES = {("bridge", "kind"): ("filler", "cached")}
 # Optional numbers of a `prep` row (null when the voice cannot split the render into queue and synthesis)
-PREP_OPTIONAL = ("bank_s", "render_queue_s", "render_s")
+PREP_OPTIONAL = ("bank_s", "other_s", "render_queue_s", "render_s")
 PREP_DURATIONS = ("generate_s", "safety_s", "render_wait_s", *PREP_OPTIONAL)
 CACHED_SOURCE = ("session", "bit", "joke")  # where a cached line came from; a bridge row of kind "cached" needs it
 
@@ -121,6 +121,8 @@ def validate(record: dict) -> None:
                 raise ValueError(f"prep.{key} must be a number, got {record[key]!r}")
         if record["ready_at"] < record["started_at"]:
             raise ValueError("prep.ready_at is before prep.started_at")
+        if record.get("first_render_failed") is not None and not isinstance(record["first_render_failed"], bool):
+            raise ValueError("prep.first_render_failed must be a boolean")
         if not (_is_int(record["bank_fallbacks"]) and record["bank_fallbacks"] >= 0):
             raise ValueError("prep.bank_fallbacks must be a non-negative integer")
     if event == "joke_played" and record.get("bridge_overhang_s") is not None:  # optional (D-113): the bit's first line

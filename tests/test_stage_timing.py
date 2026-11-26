@@ -25,7 +25,7 @@ from tests.test_generate import FAST, FakePlayer as RealPlayer, FakeVoice, Filte
 from tests.test_headless_show import CTX, FakeClock, FakePlayer, director  # noqa: E402
 
 SIM_RESULT = {"started_at", "generate_s", "safety_s", "bank_s", "render_wait_s", "render_queue_s", "render_s", "ready_at",
-              "bank_fallbacks"}
+              "bank_fallbacks", "other_s", "first_render_failed"}
 
 
 class SlowGenerator:
@@ -61,7 +61,8 @@ class SlowVoice:
 
     def synthesize(self, text):
         self.local.queued = self.queued_s
-        self.clock.t += self.synth_s + (self.queued_s or 0.0)
+        numeric = isinstance(self.queued_s, (int, float)) and not isinstance(self.queued_s, bool) and self.queued_s > 0
+        self.clock.t += self.synth_s + (self.queued_s if numeric else 0.0)
         return to_wav(np.zeros(2400))
 
 
@@ -81,7 +82,7 @@ def preps(rows):
 
 
 def sums(r):
-    return r["generate_s"] + r["safety_s"] + r["bank_s"] + r["render_wait_s"]
+    return r["generate_s"] + r["safety_s"] + r["bank_s"] + r["other_s"] + r["render_wait_s"]
 
 
 def test_every_bit_logs_one_prep_row_with_consistent_non_negative_stages(tmp_path):
@@ -89,7 +90,7 @@ def test_every_bit_logs_one_prep_row_with_consistent_non_negative_stages(tmp_pat
     assert [r["bit"] for r in got] == [0, 1, 2]
     for r in got:
         assert SIM_RESULT <= set(r)
-        for key in ("generate_s", "safety_s", "bank_s", "render_wait_s"):
+        for key in ("generate_s", "safety_s", "bank_s", "other_s", "render_wait_s"):
             assert r[key] >= 0
         assert r["started_at"] <= r["ready_at"]
         assert sums(r) == pytest.approx(r["ready_at"] - r["started_at"])
@@ -152,6 +153,41 @@ def test_bank_fallbacks_are_counted_and_timed(tmp_path):
     assert sums(r) == pytest.approx(r["ready_at"] - r["started_at"])
 
 
+def test_time_no_stage_covers_is_recorded_as_other_s_so_the_row_still_adds_up(tmp_path):
+    clock = FakeClock()
+
+    class SlowPick(UniformSelector):
+        def pick(self, passing_texts):
+            clock.t += 0.4  # picking a thread is in no stage's timer
+            return super().pick(passing_texts)
+
+    log = SessionLog(tmp_path)
+    asyncio.run(run_show(director(), "sim", CTX, generator=SlowGenerator(clock, 1.0), safety=SlowSafety(clock, 0, 0),
+                         selector=SlowPick(0), tts=SlowVoice(clock, 0.0), player=FakePlayer(clock), source=SimRoom(CTX, 0),
+                         clock=clock, log=log, n_bits=1, jokes_per_bit=1))
+    (r,) = preps(read_session(log.path))
+    assert r["other_s"] > 0.3  # the gap is recorded, not lost
+    assert r["generate_s"] == pytest.approx(1.0) and r["safety_s"] == 0
+    assert sums(r) == pytest.approx(r["ready_at"] - r["started_at"])
+
+
+def test_a_first_render_that_failed_is_flagged_and_a_good_one_is_not(tmp_path):
+    class Dead(SlowVoice):
+        def synthesize(self, text):
+            raise ValueError("no audio")
+
+    (bad,) = preps(show(tmp_path, voice=lambda c: Dead(c, 0.0), n_bits=1))
+    assert bad["first_render_failed"] is True
+    (good,) = preps(show(tmp_path, n_bits=1))
+    assert good["first_render_failed"] is False
+
+
+@pytest.mark.parametrize("queued", [-0.5, "x", True])
+def test_a_queue_time_the_row_would_reject_is_dropped_so_the_show_never_fails(tmp_path, queued):
+    (r,) = preps(show(tmp_path, voice=lambda c: SlowVoice(c, 0.2, queued_s=queued), n_bits=1))
+    assert r["render_queue_s"] is None and r["render_s"] is None and r["render_wait_s"] >= 0
+
+
 def test_serial_tts_reports_how_long_a_call_queued_apart_from_synthesis():
     class Engine:
         def synthesize(self, text):
@@ -206,27 +242,41 @@ def test_the_first_line_logs_how_long_a_bridge_made_the_room_wait_after_the_bit_
 # --- the analysis, on synthetic logs with known numbers ---
 
 JOKE_TEXT = "SECRET JOKE TEXT"
+LLM = "gen-v4:bonsai"
+BASE = {"generate_s": 1.0, "safety_s": 0.5, "bank_s": 0.0, "other_s": 0.0, "render_queue_s": 0.0, "render_s": 0.5}
 
 
-def write_show(directory, sid, bits, at=1000.0, room="live", with_prep=True):
-    """bits: (wait_s, stages dict, overhang_s, bridges). Each bit starts at the previous bit_end (`at` for bit 0)."""
-    rows, t = [{"event": "show_start", "at": at, "room": room, "context": {"venue": "bar", "energy": "normal", "age": "mixed"},
-                "policy": {"name": "linucb", "epsilon": 0.1, "alpha": 1.0, "prior": "uniform"}, "generator_id": "g",
-                "selector_id": "u", "git_sha": "x", "operator": "o", "audio": {"consent": False, "path": None}}], at
-    for i, (wait, stages, overhang, bridges) in enumerate(bits):
-        for _ in range(bridges):
-            rows.append({"event": "bridge", "at": t + 1, "bit": i, "text": JOKE_TEXT, "tts_seconds": 1.0,
-                         "audio_start_at": t + 1, "audio_end_at": t + 2})
-        ready = t + sum(stages.values())
+def bit(overhang=0.5, bridges=1, failed=False, **stages):
+    return ({**BASE, **stages}, overhang, bridges, failed)
+
+
+def write_show(directory, sid, bits, at=1000.0, generator=LLM, with_prep=True, pauses=(), room="live"):
+    """bits: from `bit(...)`. A bit starts at the previous bit_end (`at` for bit 0); its wait is its stages plus its
+    overhang, so the rows agree with each other. `pauses`: (start, end) seconds after `at`."""
+    rows = [{"event": "show_start", "at": at, "room": room, "context": {"venue": "bar", "energy": "normal", "age": "mixed"},
+             "policy": {"name": "linucb", "epsilon": 0.1, "alpha": 1.0, "prior": "uniform"}, "generator_id": generator,
+             "selector_id": "u", "git_sha": "x", "operator": "o", "audio": {"consent": False, "path": None}}]
+    for a, b in pauses:
+        rows += [{"event": "pause", "at": at + a, "paused_at": at + a}, {"event": "resume", "at": at + b, "resumed_at": at + b}]
+    t = at
+    for i, (stages, overhang, bridges, failed) in enumerate(bits):
+        rows += [{"event": "bridge", "at": t + 1, "bit": i, "text": JOKE_TEXT, "tts_seconds": 1.0,
+                  "audio_start_at": t + 1, "audio_end_at": t + 2} for _ in range(bridges)]
+        unsplit = stages.get("render_unsplit_s")
+        render_wait = unsplit if unsplit is not None else stages["render_queue_s"] + stages["render_s"]
+        ready = t + stages["generate_s"] + stages["safety_s"] + stages["bank_s"] + stages["other_s"] + render_wait
         if with_prep:
             rows.append({"event": "prep", "at": ready, "bit": i, "started_at": t, "ready_at": ready,
-                         "generate_s": stages.get("generate_s", 0.0), "safety_s": stages.get("safety_s", 0.0),
-                         "bank_s": stages.get("bank_s", 0.0), "render_wait_s": stages.get("render_queue_s", 0.0) + stages.get("render_s", 0.0),
-                         "render_queue_s": stages.get("render_queue_s", 0.0), "render_s": stages.get("render_s", 0.0), "bank_fallbacks": 0})
-        extra = {"bridge_overhang_s": overhang} if with_prep else {}
-        rows.append({"event": "joke_played", "at": t + wait, "bit": i, "joke": 0, "chosen": 0, "pick_prob": 0.3, "text": JOKE_TEXT,
-                     "tts_seconds": 0.1, "audio_seconds": 1.0, "audio_start_at": t + wait, "audio_end_at": t + wait + 1, **extra})
-        t = t + wait + 20
+                         "generate_s": stages["generate_s"], "safety_s": stages["safety_s"], "bank_s": stages["bank_s"],
+                         "other_s": stages["other_s"], "render_wait_s": render_wait,
+                         "render_queue_s": None if unsplit is not None else stages["render_queue_s"],
+                         "render_s": None if unsplit is not None else stages["render_s"], "bank_fallbacks": 0,
+                         "first_render_failed": failed})
+        start = ready + overhang
+        rows.append({"event": "joke_played", "at": start, "bit": i, "joke": 0, "chosen": 0, "pick_prob": 0.3, "text": JOKE_TEXT,
+                     "tts_seconds": 0.1, "audio_seconds": 1.0, "audio_start_at": start, "audio_end_at": start + 1,
+                     **({"bridge_overhang_s": overhang} if with_prep else {})})
+        t = start + 20
         rows.append({"event": "bit_end", "at": t, "bit": i, "n_labels": 5, "reward_version": 1, "reward": 0.5})
     rows.append({"event": "show_end", "at": t, "status": "finished"})
     with (directory / f"{sid}.jsonl").open("w", encoding="utf-8") as f:
@@ -234,22 +284,31 @@ def write_show(directory, sid, bits, at=1000.0, room="live", with_prep=True):
             f.write(json.dumps({"schema": 2, "session": sid, **r}) + chr(10))
 
 
-def dominated_by(stage, n=8, size=6.0):
-    stages = {"generate_s": 2.0, "safety_s": 1.0, "bank_s": 0.0, "render_queue_s": 0.5, "render_s": 0.5}
-    overhang = 0.5
-    if stage == "bridge_overhang_s":
-        overhang = size
-    else:
-        stages[stage] = size
-    return [(sum(stages.values()) + overhang, dict(stages), overhang, 2)] * n
+def dominated(stage, n=9, size=12.0):
+    """Bit 0 (not counted) then n bits where `stage` is `size` s and every other stage is small."""
+    def one():
+        return bit(overhang=size if stage == "bridge_overhang_s" else 0.5, **({} if stage == "bridge_overhang_s" else {stage: size}))
+    return [one() for _ in range(n + 1)]
+
+
+def two_shows(tmp_path, bits_a, bits_b=None, **kw):
+    write_show(tmp_path, "aaaaaaaaaaaa", bits_a, **kw)
+    write_show(tmp_path, "bbbbbbbbbbbb", bits_b or bits_a, at=5000.0, **kw)
+    return st.run(None, tmp_path)
+
+
+def clear(path):
+    for f in path.glob("*.jsonl"):
+        f.unlink()
 
 
 def test_a_bit_waits_from_the_previous_bit_end_and_the_stats_are_nearest_rank(tmp_path):
-    write_show(tmp_path, "aaaaaaaaaaaa", [(10.0, {"generate_s": 4.0}, 0.0, 1), (5.0, {"generate_s": 2.0}, 1.5, 2), (8.0, {}, 0.0, 0)])
-    (res,) = [st.run(None, tmp_path)["shows"][0]]
-    assert res["bits"] == 3 and res["wait_s"]["p50"] == 8.0 and res["wait_s"]["p95"] == 10.0
-    assert res["bridges"]["p50"] == 1 and res["bridge_overhang_s"]["p50"] == 0.0 and res["bridge_overhang_s"]["p95"] == 1.5
-    assert res["generate_s"]["n"] == 3 and res["generate_s"]["p50"] == 2.0
+    write_show(tmp_path, "aaaaaaaaaaaa", [bit(0.0, 1), bit(1.5, 2, generate_s=2.0), bit(0.0, 0, generate_s=3.0), bit(0.0, 0)])
+    (res,) = st.run(None, tmp_path)["shows"]
+    assert res["bits"] == 4 and res["bits_counted"] == 3  # bit 0 does not count
+    # waits of bits 1 to 3: 4.5, 4.0 and 2.0 (generate + safety + render + overhang)
+    assert res["wait_s"]["p50"] == 4.0 and res["wait_s"]["p95"] == 4.5 and res["wait_s"]["n"] == 3
+    assert res["bridges"]["p50"] == 0 and res["bridge_overhang_s"]["p95"] == 1.5 and res["generate_s"]["p50"] == 2.0
 
 
 @pytest.mark.parametrize("stage,outcome,fix", [
@@ -257,43 +316,91 @@ def test_a_bit_waits_from_the_previous_bit_end_and_the_stats_are_nearest_rank(tm
     ("generate_s", "no_candidate_fix", None), ("render_s", "no_candidate_fix", None),
 ])
 def test_the_biggest_stage_picks_its_fix_and_the_writer_or_voice_has_none(tmp_path, stage, outcome, fix):
-    write_show(tmp_path, "aaaaaaaaaaaa", dominated_by(stage, n=8, size=12.0))
-    write_show(tmp_path, "bbbbbbbbbbbb", dominated_by(stage, n=8, size=12.0), at=5000.0)
-    d = st.run(None, tmp_path)["decision"]
-    assert d["outcome"] == outcome and d["stage"] == stage
+    d = two_shows(tmp_path, dominated(stage))["decision"]
+    assert d["outcome"] == outcome and d["stage"] == stage and d["ci"][0] > 0
     assert (fix is None and d["fix"] is None) or d["fix"].startswith(fix)
 
 
-def test_a_tie_a_small_share_and_too_few_bits_decide_nothing(tmp_path):
-    two = lambda bits: (write_show(tmp_path, "aaaaaaaaaaaa", bits), write_show(tmp_path, "bbbbbbbbbbbb", bits, at=5000.0))
-    # overhang and safety are both 6 s of about 10.5 s: within 1.1x of each other
-    two([(11.0, {"generate_s": 1.0, "safety_s": 6.0, "bank_s": 0.0, "render_queue_s": 0.0, "render_s": 0.0}, 6.0, 1)] * 8)
-    assert st.run(None, tmp_path)["decision"]["outcome"] == "no_one_stage"
-    for f in tmp_path.glob("*.jsonl"):
-        f.unlink()
-    two([(10.0, {"generate_s": 2.0, "safety_s": 2.0, "bank_s": 0.0, "render_queue_s": 2.0, "render_s": 2.0}, 2.0, 1)] * 8)
-    assert st.run(None, tmp_path)["decision"]["outcome"] == "no_one_stage"  # no stage reaches a quarter of the wait
-    for f in tmp_path.glob("*.jsonl"):
-        f.unlink()
-    write_show(tmp_path, "aaaaaaaaaaaa", dominated_by("safety_s", n=15, size=12.0))
-    assert st.run(None, tmp_path)["decision"]["outcome"] == "not_enough_data"  # 15 < 16
+def test_a_stage_that_is_big_on_some_bits_and_zero_on_most_is_not_missed_by_a_median(tmp_path):
+    # queue 8 s on 3 bits of 8: its median is 0, its total is 24 s of 56. Overhang is a steady 2 s (total 16).
+    bits = [bit()] + [bit(2.0, render_queue_s=8.0)] * 3 + [bit(2.0)] * 5
+    res = two_shows(tmp_path, bits)
+    assert res["pooled"]["render_queue_s"]["p50"] == 0.0 and res["pooled"]["bridge_overhang_s"]["p50"] == 2.0  # a median picks overhang
+    assert res["pooled"]["shares"]["render_queue_s"] == pytest.approx(24 / 56)
+    assert res["decision"]["stage"] == "render_queue_s" and res["decision"]["outcome"] == "fix"
+
+
+def test_shares_are_totals_over_the_total_wait_and_add_to_one(tmp_path):
+    shares = two_shows(tmp_path, dominated("safety_s"))["pooled"]["shares"]
+    assert sum(shares.values()) == pytest.approx(1.0)  # a bit starts at the previous bit end, so no time is left over
+    assert shares["safety_s"] == pytest.approx(12.0 / (1.0 + 12.0 + 0.5 + 0.5))
+
+
+def test_shows_that_disagree_give_an_interval_across_zero_and_no_decision(tmp_path):
+    d = two_shows(tmp_path, dominated("safety_s"), dominated("bridge_overhang_s"))["decision"]
+    assert d["outcome"] == "inconclusive" and d["ci"][0] < 0 < d["ci"][1]
+
+
+def test_a_small_share_or_too_little_data_decides_nothing(tmp_path):
+    flat = [bit(overhang=2.0, generate_s=2.0, safety_s=2.0, render_queue_s=2.0, render_s=2.0)] * 10
+    assert two_shows(tmp_path, flat)["decision"]["outcome"] == "no_one_stage"  # no stage reaches a quarter of the wait
+    clear(tmp_path)
+    assert two_shows(tmp_path, dominated("safety_s", n=7))["decision"]["outcome"] == "not_enough_data"  # 14 counted bits < 16
+    clear(tmp_path)
+    write_show(tmp_path, "aaaaaaaaaaaa", dominated("safety_s", n=20))
+    assert st.run(None, tmp_path)["decision"]["outcome"] == "not_enough_data"  # one show: no between-show interval
+
+
+def test_bank_shows_are_listed_but_never_counted(tmp_path):
+    write_show(tmp_path, "aaaaaaaaaaaa", dominated("safety_s"))
+    write_show(tmp_path, "bbbbbbbbbbbb", dominated("generate_s"), at=5000.0, generator="bank-v1")
+    res = st.run(None, tmp_path)
+    assert {s["session"]: s["included"] for s in res["shows"]} == {"aaaaaaaaaaaa": True, "bbbbbbbbbbbb": False}
+    assert {s["session"]: s["generator_id"] for s in res["shows"]}["bbbbbbbbbbbb"] == "bank-v1"
+    assert res["pooled"]["shows_counted"] == 1 and res["decision"]["outcome"] == "not_enough_data"
+    assert "(not counted)" in st.table(res) and "bank-v1" in st.table(res)
+
+
+def test_bit_zero_is_reported_apart_and_does_not_decide(tmp_path):
+    bits = dominated("safety_s")
+    bits[0] = bit(generate_s=30.0)  # a cold model
+    res = two_shows(tmp_path, bits)
+    assert res["bit0"]["bits"] == 2 and res["bit0"]["generate_s"]["p50"] == 30.0
+    assert res["pooled"]["generate_s"]["p95"] == 1.0 and res["decision"]["stage"] == "safety_s"
+
+
+def test_a_bit_whose_wait_holds_a_pause_or_a_failed_first_render_is_dropped_and_counted(tmp_path):
+    bits = dominated("safety_s")
+    bits[2] = bit(failed=True)
+    # bit 3 waits from 90.5 s to 104.5 s after the show starts; the pause (95 to 97 s) is inside it
+    write_show(tmp_path, "aaaaaaaaaaaa", bits, pauses=[(95.0, 97.0)])
+    (res,) = st.run(None, tmp_path)["shows"]
+    assert res["dropped_render_failed"] == 1 and res["dropped_paused"] == 1 and res["bits_counted"] == 7
+
+
+def test_a_voice_that_cannot_split_the_render_counts_all_of_it_as_render_not_nothing(tmp_path):
+    bits = [bit()] + [bit(render_queue_s=0.0, render_s=0.0, render_unsplit_s=9.0)] * 9
+    res = two_shows(tmp_path, bits)
+    assert res["pooled"]["render_queue_s"]["n"] == 0 and res["pooled"]["render_s"]["p50"] == 9.0
+    assert res["decision"]["stage"] == "render_s" and res["decision"]["outcome"] == "no_candidate_fix"
 
 
 def test_a_log_from_before_prep_is_listed_but_does_not_count(tmp_path):
-    write_show(tmp_path, "aaaaaaaaaaaa", dominated_by("safety_s", n=20, size=12.0), with_prep=False)
+    write_show(tmp_path, "aaaaaaaaaaaa", dominated("safety_s", n=20), with_prep=False)
     res = st.run(None, tmp_path)
-    assert res["shows"][0]["bits"] == 20 and res["shows"][0]["bits_with_prep"] == 0 and res["shows"][0]["safety_s"]["p50"] is None
-    assert res["pooled"]["bits_with_prep"] == 0 and res["decision"]["outcome"] == "not_enough_data"
+    s = res["shows"][0]
+    assert s["bits"] == 21 and s["bits_with_prep"] == 0 and s["safety_s"]["p50"] is None and not s["included"]
+    assert res["pooled"]["bits_counted"] == 0 and res["decision"]["outcome"] == "not_enough_data"
 
 
 def test_named_sessions_only_and_the_record_holds_seconds_and_ids_never_text(tmp_path, monkeypatch):
     logs, metrics = tmp_path / "logs", tmp_path / "metrics"
     logs.mkdir()
     monkeypatch.setattr(cache, "METRICS", metrics)
-    write_show(logs, "aaaaaaaaaaaa", dominated_by("safety_s", n=8, size=12.0))
-    write_show(logs, "bbbbbbbbbbbb", dominated_by("safety_s", n=8, size=12.0), at=5000.0)
+    write_show(logs, "aaaaaaaaaaaa", dominated("safety_s"))
+    write_show(logs, "bbbbbbbbbbbb", dominated("safety_s"), at=5000.0)
     res = st.record(["aaaaaaaaaaaa"], logs)
-    assert [s["session"] for s in res["shows"]] == ["aaaaaaaaaaaa"] and res["pooled"]["bits_with_prep"] == 8
+    assert [s["session"] for s in res["shows"]] == ["aaaaaaaaaaaa"] and res["pooled"]["bits_counted"] == 9
     saved = (metrics / "stage_timing.json").read_text(encoding="utf-8")
     assert JOKE_TEXT not in saved and "aaaaaaaaaaaa" in saved
     assert st.stored() == json.loads(saved)["results"]

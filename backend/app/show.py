@@ -110,7 +110,10 @@ def _synthesize(tts, text: str):
     # Read on the worker thread that ran `synthesize`: a voice that serialises (SerialTTS) says how long this call
     # waited for it, so a render's queue time and its synthesis time can be told apart. None when it cannot say.
     queued = getattr(tts, "last_queue_s", None)
-    return wav, None if queued is None else queued()
+    queued = None if queued is None else queued()
+    # An instrument must never stop the show: a value the `prep` row would not validate is dropped here.
+    ok = isinstance(queued, (int, float)) and not isinstance(queued, bool) and queued >= 0
+    return wav, queued if ok else None
 
 
 async def _render(tts, text: str, clock, timing: dict | None = None):
@@ -212,16 +215,21 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
         # is handled when the line is spoken, so it is only waited for here.
         await asyncio.gather(first.render, return_exceptions=True)
     ready = clock.now()
+
     def span(a, b):  # the wall clock can step back (NTP); a bad stage must not fail the row and the bit
         return max(0.0, b - a)
     render_wait = span(rendering, ready)
     queued = first.render_timing.get("queue_s") if first else None
-    # generate + safety + bank + render wait add up to ready - started; the rest (picking a thread) takes no time worth a field
+    # A render that failed is spoken again or skipped later; its wait is not the voice's normal time (flagged, not hidden).
+    failed = bool(first and not first.render.cancelled() and first.render.exception() is not None)
     ready = max(ready, started)
+    # The four stages plus `other_s` add up to ready - started. `other_s` is what no stage timer covers: the thread
+    # pick and building the plans (a selector or `played_thread` that is slow shows up there, not in a stage).
+    other = max(0.0, span(started, ready) - span(started, generated) - span(generated, judged_at) - bank_s - render_wait)
     log.write("prep", bit=bit, started_at=started, generate_s=span(started, generated), safety_s=span(generated, judged_at),
-              bank_s=bank_s, render_wait_s=render_wait, render_queue_s=queued,
+              bank_s=bank_s, other_s=other, render_wait_s=render_wait, render_queue_s=queued,
               render_s=None if queued is None else max(0.0, render_wait - queued), ready_at=ready,
-              bank_fallbacks=bank_fallbacks)
+              bank_fallbacks=bank_fallbacks, first_render_failed=failed)
     if plans:
         plans[0].ready_from = ready
     return plans

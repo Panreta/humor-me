@@ -51,6 +51,8 @@ class SerialTTS:
         self.engine, self._lock, self._local = engine, threading.Lock(), threading.local()
 
     def synthesize(self, text: str) -> bytes:
+        # perf_counter here, while the show times the whole render with its own clock (time.time live): the two rates
+        # agree except for NTP slew, far below a render's seconds.
         asked = time.perf_counter()
         with self._lock:
             self._local.queued = time.perf_counter() - asked
