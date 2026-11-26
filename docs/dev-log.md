@@ -195,6 +195,19 @@ Format: **Symptom** → **Cause** → **Caught by** → **Fix** (commit / file).
 Result: 432,457 rows → 402,981 after dedupe + 4–200 word filter (train 323,573 / dev 39,764 /
 test 39,644). 75% carry no topic flag; scores are heavy at 0 (35%).
 
+## DPO judge eval, Exp 17 (2026-11-24 to 26)
+
+| Problem | Cause | Fix |
+|---|---|---|
+| `explorer/train_dpo.py` and `eval_judge.py` failed the import test as soon as `trl` was installed | Both parsed arguments and read `os.environ["COURSE_DIR"]` at import time; without `trl` the import test skipped them, which hid it (caught by the first full test run in a venv with `trl`) | Each script's body is in `main()`; the import test passes |
+| The judge eval's CI was about √2 too narrow | `build_judge_pairs` writes every pair in both orders, and `eval_judge` counted the 10,636 test records as independent (caught by reading the pair builder before the gate run) | Scored per pair (1 / 0.5 / 0), CI over the 5,318 pairs |
+| An always-"A" judge showed 98% order consistency | `--n` cut records, not pairs, so most pairs had one order and counted as consistent (caught by the 0.5B smoke run: `share_answered_A` 1.0 next to consistency 0.98) | `--n_pairs` keeps both orders; consistency counts complete pairs only; a test pins an always-A judge at accuracy 0.5, consistency 0 |
+| SSH to Explorer from the laptop: `Permission denied (publickey)`, also after adding `~/.ssh/id_ed25519.pub` to the cluster's `authorized_keys` | Since 2026-11-06 Explorer only takes the key OOD issues; the login nodes don't read a key you add yourself (caught by the OOD banner) | `ssh -i ~/.ssh/<user>-<date>` (the key downloaded from OOD), `IdentitiesOnly=yes` |
+| A one-line `import torch` check on the login node: `Killed` (exit 137) | The login node caps memory, as in the 2026-10-31 setup | `srun -p short` for anything that imports torch |
+| A check script in `/tmp` failed with `No module named 'schrodinger'` | Another user's `/tmp/inspect.py` shadowed the standard library: Python puts the script's folder first on the path | Never run scripts from `/tmp` on the cluster; use `/scratch/$USER` |
+| `uv pip install -r explorer/requirements-cluster.txt` downgraded `trl` 1.16 → 0.24 and `peft` 0.21 → 0.17 | The pins are the versions the new code was tested with; the old judge was trained under the newer ones | Checked the old adapter still loads and the pipeline tests pass; Exp 17 matches the 16 Nov run (0.698 / 0.526) |
+| The eval jobs waited about 13 h in the queue | `eval_judge.sbatch` asks for an A100 on `gpu-short`, which has one A100 node; H200s on `gpu` were estimated even later | Submit before a break; `sbatch --test-only` gives the estimated start |
+
 ## Data sourcing and legal
 
 ### Scraping the transcript site

@@ -1309,3 +1309,25 @@ Depends on the made-up `audience.yaml` values `noise`, `fatigue` and the `base` 
 - **Ratings beside, not a claim:** before 2, 1, 2 (`9fedcfa07c3f` has none); after 3, 3, 2, 2.
 On the waits in these 4 shows D-115 did what it set out to do; n is small. No new decision.
 
+
+## <a id="d-116"></a>D-116 · 2026-11-26 — Exp 17: the DPO-trained rJokes judge passes its gate; it stands ready as D-102's fallback judge
+Tingyu's judge (#37), carried onto main. D-102 made the D-95 judge DPO's labeller and named this one the fallback ("more of the user's votes, or Tingyu's judge"). This entry records what the fallback measures; it does not change D-102.
+
+**The judge.** `Qwen/Qwen2.5-7B-Instruct` with a LoRA adapter (`dpo_judge_v1`), DPO-trained to answer "A" or "B" to "Which joke is funnier?" on rJokes pairs where the chosen joke has the higher upvote percentile (LoL's frozen-judge idea). Pairs: `explorer/build_judge_pairs.py`; training: `explorer/train_dpo.py --stage judge`, 20,000 records, 625 steps, 1 epoch on an H200 (run of 2026-11-15). Its score for a pair is P(A) from the A and B logits, one forward pass, no generation (`explorer/judge_model.py`).
+
+**Number that decides.** Per-pair accuracy on the 5,318 rJokes **test** pairs (never trained on), every pair shown in both orders and scored 1 (right in both), 0.5 (right in one) or 0 (wrong in both), so the two orders are not counted as independent. **Bar:** the trained judge's 95% CI lower bound is above 0.5 **and** the paired difference against the untrained model on the same pairs has its CI lower bound above 0 (`explorer/eval_judge.py --baseline`, `gate_pass`). Proposed 2026-11-25 by the build agent before it saw any result (it believed the last run was at chance); not loosened after. **Power:** a pair score has sd at most 0.5, so with 5,318 pairs both half-widths are at most about ±0.013, enough to see a gain of 0.02.
+
+**Result (Exp 17, `sim/judge_gate.py`, `reports/metrics/judge_gate.json`).** Pass.
+| | Untrained 7B | DPO judge |
+|---|---|---|
+| Accuracy per pair (95% CI) | 0.527 (0.518 to 0.537) | **0.695 (0.684 to 0.706)** |
+| Same answer in both orders | 50.1% | **81.8%** |
+| Right when it gives the same answer in both orders | 55.4% | 73.8% |
+| Share answered "A" | 27.3% | 43.0% |
+Paired gain +0.168 (CI +0.157 to +0.179). Every summary number was recomputed from the per-pair scores and matches the eval script's. The 16 Nov run with the older per-record script gave the same accuracies (0.698, 0.526).
+
+**How to read it.** Consistency is not correctness: of the 81.8% of pairs it answers the same way in both orders, about a quarter are consistently wrong (21% of all pairs). The 18% that flip with the order are its ties. It still leans slightly to "B", which a ranking that shows every pair in both orders cancels.
+
+**What it is not.** It learned r/Jokes upvotes on written jokes: not stand-up delivery, not this robot's voice, not the user's taste, and not same-model pairs of close quality (D-102's risk). It has not been compared with the D-95 judge on the user's votes. Not measured: accuracy by upvote gap (pair keys are hashed, so the gap needs the test split joined on the cluster).
+
+**If D-102's gate fails** (D-95 judge under 38 of 60), this judge is the measured alternative; it would first be scored on the same 60 test pairs against the user's answers, the bar D-102 already sets.

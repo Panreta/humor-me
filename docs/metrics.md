@@ -921,3 +921,22 @@ Decision: [D-115](agent/decisions-detail.md#d-115). Sim only, no model calls. Ra
 - **Against Exp 31(b)'s bar** (hit-rate 95% interval lower end at least 0.5): 23 of 28 right (0.82), Wilson 95% interval 0.64 to 0.92, so the lower end 0.64 clears it. The interval is optimistic: guesses within a show are not independent. All 28 were on 3 labels; 23 used (Exp 31's sim: about 0.7).
 - **Waits:** the median fell from 13.7 s to 0.0 s and bridge lines from 17.5 to 3.5 per show. The 7 gaps that still waited took 6.1 to 18.7 s: 5 follow a wrong guess (12.1 to 18.7 s, the whole prep back in the wait) and 2 a right guess whose prep was not ready (6.1 and 6.2 s). The p95 stays high because a wrong guess waits as long as before; a miss being slower than no guess is not visible (those 5 waits sit inside the before range of 9.8 to 27.4 s).
 - **The number D-115 estimated** (total wait over bits 1+ per show): 108.7 s before, 21.6 s after, about 87 s saved per show against the ~50 s estimate. Different shows, so an indication.
+
+## DPO judge gate (Exp 17, 2026-11-26)
+
+Decision: [D-116](agent/decisions-detail.md#d-116). Raw: `reports/metrics/judge_gate.json` (numbers only). Code: `sim/judge_gate.py`, from the cluster's `explorer/eval_judge.py` results. Chart: `reports/figures/decision-plot/exp17-judge-gate.png`.
+
+5,318 rJokes test pairs, each in both orders; a pair scores 1, 0.5 or 0.
+
+| | Untrained Qwen2.5-7B | DPO judge (`dpo_judge_v1`) |
+|---|---|---|
+| Accuracy per pair (95% CI) | 0.527 (0.518 to 0.537) | **0.695 (0.684 to 0.706)** |
+| Right in both orders | 28% (1,476) | 60% (3,213) |
+| Right in one order only (flipped) | 50% (2,655) | 18% (967) |
+| Wrong in both orders | 22% (1,187) | 21% (1,138) |
+| Same answer in both orders | 50.1% | 81.8% |
+| Right when it gives the same answer in both orders | 55.4% | 73.8% |
+| Share answered "A" | 27.3% | 43.0% |
+
+Paired gain +0.168 (95% CI +0.157 to +0.179): the trained judge does better on 2,161 pairs, the same on 2,489, worse on 668. **Gate passed** (CI above 0.5 and gain above 0). Training mostly turned flipped pairs into pairs right both ways; the share wrong both ways barely moved.
+

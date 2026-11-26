@@ -1,6 +1,6 @@
 # Status (read this first in a new session)
 
-Last updated: 2026-11-26 (Exp 27 extended to 100 prompts and passed on the 80 new ones, gen-v5 is now the live prompt, D-111 addendum; Exp 29 recorded and D-115's live check; per-bit stage timings logged, D-113; bridge lines skip what the listener has heard, D-112; counted schema, re-ask and a connected-prompt candidate, D-111; Exp 26 passed, Exp 27 inconclusive on judge v1, Exp 30 done: judge v2 kept and trusted, D-114). Update this file whenever the state below changes.
+Last updated: 2026-11-26 (Exp 17 recorded, D-116). Before: 2026-11-26 (Exp 27 extended to 100 prompts and passed on the 80 new ones, gen-v5 is now the live prompt, D-111 addendum; Exp 29 recorded and D-115's live check; per-bit stage timings logged, D-113; bridge lines skip what the listener has heard, D-112; counted schema, re-ask and a connected-prompt candidate, D-111; Exp 26 passed, Exp 27 inconclusive on judge v1, Exp 30 done: judge v2 kept and trusted, D-114). Update this file whenever the state below changes.
 
 Learning the material from scratch (RL foundations → our experiments → Explorer runbook):
 [study-guide.md](study-guide.md).
@@ -15,7 +15,7 @@ Learning the material from scratch (RL foundations → our experiments → Explo
 | **Director policy** | **LinUCB + uniform prior**: 97% of oracle, about 95% of the true best (Exp 16), +18% vs always-Neurotic (notebook Exp 4). Holds under human taste too: 96% of oracle (Exp 13) |
 | Within-show adaptation | Open problem: the director reads rooms, not a room *turning* (Exp 5: 95% → 80% of oracle after a mid-set shift; Exp 6: longer sets don't help) |
 | Show state (A → B → C) | **A** (tonight's record as features): not adopted, hedges (Exp 7). **B** (career + tonight's correction): not adopted, no speed passes (Exp 8). **C1** (MDP with in-show exploration and fatigue planning): negative result: all three runs fail, including after fixing a bug; it reads a turn better but loses in steady shows, so the demo keeps LinUCB (Exp 14, 15). **C2** (callbacks): after the demo and DPO |
-| Decision notebooks | Split by section so no notebook grows without limit: `decisions-data` (Exp 1, 2, 9–12), `decisions-director` (Exp 3–8, 13–16, 18), `decisions-live` (Exp 19 onward: 19, 20, 21, 22); `decisions.ipynb` is the index. `decisions-model` comes with the first judge/SFT/DPO experiment (Exp 17 is reserved for the judge). All 94 claim checks ✅. Run `python scripts/run_notebook.py` (all notebooks) before committing |
+| Decision notebooks | Split by section so no notebook grows without limit: `decisions-data` (Exp 1, 2, 9–12), `decisions-director` (Exp 3–8, 13–16, 18), `decisions-live` (Exp 19 onward: 19, 20, 21, 22); `decisions.ipynb` is the index. `decisions-model` (Exp 17: the DPO judge passed its gate, D-116). All 94 claim checks ✅. Run `python scripts/run_notebook.py` (all notebooks) before committing |
 | Decision log | Two files joined by D-xx IDs (D-01 to D-101): [decisions.md](decisions.md) is the short plain log for people; [agent/decisions-detail.md](agent/decisions-detail.md) is the full record agents append to. Human docs stay short and plain (CLAUDE.md "Writing docs"). `tests/test_docs.py` fails if the IDs differ |
 | Decision plots | [notebooks/decision-plot.ipynb](../notebooks/decision-plot.ipynb): the deck's results redrawn from `reports/metrics`, with checks that each chart still matches its slide and that every experiment has a chart or a stated reason (15 charted, 5 with a stated reason). PNGs in `reports/figures/decision-plot/`, swapped into slides 14, 18, 20, 29, 30, 31 and 33 of `docs/slides/humor-me.pptx` and `slides.md`, and added to the Google Slides copy along with slides 15, 16 and 25 |
 | Tests | `.venv/Scripts/python -m pytest tests -q`: 723 passing, 7 skipped, synthetic data only |
@@ -31,7 +31,7 @@ Learning the material from scratch (RL foundations → our experiments → Explo
 
 | PR | What |
 |---|---|
-| #37 | Judge API (Tingyu, Exp 17), overdue since Nov 8 |
+| #37 | Judge API (Tingyu). Superseded by the `exp17-judge` PR: the same judge rebased on main, with Exp 17 recorded (D-116) |
 
 ## Models and providers
 
