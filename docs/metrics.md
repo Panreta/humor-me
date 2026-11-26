@@ -1020,3 +1020,28 @@ Decision: [D-118](agent/decisions-detail.md#d-118). Raw: `reports/metrics/materi
 - "Everyday topics only" looks promising (4%), but that idea came after seeing this data and would be a third try at the same bar. Not adopted, not run.
 
 **This was a second attempt at the same bars.** With no real difference, one attempt reaches 10 wins of 20 about 59% of the time, so two attempts reach it at least once about 83% of the time. 20 pairs only catch big differences.
+
+## Tonight's context for each bit (Exp 35, 2026-11-26)
+
+Decision: [D-119](agent/decisions-detail.md#d-119). Raw: `reports/metrics/tonight.json`. Code: `sim/tonight.py`. Setup: one day of headlines turned into nameless one-sentence summaries; you approved them, then 10 blind pairs of bits from the live writer, the live prompt alone (gen-v5, arm A) against the live prompt with tonight's context (gen-v5 + tonight, arm B), same modes and rooms. No `audience.yaml` value is involved.
+
+**Answer: on by your judgment call, not a pass.** The script's rule says adopt, but the filter check had 1 summary, far too few to decide, and funniness only tied.
+
+| Check | Result | Bar |
+|---|---|---|
+| Headlines fetched / dropped as disasters (no deaths, crimes or wars that day) | 10 / 5 | beside the bar |
+| Rejected by the name check / by the safety check | 3 / 1 | beside the bar |
+| Summaries kept / approved by you | 1 / 1 | beside the bar |
+| You rejected (95% interval) | 0% (0% to 79%) | at most 20%: met, but the interval is far wider than the bar, so it cannot decide |
+| Kept summaries with a real name | 0 | 0: met |
+| (a) Funnier: with tonight wins | 5 of 10 (without 5, ties 0) | at least 5: met at the minimum |
+| (b) More like tonight: with tonight wins | 9 of 10 (95% interval 60% to 98%) | beside the bar |
+| Market line / typed line | not fetched (timed out) / none typed | beside the bar |
+| Script verdict | adopt | both bars |
+
+**Read it:**
+- The one clear signal is (b): 9 of 10 bits with tonight's context felt like tonight.
+- Funniness is a tie. 10 pairs only rule out "clearly worse".
+- All 10 pairs used the same one summary, so this is one headline's evidence.
+- What was tested is narrower than what ships: no market line, no typed line, and today's 10 top stories only. The fixes after the run (longer fetch timeout, two weeks of four lighter news sections, at most 40 headlines) were not measured.
+- Next: run `python -m sim.tonight fetch` on more days to give the filter check enough summaries.
