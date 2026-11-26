@@ -167,7 +167,7 @@ class ThreadGenerator:
 
     def generate(self, mode: str, bit: int, joke: int, context: dict) -> Batch:
         if bit not in self._bits:
-            self._bits[bit] = self._fetch(mode, context, bit)
+            self._bits[bit] = self._fetch(mode, context, bit) if self.tonight else self._fetch(mode, context)
         return self._batch(self._bits[bit], mode, bit, joke)
 
     def _batch(self, got, mode: str, bit: int, joke: int) -> Batch:
@@ -181,7 +181,7 @@ class ThreadGenerator:
     def generate_speculative(self, mode: str, bit: int, joke: int, context: dict) -> Batch:
         key = (bit, mode)
         if key not in self._spec:
-            got = self._fetch(mode, context, bit)  # a worker thread cannot be cancelled: it may end after a discard
+            got = self._fetch(mode, context, bit) if self.tonight else self._fetch(mode, context)  # a worker thread cannot be cancelled: it may end after a discard
             if key in self._dead:
                 return self._batch(got, mode, bit, joke)  # nobody will ask again; keep nothing
             self._spec[key] = got
