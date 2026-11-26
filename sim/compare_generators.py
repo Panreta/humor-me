@@ -233,7 +233,10 @@ def judge_bit(att: dict, prompt: dict, safety_client, pacer: Pacer, now=time.per
     att["safety_latency_s"] = now() - start
     pacer.mark(SAFETY_BUCKET)
     verdicts = [[list(safety.check(t, age)) for t in thread] for thread in att["threads"]]
+    if att.get("safety_rules") != safety.RULES_VERSION:
+        att["safety_tries"] = 0  # new rules: the infrastructure retry budget starts again
     att["safety"] = verdicts
+    att["safety_rules"] = safety.RULES_VERSION
     att["safety_infra_error"] = any(r.startswith("llm:error") for thread in verdicts for ok, r in thread if not ok)
     att["safety_tries"] += 1
     return att
@@ -243,8 +246,13 @@ MAX_SAFETY_TRIES = 3
 
 
 def needs_safety(att: dict | None) -> bool:
-    return bool(att) and att["ok"] and (att["safety"] is None or (att.get("safety_infra_error")
-                                                                  and att["safety_tries"] < MAX_SAFETY_TRIES))
+    """A bit is (re)checked when it has no verdicts, when its verdicts came from older rules (D-105: only the safety
+    step is redone, never the generation), or when the filter's own call failed and retries remain."""
+    if not att or not att["ok"]:
+        return False
+    if att["safety"] is None or att.get("safety_rules") != safety.RULES_VERSION:
+        return True
+    return bool(att.get("safety_infra_error")) and att["safety_tries"] < MAX_SAFETY_TRIES
 
 
 WARMUP_TIMEOUT_S = 300.0  # a cold load took 126 s for bonsai-2:4b and 35 s for mimo-v2.6:9b, since dropped (D-97), far past a bit's 12 s
