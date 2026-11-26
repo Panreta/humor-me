@@ -61,7 +61,7 @@ cd backend
 The mode the director picked is never sent. Presses outside their window are not logged as reactions (replay counts every
 row), only noted by the Python logger. Within a hold the last press wins and each change is a `reaction` row.
 By default the show uses the bank and a bank-only filter (`BankOnlySafety`), which needs no key. `JOKE_SOURCE=llm` switches to the
-real stack (`app/generate.py`, gen-v4, D-110): each bit is 3 model calls at once on the same prompt, one thread of 5 jokes each (so up to 3 candidates per joke; a call that fails drops only its thread, and the 3 share one 12 s budget), the safety filter's rules plus one LLM verdict call
+real stack (`app/generate.py`, gen-v4, D-110): each bit is 3 model calls at once on the same prompt, one thread of 5 jokes each (so up to 3 candidates per joke; a call that fails drops only its thread; a badly shaped reply is asked for once more first (D-111), and on Ollama the reply schema counts the 5 jokes, and the 3 share one 12 s budget), the safety filter's rules plus one LLM verdict call
 per bit (Claude Haiku 5.5 with thinking off by default, D-100; needs `ANTHROPIC_API_KEY`; `SAFETY_CHECK_PROVIDER=gemini` goes back to Flash-Lite), the next line rendered while the current one plays, and filler while a bit loads: cached lines from the best bits of earlier live shows (`app/cache.py`, rules re-checked for this room's age, a teen room only from teen shows, never rated, logged in a `cache` row) at the show open and between bits, then in-character bridge lines. A failed call is retried
 twice inside a deadline; a failed generation or a bit whose candidates are all rejected falls back to the hand-checked bank (rules only, no API call), logged in
 `candidates`. A `live` room refuses to start without `app/blocklist.local.txt`.
@@ -135,6 +135,19 @@ Compares Claude Haiku 5.5 and two local Ollama models (`bonsai-2:4b`, `qwen3:4b-
 **The first Exp 24 run was aborted by a Google outage and archived, not scored (D-96).** The new candidates start a fresh `data/model_comparison/gen-<digest>/` folder on their own; rename the old one (`gen-f036d862`) to `gen-f036d862.aborted-gemini-outage-2026-11-25` so it is not mistaken for data. **Caveat:** the comparison runs without the Kokoro voice. Kokoro speaks on the CPU, so it does not take GPU memory; a model fully on the GPU (the D-97 gate) should be close to its measured speed in a show, but Kokoro's CPU use alongside it is not measured.
 
 Everything under `data/model_comparison/` (joke text, ballot, key, votes) is gitignored: never commit it. Shows write with bonsai on Ollama (D-107, D-109). To run one on Claude instead, set `JOKE_WRITER_PROVIDER=anthropic` (the model defaults to `claude-haiku-5-5`).
+
+## Per-thread timing and connected threads (Exp 26, Exp 27)
+
+Run both after a merge that touches the generator, from the repo root with the root venv. Ollama up with `OLLAMA_NUM_PARALLEL=3` and `OLLAMA_CONTEXT_LENGTH=8192`, nothing else loaded, and `JOKE_WRITER_PROVIDER=ollama` (the default for these two). About 5 minutes together.
+
+```bash
+python -m sim.thread_timing                # Exp 26: does a bit fit 12 s as 3 parallel calls? -> reports/metrics/thread_timing.json
+python -m sim.thread_coherence run         # Exp 27: both prompts write 20 prompts, Haiku judges each thread (needs ANTHROPIC_API_KEY)
+python -m sim.thread_coherence review      # you answer y/n "is this one bit?" for 10 threads the judge approved (arm hidden); q saves and quits
+python -m sim.thread_coherence score       # the numbers again with your answers in, no model call -> reports/metrics/thread_coherence.json
+```
+
+Then `python scripts/run_notebook.py` and commit the two metrics files. `run` can be stopped and restarted: finished bits and judge verdicts are kept in `data/thread_coherence/run-<digest>/` (gitignored: thread text lives only there, never commit it). The judge costs about 120 Haiku calls, under a cent. Exp 27's bar and rule are in `sim/thread_coherence.py` and D-111.
 
 ## Cached bits run (Exp 23)
 
