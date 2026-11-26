@@ -154,7 +154,7 @@ Then `python scripts/run_notebook.py` and commit the two metrics files. `run` ca
 
 ## Judge v2 on a fresh sample (Exp 30)
 
-Exp 27's judge agreed with you on 4 of 10 threads (chance), so a second judge (v2) was written from those 10 answers. This checks both on threads neither was written from (D-114). From the repo root with the root venv, Ollama up with `OLLAMA_NUM_PARALLEL=3` and `OLLAMA_CONTEXT_LENGTH=8192`, nothing else loaded, `ANTHROPIC_API_KEY` for the judges (`--env-file` loads it):
+Exp 27's judge agreed with you on 4 of 10 threads (too low to trust), so a second judge (v2) was written from those 10 answers. This checks both on threads neither was written from (D-114). From the repo root with the root venv, Ollama up with `OLLAMA_NUM_PARALLEL=3` and `OLLAMA_CONTEXT_LENGTH=8192`, nothing else loaded, `ANTHROPIC_API_KEY` for the judges (`--env-file` loads it):
 
 ```bash
 python -m sim.judge_calibration run --env-file backend/.env   # writes 10 fresh prompts x 2 arms (about 3 min), both judges judge the 20 drawn threads

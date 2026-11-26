@@ -41,13 +41,18 @@ def records(n_bits=10, per_bit=3, tag=""):
             for i in range(n_bits) for arm in "AB"]
 
 
-def scenario(recs, v1_right, v2_right, user="y"):
-    """Verdicts and answers on the drawn picks where the user says `user` on every thread, v1 agrees on the first
-    `v1_right` picks and v2 on the first `v2_right` (so the agreeing sets are nested)."""
+def seed_reviewed(n=10):
+    """Exp 27's review.json in the (patched) data folder, so the fresh draw has its 10 reviewed hashes."""
+    tc._write(tc.review_path(tc.run_dir()), {"answers": {f"old{i:02d}": "y" for i in range(n)}})
+
+
+def scenario(recs, v1_right, v2_right):
+    """Verdicts and answers on the drawn picks: the user says one bit on even picks and separate jokes on odd ones;
+    v1 agrees with the user on the first `v1_right` picks and v2 on the first `v2_right` (nested agreeing sets)."""
     picks = jc.draw(recs, set())["picks"]
-    agree = (lambda i, k: i < k) if user == "y" else (lambda i, k: i >= k)
-    verdicts = {v: {h: agree(i, k) for i, h in enumerate(picks)} for v, k in (("v1", v1_right), ("v2", v2_right))}
-    return verdicts, {h: user for h in picks}
+    answers = {h: "y" if i % 2 == 0 else "n" for i, h in enumerate(picks)}
+    verdicts = {v: {h: (answers[h] == "y") == (i < k) for i, h in enumerate(picks)} for v, k in (("v1", v1_right), ("v2", v2_right))}
+    return verdicts, answers
 
 
 # --- the judges ----------------------------------------------------------------------------------------------------
@@ -141,7 +146,7 @@ def test_a_thread_in_both_arms_is_drawn_once():
 
 def test_agreement_counts_and_the_paired_difference_are_the_arithmetic_of_the_threads():
     recs = records()
-    verdicts, answers = scenario(recs, v1_right=8, v2_right=14)  # the user says "one bit" on all 20
+    verdicts, answers = scenario(recs, v1_right=8, v2_right=14)
     res = jc.summarize(recs, verdicts, answers, set(), n_boot=500)
     assert res["judges"]["v1"]["agree"] == 8 and res["judges"]["v2"]["agree"] == 14
     assert res["judges"]["v2"]["disagreement"] == 0.3 and res["judges"]["v1"]["disagreement"] == 0.6
@@ -149,8 +154,9 @@ def test_agreement_counts_and_the_paired_difference_are_the_arithmetic_of_the_th
     assert res["paired"]["mean_diff"] == pytest.approx(0.3)
     lo, hi = res["paired"]["ci95"]
     assert 0 < lo <= 0.3 <= hi <= 0.6
-    assert res["judges"]["v2"]["confusion"] == {"judge_yes_user_yes": 14, "judge_yes_user_no": 0,
-                                                "judge_no_user_yes": 6, "judge_no_user_no": 0}
+    assert res["judges"]["v2"]["confusion"] == {"judge_yes_user_yes": 7, "judge_yes_user_no": 3,
+                                                "judge_no_user_yes": 3, "judge_no_user_no": 7}
+    assert res["judges"]["v2"]["agreement_ci95"][0] < 0.7 < res["judges"]["v2"]["agreement_ci95"][1]
 
 
 def test_the_paired_difference_counts_each_direction_when_the_judges_are_right_on_different_threads():
@@ -248,15 +254,79 @@ def test_the_user_share_by_arm_is_judge_free_and_has_its_own_interval():
     assert sum(s["n"] for s in res["judge_one_bit_by_arm"]["v1"].values()) == 20
 
 
-def test_the_unpaired_bootstrap_is_the_difference_of_means_and_empty_groups_have_none():
-    a, b = np.zeros(10), np.ones(10)
-    assert jc.boot_diff(a, b, 200) == [1.0, 1.0] and jc.boot_diff(np.array([]), b) is None
+def test_the_prompt_paired_bootstrap_is_the_difference_of_means_and_a_missing_arm_has_none():
+    items = [(f"f{i:02d}", arm, 1.0 if arm == "B" else 0.0) for i in range(10) for arm in "AB"]
+    assert jc.boot_by_prompt(items, 200) == [1.0, 1.0]
+    assert jc.boot_by_prompt([i for i in items if i[1] == "B"]) is None and jc.boot_by_prompt(items[:2]) is None
+
+
+def test_the_paired_ci_resamples_whole_bits_so_two_threads_of_a_bit_move_together():
+    x = np.array([1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
+    one_each = jc.cluster_boot_mean(x, [str(i) for i in range(8)], 2000)
+    by_bit = jc.cluster_boot_mean(x, ["a", "a", "b", "b", "c", "c", "d", "d"], 2000)
+    assert by_bit[1] - by_bit[0] > one_each[1] - one_each[0]  # same data, wider when the pairs are tied
+    assert jc.cluster_boot_mean(x, ["a"] * 8) is None
+
+
+def test_the_judge_yes_rate_kappa_balanced_accuracy_and_wilson_interval():
+    user = [True] * 13 + [False] * 7
+    always_yes = [True] * 20
+    assert jc.kappa(always_yes, user) == 0.0 or jc.kappa(always_yes, user) is None  # no information beyond the yes-rate
+    assert jc.balanced_accuracy(always_yes, user) == pytest.approx(0.5)
+    assert jc.kappa(user, user) == pytest.approx(1.0) and jc.kappa([True] * 4, [True] * 4) is None
+    lo, hi = jc.wilson(4, 10)
+    assert (round(lo, 2), round(hi, 2)) == (0.17, 0.69) and jc.wilson(0, 0) is None
+    assert jc.balanced_accuracy([True, True], [True, True]) is None  # no user "no" class
+
+
+def test_the_trust_gate_chance_by_true_agreement_is_the_binomial_tail():
+    got = {a: round(jc.p_trusted(a), 2) for a in (0.5, 0.6, 0.65, 0.7)}
+    assert got == {0.5: 0.13, 0.6: 0.42, 0.65: 0.6, 0.7: 0.77}
+    assert jc.p_trusted(1.0) == 1.0 and jc.p_trusted(0.0) == 0.0
+
+
+def test_an_always_yes_judge_can_win_the_rate_but_is_not_trusted_without_being_right_on_the_users_nos():
+    recs = records()
+    picks = jc.draw(recs, set())["picks"]
+    answers = {h: "y" if i < 13 else "n" for i, h in enumerate(picks)}
+    v1 = {h: False for h in picks}  # right on the 7 nos
+    v2 = {h: True for h in picks}  # right on the 13 yeses: 7 disagreements, under the 8 that void it
+    res = jc.summarize(recs, {"v1": v1, "v2": v2}, answers, set(), n_boot=100)
+    assert res["kept"] == "v2" and jc.trusted(res["judges"]["v2"]["disagree"], 20)
+    assert res["kept_right_in_each_class"] is False and res["verdict"] == "keep_v2_untrusted" and res["rescore_allowed"] is False
+    assert res["judges"]["v2"]["yes_rate"] == 1.0 and res["user_yes_rate"] == 0.65 and res["judges"]["v2"]["balanced_accuracy"] == 0.5
+    assert jc.both_classes({"judge_yes_user_yes": 1, "judge_no_user_no": 1}) and not jc.both_classes({"judge_yes_user_yes": 5, "judge_no_user_no": 0})
+
+
+def test_each_judges_confusion_and_false_connected_rate_are_split_by_arm_and_the_guards_use_both_diffs():
+    recs = records()
+    d = jc.draw(recs, set())
+    picks = d["picks"]
+    # the user: arm A threads mostly separate, arm B mostly one bit; the judge says one bit on everything in B and A
+    answers = {h: ("y" if d["arm_of"][h] == "B" else "n") for h in picks}
+    always = {h: True for h in picks}
+    ok_v = {h: answers[h] == "y" for h in picks}
+    res = jc.summarize(recs, {"v1": always, "v2": ok_v}, answers, set(), n_boot=300)
+    j1 = res["judges"]["v1"]
+    assert j1["confusion_by_arm"]["A"]["judge_yes_user_no"] == 10 and j1["false_connected_by_arm"] == {"A": 1.0, "B": None}
+    assert res["judges"]["v2"]["false_connected_by_arm"] == {"A": 0.0, "B": None}
+    assert res["judge_one_bit_diff_B_minus_A"] == {"v1": 0.0, "v2": 1.0}
+    assert res["user_one_bit_diff_B_minus_A"]["diff"] == 1.0 and res["kept"] == "v2"
+    assert res["adoption_guards"] == {"user_diff_not_negative": True, "judge_diff_within_user_ci": True}
+    # the judge says B is better than the user does: outside the user's interval, the guard fails
+    mixed = {h: (("y" if i % 4 else "n") if d["arm_of"][h] == "B" else ("y" if i % 4 == 0 else "n")) for i, h in enumerate(picks)}
+    res2 = jc.summarize(recs, {"v1": always, "v2": {h: d["arm_of"][h] == "B" for h in picks}}, mixed, set(), n_boot=300)
+    assert res2["judge_one_bit_diff_B_minus_A"]["v2"] == 1.0
+    assert res2["adoption_guards"]["judge_diff_within_user_ci"] is False
+    neg = {h: ("y" if d["arm_of"][h] == "A" else "n") for h in picks}
+    assert jc.summarize(recs, {"v1": always, "v2": always}, neg, set(), n_boot=100)["adoption_guards"]["user_diff_not_negative"] is False
 
 
 # --- review --------------------------------------------------------------------------------------------------------
 
 def test_the_review_shows_lines_only_in_a_neutral_question_saves_each_answer_and_resumes(tmp_path, monkeypatch):
     monkeypatch.setattr(tc, "DATA", tmp_path / "data")
+    seed_reviewed()
     recs = records()
     shown, asked = [], []
     said = iter(["x", "y", "n", "q"])
@@ -271,16 +341,24 @@ def test_the_review_shows_lines_only_in_a_neutral_question_saves_each_answer_and
     assert not any(w in text + " ".join(asked) for w in ("judge", "verdict", "arm", "premise", "builds", "v1", "v2"))
     saved = json.loads(jc.labels_path(tmp_path).read_text(encoding="utf-8"))
     assert len(saved["answers"]) == 2 and "picks" not in saved["drawn"] and saved["drawn"]["asked"] == 20
+    assert saved["drawn"]["reviewed_known"] == 10
     later = iter(["y"] * 40)
     shown.clear()
     assert jc.review(tmp_path, recs, read=lambda p: next(later), out=shown.append) == 20
     assert len(shown) == 18  # the 2 answered are not asked again
 
 
-def test_the_review_excludes_threads_from_the_exp_27_spot_check(tmp_path, monkeypatch):
+def test_the_review_excludes_exp_27s_ten_reviewed_threads_and_fails_loudly_when_they_are_not_found(tmp_path, monkeypatch):
     monkeypatch.setattr(tc, "DATA", tmp_path / "data")
     recs = records()
-    old = jc.draw(recs, set())["picks"][:3]
+    with pytest.raises(SystemExit):  # nothing found
+        jc.reviewed_before()
+    with pytest.raises(SystemExit):
+        jc.review(tmp_path, recs, read=lambda p: "q", out=lambda s: None)
+    old = jc.draw(recs, set())["picks"][:10]
+    tc._write(tc.review_path(tc.run_dir()), {"answers": {h: "y" for h in old[:9]}})
+    with pytest.raises(SystemExit):  # 9 of 10
+        jc.reviewed_before()
     tc._write(tc.review_path(tc.run_dir()), {"answers": {h: "y" for h in old}})
     assert jc.reviewed_before() == set(old)
     jc.review(tmp_path, recs, read=lambda p: "q", out=lambda s: None)
@@ -297,6 +375,7 @@ def patched(monkeypatch, tmp_path, judge):
     monkeypatch.setattr(generate, "warm_up", lambda *a, **k: 0.1)
     monkeypatch.setattr(generate, "placement", lambda *a, **k: (1.0, 8192, []))
     monkeypatch.setattr(tc, "make_judge_client", lambda: judge)
+    seed_reviewed()
     return fake
 
 
@@ -419,3 +498,70 @@ def test_the_commands_take_an_env_file(module):
 def test_the_coherence_command_offers_rescore_with_a_judge_choice():
     r = subprocess.run([sys.executable, "-m", "sim.thread_coherence", "--help"], cwd=ROOT, capture_output=True, text=True)
     assert "rescore" in r.stdout and "--judge" in r.stdout
+
+
+# --- a stored result through the gates -----------------------------------------------------------------------------
+
+def stored_calibration(monkeypatch, tmp_path, v1_right=8, v2_right=18):
+    """A real summarize result saved through cache.save and read back with cache.load (not a hand-written dict)."""
+    monkeypatch.setattr(cache, "METRICS", tmp_path / "metrics")
+    recs = records()
+    verdicts, answers = scenario(recs, v1_right, v2_right)
+    res = jc.summarize(recs, verdicts, answers, set(), n_boot=200)
+    cache.save(jc.NAME, jc.params(), res)
+    return res
+
+
+def test_a_real_summarize_result_saved_and_loaded_allows_the_rescore_only_when_trusted(monkeypatch, tmp_path):
+    res = stored_calibration(monkeypatch, tmp_path)
+    assert res["rescore_allowed"] is True and jc.stored() == json.loads(json.dumps(res))
+    assert tc.rescore_allowed("v2") is True and tc.rescore_allowed("v1") is False
+    stored_calibration(monkeypatch, tmp_path, v1_right=15, v2_right=15)  # tie keeps v1
+    assert tc.rescore_allowed("v2") is False
+    stored_calibration(monkeypatch, tmp_path, v1_right=3, v2_right=12)  # v2 kept, 8 disagreements
+    assert tc.rescore_allowed("v2") is False
+
+
+def test_a_rescore_made_under_an_earlier_exp_30_record_is_stale_and_blocks_adoption(tmp_path, monkeypatch):
+    exp27_folder(monkeypatch, tmp_path)
+    stored_calibration(monkeypatch, tmp_path)
+    res = tc.rescore("v2", 6, tc.SEED, tc.digest(6), tc.judge_digest("v2"), client=ByJudge())
+    assert res["exp30"]["verdict"] == "keep_v2_trusted" and res["exp30"]["agree_v2"] == 18 and res["exp30"]["scored"] == 20
+    cache.save(tc.RESCORE_NAME, tc.rescore_params("v2"), res)
+    assert tc.rescore_status("v2")[0] == "current"
+    assert tc.rescore_status("v1")[0] == "none"
+    cal = jc.stored()
+    assert jc.adoptable()["rescore_current"] is True and jc.adoptable()["v2_kept_and_trusted"] is True
+    # the user relabels and Exp 30 comes out differently: the saved re-score no longer matches it
+    stored_calibration(monkeypatch, tmp_path, v1_right=8, v2_right=19)
+    assert jc.stored() != cal and tc.rescore_status("v2")[0] == "stale"
+    a = jc.adoptable()
+    assert a["rescore_current"] is False and a["adoptable"] is False
+
+
+def test_adoption_needs_every_condition_and_one_missing_blocks_it(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "METRICS", tmp_path / "metrics")
+    assert jc.adoptable()["adoptable"] is False  # nothing stored
+    cal = {"verdict": "keep_v2_trusted", "kept": "v2", "rescore_allowed": True, "scored": 20,
+           "judges": {"v1": {"agree": 8}, "v2": {"agree": 15}},
+           "adoption_guards": {"user_diff_not_negative": True, "judge_diff_within_user_ci": True}}
+    cache.save(jc.NAME, jc.params(), cal)
+    prov = tc.exp30_provenance()
+    cache.save(tc.RESCORE_NAME, tc.rescore_params("v2"), {"exp30": prov, "bar_passes": True})
+    assert jc.adoptable()["adoptable"] is True
+    for key in ("user_diff_not_negative", "judge_diff_within_user_ci"):
+        cache.save(jc.NAME, jc.params(), {**cal, "adoption_guards": {**cal["adoption_guards"], key: False}})
+        assert jc.adoptable()["adoptable"] is False
+    cache.save(jc.NAME, jc.params(), cal)
+    cache.save(tc.RESCORE_NAME, tc.rescore_params("v2"), {"exp30": prov, "bar_passes": False})
+    assert jc.adoptable()["adoptable"] is False
+
+
+def test_a_user_difference_of_exactly_zero_does_not_contradict_the_judge():
+    recs = records()
+    picks = jc.draw(recs, set())["picks"]
+    same = {h: "y" if i % 2 == 0 else "n" for i, h in enumerate(picks)}
+    d = jc.draw(recs, set())
+    same = {h: ("y" if sum(d["arm_of"][x] == d["arm_of"][h] for x in picks[:i]) % 2 == 0 else "n") for i, h in enumerate(picks)}
+    res = jc.summarize(recs, {"v1": {h: True for h in picks}, "v2": {h: True for h in picks}}, same, set(), n_boot=100)
+    assert res["user_one_bit_diff_B_minus_A"]["diff"] == 0.0 and res["adoption_guards"]["user_diff_not_negative"] is True

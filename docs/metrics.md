@@ -801,7 +801,7 @@ Chart: `reports/figures/decision-plot/exp24-generator-pick.png`.
 | Judge and user disagree on | 6 of 10 | under 4: failed |
 | Verdict | inconclusive_judge | |
 
-Judge against user: judge "connected" and user "one bit" 2, judge "connected" and user "separate jokes" 3, judge "not connected" and user "one bit" 3, both "not connected" 2. Agreement 4 of 10, about chance.
+Judge against user: judge "connected" and user "one bit" 2, judge "connected" and user "separate jokes" 3, judge "not connected" and user "one bit" 3, both "not connected" 2. Agreement 4 of 10 (95% Wilson interval about 17% to 69%): too low to trust the judge, not proof it is exactly chance.
 
 **Read it:** the judge's +0.222 cannot be trusted, so gen-v4 stays live and gen-v5 is not adopted. **Caveat:** 5 of 20 prompts dropped out because a cluster of read timeouts (9 threads in each arm) hit both arms in a slow stretch. Judge-called connected threads: 34 of 51 for A, 45 of 51 for B.
 

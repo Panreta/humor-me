@@ -526,6 +526,30 @@ def rescore_allowed(judge: str) -> bool:
     return res is not None and judge != "v1" and res.get("rescore_allowed") is True and res.get("kept") == judge
 
 
+def exp30_provenance() -> dict | None:
+    """What a re-score depends on: the Exp 30 record that allowed it (its digest, verdict and agreement counts). A
+    later Exp 30 rerun or relabel that changes any of them makes an earlier re-score stale."""
+    from sim import judge_calibration as jc
+    r = jc.stored()
+    if r is None:
+        return None
+    j = r.get("judges", {})
+    return {"calibration_digest": jc.digest(), "verdict": r.get("verdict"), "kept": r.get("kept"),
+            "agree_v1": j.get("v1", {}).get("agree"), "agree_v2": j.get("v2", {}).get("agree"), "scored": r.get("scored")}
+
+
+def rescore_current(res: dict) -> bool:
+    return res.get("exp30") is not None and res["exp30"] == exp30_provenance()
+
+
+def rescore_status(judge: str = "v2") -> tuple[str, dict | None]:
+    """('none' | 'stale' | 'current', the stored re-score). Stale: made under an Exp 30 record that has changed."""
+    res = cache.load(RESCORE_NAME, rescore_params(judge))
+    if res is None:
+        return "none", None
+    return ("current" if rescore_current(res) else "stale"), res
+
+
 def rescore(judge: str, n_prompts: int = N_PROMPTS, seed: str = SEED, digest_: str = "", judge_digest_: str = "",
             client=None) -> dict:
     """Exp 27's bar again, with the stored threads judged by `judge` (cached under that judge's digest). No new writing.
@@ -542,7 +566,7 @@ def rescore(judge: str, n_prompts: int = N_PROMPTS, seed: str = SEED, digest_: s
     rates = per_prompt(records, verdicts)
     ids, diffs = paired_diffs(rates)
     b = bar(diffs)
-    return {"judge": judge, "n_prompts": len(rates), "paired_prompts": ids, "bar": b,
+    return {"judge": judge, "exp30": exp30_provenance(), "n_prompts": len(rates), "paired_prompts": ids, "bar": b,
             "arms": {a: {"threads_judged": sum(v[a]["judged"] for v in rates.values() if a in v),
                          "threads_connected": sum(v[a]["connected"] for v in rates.values() if a in v)} for a in ARMS},
             "per_prompt": {p: {a: rates[p][a] for a in ARMS if a in rates[p]} for p in sorted(rates)},
@@ -591,7 +615,8 @@ def main() -> None:
         print(f"{done} of {draw(records, verdicts)['asked']} answered; now `score`.")
         return
     elif a.command == "rescore":
-        res = cache.run_or_load(RESCORE_NAME, rescore, rerun=a.rerun, **rescore_params(a.judge))
+        status, _ = rescore_status(a.judge)
+        res = cache.run_or_load(RESCORE_NAME, rescore, rerun=a.rerun or status == "stale", **rescore_params(a.judge))
         b = res["bar"]
         print(f"judge {res['judge']}: mean B - A {b['mean_diff']} CI {b['ci95']} over {b['n_paired']} prompts; bar passes: {res['bar_passes']}")
         return
