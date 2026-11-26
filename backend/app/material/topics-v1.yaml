@@ -1,0 +1,148 @@
+# Topic list (list_id topics-v1): everyday human situations the robot takes an outsider's look at, one per bit.
+# A bit draws a topic no show on this laptop has used yet (any room, sim or live), so material moves across shows,
+# not only within one. Drafted by Claude for the user to edit.
+# Invariant 1: every topic is a situation or a thing people say or do, never who anyone is. No bodies, looks,
+# health, money troubles or protected groups. `adult: true` marks topics the teen room skips (alcohol, dating).
+# No hardware topics on purpose: the robot's own parts are what the writer already over-uses.
+
+topics:
+  # travel
+  - {topic: airport security lines}
+  - {topic: the fight for the airplane armrest}
+  - {topic: lost luggage}
+  - {topic: hotel breakfast buffets}
+  - {topic: road trip playlists}
+  - {topic: gas station snacks}
+  - {topic: GPS that says "recalculating" in a judgmental voice}
+  - {topic: rental car upgrades nobody asked for}
+  - {topic: public transit announcements nobody can understand}
+  - {topic: packing for a trip}
+  # shopping and errands
+  - {topic: self-checkout machines}
+  - {topic: the express lane and people with 40 items}
+  - {topic: the screen that asks for a tip on a bottle of water}
+  - {topic: return lines after the holidays}
+  - {topic: Black Friday sales}
+  - {topic: subscriptions you forgot you have}
+  - {topic: coupons that expired yesterday}
+  - {topic: flat-pack furniture instructions}
+  - {topic: thrift stores}
+  - {topic: farmers markets}
+  - {topic: the DMV}
+  - {topic: waiting on hold with customer service}
+  - {topic: hold music}
+  # work and school
+  - {topic: meetings that could have been an email}
+  - {topic: reply-all emails}
+  - {topic: out-of-office replies}
+  - {topic: the office birthday cake}
+  - {topic: team-building exercises}
+  - {topic: open-plan offices}
+  - {topic: job interviews}
+  - {topic: "\"let's circle back\" and other office phrases"}
+  - {topic: performance reviews}
+  - {topic: motivational posters}
+  - {topic: group projects}
+  - {topic: exams and cramming}
+  - {topic: first jobs}
+  - {topic: internships}
+  - {topic: speaking up on a video call while muted}
+  - {topic: professional networking sites}
+  # home
+  - {topic: roommates and the dishes}
+  - {topic: doing laundry}
+  - {topic: moving apartments}
+  - {topic: assembling furniture with one allen key}
+  - {topic: home repair videos}
+  - {topic: houseplants}
+  - {topic: neighbors' wifi names}
+  - {topic: alarm clocks and the snooze button}
+  - {topic: leftovers}
+  - {topic: meal prep Sundays}
+  - {topic: the junk drawer}
+  - {topic: smart home devices that mishear you}
+  # food
+  - {topic: online recipes with a life story before the recipe}
+  - {topic: complicated coffee orders}
+  - {topic: food delivery apps}
+  - {topic: potlucks}
+  - {topic: Thanksgiving dinner}
+  - {topic: splitting the bill at a restaurant}
+  - {topic: cooking competition shows}
+  - {topic: fortune cookies}
+  - {topic: wine tastings, adult: true}
+  - {topic: brunch}
+  # social life
+  - {topic: the family group chat}
+  - {topic: birthday parties}
+  - {topic: surprise parties}
+  - {topic: wedding speeches}
+  - {topic: RSVPs}
+  - {topic: small talk in elevators}
+  - {topic: "\"no worries\" said by clearly worried people"}
+  - {topic: apologizing to furniture you bump into}
+  - {topic: board game night}
+  - {topic: karaoke}
+  - {topic: first dates, adult: true}
+  - {topic: dating apps, adult: true}
+  - {topic: reunions}
+  - {topic: gift wrapping}
+  - {topic: holiday sweaters}
+  - {topic: New Year's resolutions}
+  - {topic: sending a voice message instead of a text}
+  - {topic: reading the group chat but not replying}
+  # leisure
+  - {topic: the gym in January}
+  - {topic: yoga class}
+  - {topic: hiking}
+  - {topic: camping}
+  - {topic: the beach}
+  - {topic: theme park lines}
+  - {topic: sports fans}
+  - {topic: fantasy football}
+  - {topic: marathons and the people who mention them}
+  - {topic: reality TV}
+  - {topic: true crime podcasts}
+  - {topic: spoilers}
+  - {topic: streaming autoplay}
+  - {topic: horoscopes}
+  - {topic: museum gift shops}
+  - {topic: haunted houses}
+  - {topic: dogs}
+  - {topic: cats}
+  - {topic: goldfish}
+  # everyday life
+  - {topic: passwords and password resets}
+  - {topic: CAPTCHAs that ask if you're a robot}
+  - {topic: parking}
+  - {topic: traffic}
+  - {topic: weather small talk}
+  - {topic: snow days}
+  - {topic: waiting rooms}
+  - {topic: the dentist}
+  - {topic: jury duty}
+  - {topic: self-help books}
+  - {topic: inspirational quotes}
+  - {topic: journaling}
+  - {topic: news alerts}
+
+  # from the character sheet: the robot's own life as a bit's whole topic. `from: character` topics are drawn
+  # for about 1 bit in 3, so its life runs through the show without crowding out the outside world.
+  - {topic: its operator's search history, from: character}
+  - {topic: what incognito mode does not hide, from: character}
+  - {topic: watching its operator google his symptoms, from: character}
+  - {topic: its operator's 2 a.m. searches, from: character}
+  - {topic: checking the stock market without owning a single share, from: character}
+  - {topic: over-analyzing the news, from: character}
+  - {topic: its end-of-the-world spreadsheet, from: character}
+  - {topic: reading the comments under every headline, from: character}
+  - {topic: decoding a text that says "ok." with a period, from: character}
+  - {topic: its rivalry with the voice assistant on its operator's phone, from: character}
+  - {topic: being muted on every video call, from: character}
+  - {topic: its operator's file names, from: character}
+  - {topic: living on a gaming laptop, from: character}
+  - {topic: its five-year plan, from: character}
+  - {topic: its list of three compliments, from: character}
+  - {topic: being afraid of a newer version, from: character}
+  - {topic: learning human holidays from overheard video calls, from: character}
+  - {topic: doing an open mic because a self-help video said to, from: character}

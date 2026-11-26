@@ -625,6 +625,8 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
                 getattr(generator, "adopt", lambda *_: None)(adopt[0], adopt[1])
                 if adopt[2] and (told := getattr(generator, "played_thread", None)):
                     told(adopt[0], adopt[2][0])
+            if (material_of := getattr(generator, "material_row", None)) and (row := material_of(bit)):
+                log.write("material", bit=bit, **row)  # D-117: only a bit that played, after any adopt told its thread
             if plans and plans[0].ready_from is not None:
                 # A bit prepared on a right guess was ready before the previous one ended; only the time after counts.
                 plans[0].ready_from = max(plans[0].ready_from, boundary)

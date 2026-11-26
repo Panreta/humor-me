@@ -13,7 +13,7 @@ import json
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 
-from app import llm, safety
+from app import llm, material as material_mod, safety
 from app.bank import BankGenerator
 from app.show import Batch
 
@@ -65,6 +65,15 @@ Reply with JSON only, exactly this shape: {{"premise": "the premise", "jokes": [
 SYSTEM = _HEAD + _STRUCTURE + _TAIL
 SYSTEM_CONNECTED = _HEAD + _STRUCTURE_CONNECTED + _TAIL
 PROMPTS = {"gen-v4": SYSTEM, "gen-v5": SYSTEM_CONNECTED}
+# Appended to the system prompt when material is on (D-117); PROMPTS stay frozen, so this works with any prompt id.
+MATERIAL_PARAGRAPH = ("The user message gives this bit's topic and two facts about the robot's life. Build the bit on the "
+                      "topic, seen the way this robot sees it; use a fact only where it makes a line funnier. Do not make "
+                      "the bit about the robot's own hardware (battery, processor, memory, shutting down).")
+MATERIAL_SUFFIX = "+mat-v1"
+# The topic-only variant (D-118): its own fixed paragraph; MATERIAL_PARAGRAPH above stays byte-identical (Exp 33's record).
+TOPIC_PARAGRAPH = ("The user message gives this bit's topic. Build the bit on the topic, seen the way this robot sees it. "
+                   "Do not make the bit about the robot's own hardware (battery, processor, memory, shutting down).")
+TOPIC_SUFFIX = "+mat-topic-v1"
 TEENS_RULE = "- The audience is teenagers: no alcohol, drugs, sexual content, innuendo or swearing."
 
 # In character, hand-written, one breath each: they only have to fill a few seconds while a bit loads.
@@ -149,22 +158,33 @@ class ThreadGenerator:
     `played_thread`, not the alternatives that were generated). Two threads of a bit may share a premise: the calls do
     not see each other, as independent samples of one prompt must not (D-110)."""
 
+    material = None  # a subclass that skips __init__ (tests) runs without it
+
     def __init__(self, client: llm.Client, *, budget_s: float = GENERATOR_TIMING[1], prompt_id: str | None = None,
-                 told: list[str] | None = None):
+                 told: list[str] | None = None, material: "material_mod.ShowMaterial | None" = None):
         self.client = client
+        self.material = material
         self.prompt_id = prompt_id or PROMPT_ID
         if self.prompt_id not in PROMPTS:
             raise ValueError(f"unknown prompt {self.prompt_id!r}: expected one of {tuple(PROMPTS)}")
-        self.generator_id = f"{self.prompt_id}:{client.model}"
+        suffix = "" if not material else TOPIC_SUFFIX if self._topic_only() else MATERIAL_SUFFIX
+        self.generator_id = f"{self.prompt_id}{suffix}:{client.model}"
         self.budget_s = budget_s
         self._bits: dict[int, tuple[str, list[list[str]], list[str], list[str]] | Exception] = {}
         self._told: list[str] = list(told or [])  # premises already told: a later bit of a show starts with some
         self._spec: dict[tuple[int, str], tuple | Exception] = {}  # bits written on a guess, not yet adopted
         self._dead: set[tuple[int, str]] = set()  # guesses thrown away: a fetch that ends late writes nothing
+        # The material each bit was written with, kept beside the bit (or the guess) so an adopted bit keeps its own.
+        self._drawn: dict[int, dict] = {}
+        self._spec_drawn: dict[tuple[int, str], dict] = {}
+        self._spent: dict[int, dict] = {}  # bit -> material of the thread that was told (played)
 
     def generate(self, mode: str, bit: int, joke: int, context: dict) -> Batch:
         if bit not in self._bits:
-            self._bits[bit] = self._fetch(mode, context)
+            draw = self._draw(bit, context)
+            self._bits[bit] = self._fetch(mode, context, draw) if draw else self._fetch(mode, context)
+            if draw:
+                self._drawn[bit] = draw
         return self._batch(self._bits[bit], mode, bit, joke)
 
     def _batch(self, got, mode: str, bit: int, joke: int) -> Batch:
@@ -178,31 +198,60 @@ class ThreadGenerator:
     def generate_speculative(self, mode: str, bit: int, joke: int, context: dict) -> Batch:
         key = (bit, mode)
         if key not in self._spec:
-            got = self._fetch(mode, context)  # a worker thread cannot be cancelled: it may end after a discard
+            draw = self._draw(bit, context)
+            got = self._fetch(mode, context, draw) if draw else self._fetch(mode, context)  # a worker thread cannot be cancelled: it may end after a discard
             if key in self._dead:
                 return self._batch(got, mode, bit, joke)  # nobody will ask again; keep nothing
             self._spec[key] = got
+            if draw:
+                self._spec_drawn[key] = draw
         return self._batch(self._spec[key], mode, bit, joke)
 
     def adopt(self, bit: int, mode: str) -> None:
         if (bit, mode) in self._spec:
             self._bits[bit] = self._spec.pop((bit, mode))
+            if self.material and (drawn := self._spec_drawn.pop((bit, mode), None)):
+                self._drawn[bit] = drawn
 
     def discard(self, bit: int, mode: str) -> None:
         self._dead.add((bit, mode))
         self._spec.pop((bit, mode), None)
+        if self.material:
+            self._spec_drawn.pop((bit, mode), None)
 
     def played_thread(self, bit: int, thread: int) -> None:
         got = self._bits.get(bit)
         if not isinstance(got, Exception) and got and thread < len(got[2]):
             self._told.append(got[2][thread])
+            if self.material and (drawn := self._drawn.get(bit)):
+                self.material.played(bit, drawn)
+                self._spent[bit] = drawn
 
-    def _fetch(self, mode: str, context: dict) -> tuple[str, list[list[str]], list[str], list[str]] | Exception:
+    def material_row(self, bit: int) -> dict | None:
+        """The `material` log row's fields for a bit whose thread was played, else None (no material, or a bank bit)."""
+        drawn = self._spent.get(bit) if self.material else None
+        return None if drawn is None else {**drawn, "seed": self.material.seed}
+
+    def _topic_only(self) -> bool:
+        return getattr(self.material, "variant", material_mod.FULL) == material_mod.TOPIC
+
+    def _draw(self, bit: int, context: dict) -> dict | None:
+        return self.material.draw(bit, context["age"]) if self.material else None
+
+    def _fetch(self, mode: str, context: dict, draw: dict | None = None) -> tuple[str, list[list[str]], list[str], list[str]] | Exception:
         """(prompt, joke-major lines, premises, reasons for the threads lost), or the error when no thread came back.
         The error carries the same reasons as `threads_lost`, so the log shows why a bit went to the bank."""
         teens = TEENS_RULE if context["age"] not in safety.STANDARD_AGES else ""
         system = PROMPTS[self.prompt_id].format(mode=mode, mode_note=MODES[mode], jokes=JOKES, teens=teens)
-        user = json.dumps({"venue": context["venue"], "energy": context["energy"], "premises_already_told": self._told})
+        fields = {"venue": context["venue"], "energy": context["energy"], "premises_already_told": self._told}
+        if draw:
+            fields["topic"] = draw["topic"]
+            if self._topic_only():
+                system += "\n\n" + TOPIC_PARAGRAPH
+            else:
+                system += "\n\n" + MATERIAL_PARAGRAPH
+                fields["robot_facts"] = draw["facts"]
+        user = json.dumps(fields)
         left = self.budget_s  # the calls start together, so each has the whole bit's budget
         if self.client.deadline_s is not None:
             left = min(left, self.client.deadline_s)
@@ -329,10 +378,14 @@ def writer_client() -> llm.Client:
     return llm.from_env(GENERATOR_TIMING[0], role="joke_writer", retries=RETRIES, deadline_s=GENERATOR_TIMING[1])
 
 
+def _show_material() -> "material_mod.ShowMaterial | None":
+    return (material_mod.ShowMaterial(variant=v) if (v := material_mod.variant()) else None)
+
+
 def llm_stack(room: str):
     """(generator, safety, fallback, bridge lines) for a show on the real model. Raises SafetyNotReady for a live
     room without the slur list. The deadlines keep a failing provider inside the bridge lines' cover."""
     safety.require_ready(room)
-    return (ThreadGenerator(writer_client()),
+    return (ThreadGenerator(writer_client(), material=_show_material()),
             LiveSafety(llm.from_env(FILTER_TIMING[0], role="safety_check", retries=FILTER_RETRIES, deadline_s=FILTER_TIMING[1])),
             BankGenerator(), list(BRIDGES))
