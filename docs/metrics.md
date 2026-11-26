@@ -813,7 +813,14 @@ Judge against user: judge "connected" and user "one bit" 2, judge "connected" an
 | v2 | 15 (before the rerun) | +0.133 | -0.022 to +0.289 | failed |
 | v2 | 20 | +0.133 | 0.0 to +0.25 | failed at exactly 0 |
 
-Delivered and lost: A 57 and 3, B 60 and 0 (one-sided); bit wall p95 A 12.04 s, B 9.68 s; 0 bad replies. **Read it:** too close to call, so Exp 27 grows to 100 prompts (c00 to c99, no new labels): `python -m sim.thread_coherence run --n 100`, then `rescore --judge v2 --n 100`; numbers will land in `thread_coherence_n100.json` and `thread_coherence_rescore_n100.json`. **Only the 80 fresh prompts (c20 to c99) decide:** v2's paired B - A, CI lower bound above 0. The pooled 100 is shown beside it, because the 20 already triggered the extension. **Not run yet.** Fresh-80 power (made-up inputs, 1,000 repetitions): about 67 to 73% to pass at a true gain of 0.1, 88 to 91% at 0.13, 2 to 4% false alarm. Decision: [D-111 addendum](agent/decisions-detail.md#d-111).
+Delivered and lost: A 57 and 3, B 60 and 0 (one-sided); bit wall p95 A 12.04 s, B 9.68 s; 0 bad replies. **Read it:** too close to call, so Exp 27 grew to 100 prompts (c00 to c99, no new labels). **Only the 80 new prompts (c20 to c99) decide.** Raw: `thread_coherence_n100.json` and `thread_coherence_rescore_n100.json`.
+
+| Judge v2, connected-line rate gain (new prompt minus old) | Mean | Likely range (95%) | Prompts | Role |
+|---|---|---|---|---|
+| The 80 new prompts | +0.206 | +0.117 to +0.298 | 80 | **decides: passed** (range above 0) |
+| All 100 | +0.192 | +0.115 to +0.268 | 100 | beside it, never decides |
+
+New prompt beat the old on 41 of the 80, lost on 16. Connected threads on the 80: old prompt 51.5%, new prompt 72.1%. Writing (all 100): old prompt delivered 296 threads and lost 4 (timeouts), new delivered 300 and lost 0; typical bit time 5.22 s (old) and 4.59 s (new), slowest tenth about 8.45 s and 6.90 s; the new prompt is not slower. Power of this bar was about 67 to 73% at a true gain of 0.1 and 88 to 91% at 0.13, with a 2 to 4% false alarm (made-up inputs). **Outcome: gen-v5 is adopted** and live; every adoption condition held (D-114). **Caveats:** the judge agrees with the user 75% of the time (15 of 20), the user's own labels showed 70% one-bit for the new prompt against 40% for the old (only 10 labels per prompt), the first 20 prompts were a fourth look so only the 80 decide, and funniness is not measured. Exp 26's timing record is now stale (it timed the old prompt); rerun optional. Decision: [D-111 addendum](agent/decisions-detail.md#d-111).
 
 ## Judge v2 on a fresh sample (Exp 30, 2026-11-25)
 

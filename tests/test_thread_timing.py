@@ -39,14 +39,14 @@ def test_the_bits_are_disjoint_from_exp_24s_and_seeded():
     assert {p["mode"] for p in mine} == set(generate.MODES)
 
 
-def test_it_runs_the_shows_writer_client_and_the_v4_generator(monkeypatch):
+def test_it_runs_the_shows_writer_client_and_the_live_generator(monkeypatch):
     for name in ("JOKE_WRITER_PROVIDER", "JOKE_WRITER_MODEL", "OLLAMA_URL", "LLM_MODEL"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("JOKE_WRITER_PROVIDER", "ollama")
     c = generate.writer_client()
     fields = ("base_url", "model", "timeout", "retries", "deadline_s", "extra_body", "json_schema")
     assert {f: getattr(c, f) for f in fields} == {f: getattr(cg.make_client(cg.MODELS["bonsai-2-4b"]), f) for f in fields}
-    assert generate.PROMPT_ID == "gen-v4"
+    assert generate.PROMPT_ID == "gen-v5"  # D-111 addendum: the live prompt; Exp 26 timed gen-v4, so its record is stale
 
 
 def test_a_good_run_passes_the_bar_and_keeps_per_call_numbers_but_no_text():

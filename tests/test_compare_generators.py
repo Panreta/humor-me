@@ -999,7 +999,7 @@ def test_exp_24_harness_is_frozen_on_gen_v3_and_its_digests_are_the_stored_runs(
     assert cg.generate is generate_v3 and screen_local.generate is generate_v3
     assert cg.gen_digest() == "2a512264"
     assert screen_local.prompt_digest() == "9cfd7e12"
-    assert generate_v3.PROMPT_ID == "gen-v3" and live.PROMPT_ID == "gen-v4"
+    assert generate_v3.PROMPT_ID == "gen-v3" and live.PROMPT_ID == "gen-v5"
     assert generate_v3.SYSTEM != live.SYSTEM and cg.generate.GeminiGenerator.__module__ == "app.generate_v3"
     assert not hasattr(live, "GeminiGenerator") and not hasattr(live, "premises_this_bit")
     for name in ("MODES", "TEENS_RULE", "FILTER_TIMING", "FILTER_RETRIES"):  # frozen copies, equal to the live ones today

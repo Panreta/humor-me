@@ -460,14 +460,15 @@ def test_only_the_premise_of_the_played_thread_is_told_to_the_next_bit():
     assert g._told == told
 
 
-def test_the_prompt_holds_the_identity_the_rules_and_teens_only_for_teens():
+@pytest.mark.parametrize("prompt_id, structure", [("gen-v4", "one thread"), ("gen-v5", "one bit of stand-up")])
+def test_the_prompt_holds_the_identity_the_rules_and_teens_only_for_teens(prompt_id, structure):
     c, seen, _ = parallel_client(thread_reply())
-    g = generate.ThreadGenerator(c)
+    g = generate.ThreadGenerator(c, prompt_id=prompt_id)
     g.generate("wordsmith", 0, 0, CTX)
     g.generate("wordsmith", 1, 0, {**CTX, "age": "teens"})
     adults, teens = (s["messages"][0]["content"] for s in (seen[0], seen[3]))
     for text in (adults, teens):
-        assert "slightly anxious robot" in text and "wordplay" in text and "one thread" in text
+        assert "slightly anxious robot" in text and "wordplay" in text and structure in text
         assert "bodies or appearance" in text and "protected groups" in text and "named people" in text
         assert "premises_this_bit" not in text and "alternative threads" not in text
     assert "teenagers" in teens and "teenagers" not in adults
@@ -620,17 +621,24 @@ def test_the_reask_stays_inside_the_bits_deadline():
     assert len(generate.ThreadGenerator(c, budget_s=5.0).generate("cynic", 0, 0, CTX).texts) == 3 and len(seen) == 4
 
 
-def test_the_live_prompt_is_still_gen_v4_and_byte_for_byte_the_one_exp_26_timed():
+def test_the_live_prompt_is_gen_v5_and_gen_v4_stays_frozen_byte_for_byte():
     import hashlib
-    assert generate.PROMPT_ID == "gen-v4" and generate.PROMPTS["gen-v4"] is generate.SYSTEM
-    assert hashlib.sha256(generate.SYSTEM.encode()).hexdigest()[:16] == "c0941a33c8dbdda8"  # moves only with a decision
+    assert generate.PROMPT_ID == "gen-v5" and generate.PROMPTS["gen-v5"] is generate.SYSTEM_CONNECTED
+    assert generate.PROMPTS["gen-v4"] is generate.SYSTEM
+    assert hashlib.sha256(generate.SYSTEM.encode()).hexdigest()[:16] == "c0941a33c8dbdda8"  # gen-v4, the baseline: moves only with a decision
+    assert hashlib.sha256(generate.SYSTEM_CONNECTED.encode()).hexdigest()[:16] == "d2cce7d55e8ff910"  # gen-v5, live since D-111's adoption
     c, seen = per_call_server({})
     g = generate.ThreadGenerator(c)
     g.generate("cynic", 0, 0, CTX)
-    assert g.prompt_id == "gen-v4" and g.generator_id == "gen-v4:m"
-    assert seen[0]["messages"][0]["content"] == generate.SYSTEM.format(
+    assert g.prompt_id == "gen-v5" and g.generator_id == "gen-v5:m"
+    assert seen[0]["messages"][0]["content"] == generate.SYSTEM_CONNECTED.format(
         mode="cynic", mode_note=generate.MODES["cynic"], jokes=5, teens="")
-    assert g.generate("cynic", 0, 0, CTX).prompt_id == "gen-v4:cynic:0:0"
+    assert g.generate("cynic", 0, 0, CTX).prompt_id == "gen-v5:cynic:0:0"
+    c4, seen4 = per_call_server({})
+    old = generate.ThreadGenerator(c4, prompt_id="gen-v4")  # the baseline still runs when asked for
+    old.generate("cynic", 0, 0, CTX)
+    assert old.generator_id == "gen-v4:m" and seen4[0]["messages"][0]["content"] == generate.SYSTEM.format(
+        mode="cynic", mode_note=generate.MODES["cynic"], jokes=5, teens="")
 
 
 def test_the_connected_prompt_changes_only_the_structure_and_is_used_when_asked_for():
