@@ -98,6 +98,11 @@ def digest(sessions: list[str], directory: str | pathlib.Path = SESSIONS) -> str
 
 
 def record(sessions: list[str], directory: str | pathlib.Path = SESSIONS) -> dict:
+    """Refuses to replace the Exp 23 evidence when no listed show reads (a mistyped or placeholder id would otherwise
+    overwrite it with a record of nothing but errors)."""
+    directory = pathlib.Path(directory)
+    if not any(show_report(s, directory)["valid"] for s in sessions):
+        raise SystemExit(f"not recorded: none of these shows reads in {directory}: {', '.join(sessions)}")
     return cache.run_or_load("cached_bits", lambda sessions, key: run(sessions, key, directory), rerun=True,
                              sessions=sessions, key=digest(sessions, directory))
 

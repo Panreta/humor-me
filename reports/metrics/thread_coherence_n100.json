@@ -1,0 +1,8 @@
+{"params": {"digest_": "1097f143", "n_prompts": 100, "prompts_digest_": "051b5b0239f6c5d7", "seed": "exp27"}, "results": {
+  "n_prompts": 100,
+  "reused_prompts": 20,
+  "new_prompts": 80,
+  "arms": {"A": {"prompt": "gen-v4", "bits": 100, "threads_delivered": 296, "threads_lost": 4, "lost_by_reason": {"LLMError: transport: ReadTimeout": 4}, "bits_with_no_thread": 0, "bad_replies": 5, "bit_p50_s": 5.224999599973671, "bit_p95_s": 8.44881259999238, "bits_reasked": 5, "bit_p50_s_reasked": 6.140704900026321, "bit_p95_s_reasked": 10.633712699986063, "bit_p50_s_no_reask": 5.185882300022058, "bit_p95_s_no_reask": 8.390302999992855}, "B": {"prompt": "gen-v5", "bits": 100, "threads_delivered": 300, "threads_lost": 0, "lost_by_reason": {}, "bits_with_no_thread": 0, "bad_replies": 0, "bit_p50_s": 4.591577899991535, "bit_p95_s": 6.901032999972813, "bits_reasked": 0, "bit_p50_s_reasked": null, "bit_p95_s_reasked": null, "bit_p50_s_no_reask": 4.591577899991535, "bit_p95_s_no_reask": 6.901032999972813}},
+  "bits_rewritten": [],
+  "writer_on_gpu_after_run": true
+}}
