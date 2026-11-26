@@ -499,14 +499,18 @@ def test_a_bit_that_got_fewer_threads_still_plays_one_through_the_show(tmp_path)
 def per_call_server(bad_for, bad_reply="not json", delay_s=0.0, **options):
     """A client whose requests are answered by the pool thread that made them: a thread whose index is in `bad_for`
     gets `bad_reply` on its first `bad_for[index]` requests, then a good thread. Returns (client, request bodies)."""
-    seen, lock, counts = [], threading.Lock(), {}
+    seen, lock, counts, ident = [], threading.Lock(), {}, {}
+    barrier = threading.Barrier(3, timeout=5)  # the 3 first calls overlap, so each runs on its own pool thread
 
     def handler(request):
-        who = threading.current_thread().name.rsplit("_", 1)[-1]
         with lock:
             seen.append(json.loads(request.content))
+            first = len(seen) <= 3
+            who = ident.setdefault(threading.get_ident(), str(len(ident)))
             counts[who] = counts.get(who, 0) + 1
             n = counts[who]
+        if first:
+            barrier.wait()
         if delay_s:
             time.sleep(delay_s)
         bad = who in bad_for and n <= bad_for[who]
@@ -561,6 +565,48 @@ def test_a_second_bad_reply_drops_only_that_thread_and_says_why():
     assert (len(seen), c.bad_replies) == (4, 2)  # 3 first calls and exactly one re-ask, never a third try
     assert len(batches[0].threads_lost) == 1 and batches[0].threads_lost[0].startswith("GenerationError: malformed reply")
     assert "line" not in batches[0].threads_lost[0]  # a reason, not text
+
+
+def test_a_re_ask_that_fails_is_reported_as_that_failure_not_as_a_shape_error():
+    seen, lock, ident = [], threading.Lock(), {}
+    barrier = threading.Barrier(3, timeout=5)
+
+    def handler(request):
+        with lock:
+            who = ident.setdefault(threading.get_ident(), str(len(ident)))
+            seen.append(who)
+            n = seen.count(who)
+            first = len(seen) <= 3
+        if first:
+            barrier.wait()
+        if who == "0":
+            if n == 1:
+                return httpx.Response(200, json=completion("not json"))
+            raise httpx.ReadTimeout("slow")  # the re-ask times out
+        return httpx.Response(200, json=completion(thread_reply(tag=f"call{who}", premise=f"p{who}")))
+    c = llm.Client("http://fake", "k", "m", transport=httpx.MockTransport(handler), sleep=lambda s: None, retries=1)
+    g = generate.ThreadGenerator(c)
+    batch = g.generate("cynic", 0, 0, CTX)
+    assert len(batch.texts) == 2 and len(batch.threads_lost) == 1
+    assert batch.threads_lost[0] == "GenerationError: re-ask failed: LLMError: transport: ReadTimeout"
+    assert c.bad_replies == 1 and c.failed == 1
+    # a second bad reply (no failure) keeps the shape reason
+    c2, _ = per_call_server({"0": 2}, retries=2)
+    lost = generate.ThreadGenerator(c2).generate("cynic", 0, 0, CTX).threads_lost
+    assert len(lost) == 1 and "re-ask failed" not in lost[0] and "malformed reply" in lost[0]
+    # the filter, which only reads the text, still gets a plain string back
+    bad = llm.BadReply("x", llm.LLMError("http 503", 503))
+    assert isinstance(bad, str) and bad == "x" and bad.reask_error.status == 503
+
+
+def test_the_premises_already_told_can_be_given_at_construction():
+    c, seen = per_call_server({})
+    generate.ThreadGenerator(c, told=["a one", "a two"]).generate("cynic", 0, 0, CTX)
+    assert all(user_of["premises_already_told"] == ["a one", "a two"] for user_of in (json.loads(b["messages"][1]["content"]) for b in seen))
+    told = ["x"]
+    g = generate.ThreadGenerator(c, told=told)
+    g.played_thread(0, 0)
+    assert told == ["x"]  # the caller's list is copied, not changed
 
 
 def test_the_reask_stays_inside_the_bits_deadline():

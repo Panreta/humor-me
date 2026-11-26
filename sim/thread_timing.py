@@ -10,7 +10,7 @@ so only whether two threads of a bit share one is kept.
 
 Bar, fixed before any run: at most 1 of 20 bits loses a thread (a call that timed out or failed), no bit has zero
 threads, and the writer is still 100% on the GPU at context 8192 after the run (parallel calls take more KV cache).
-Reported beside it, with no bar: bit wall time p50/p95, per-call p50/p95 next to Exp 24's single-call p50, how many bits queued their calls
+Reported beside it, with no bar: bit wall time p50/p95 (also split by whether a bad shape was re-asked in the bit, D-111: a re-ask can hold a bit to the full 12 s), per-call p50/p95 next to Exp 24's single-call p50, how many bits queued their calls
 (slowest call at least twice the fastest: the server ran them one after another), and how many bits have two threads with the same premise (calls do not see each other, so it can happen).
 """
 import argparse
@@ -78,7 +78,7 @@ class Recorder:
             try:
                 reply = inner(*args, **kwargs)
                 try:
-                    premise = generate.parse(reply)[0]
+                    premise = generate.parse_reply(reply)[0]
                 except generate.GenerationError as e:
                     reason = f"GenerationError: {e}"[:80]
                 return reply
@@ -99,6 +99,7 @@ class Recorder:
 
 def time_bit(gen, rec: Recorder, prompt: dict) -> dict:
     rec.begin()
+    bad0 = gen.client.bad_replies
     start = time.perf_counter()
     failure = None
     try:
@@ -109,6 +110,7 @@ def time_bit(gen, rec: Recorder, prompt: dict) -> dict:
     calls = sorted(rec.calls, key=lambda c: c["start_s"])
     premises = [c["premise"].strip().lower() for c in calls if c["premise"] is not None]
     return {"prompt": prompt["id"], "wall_s": wall, "threads": threads, "failure": failure,
+            "reasked": gen.client.bad_replies > bad0,  # a bad shape was asked for again inside this bit (D-111)
             "calls": [{k: c[k] for k in ("start_s", "seconds", "ok", "reason")} for c in calls],
             "same_premise": len(set(premises)) < len(premises)}
 
@@ -168,6 +170,11 @@ def summarize(raw: dict) -> dict:
                  for p in (raw["placement_after_warmup"], after))
     return {**raw, "n": len(bits), "bits_losing_a_thread": len(lost), "bits_with_zero_threads": len(zero),
             "bit_p50_s": cg.percentile(walls, 50), "bit_p95_s": cg.percentile(walls, 95),
+            "bits_reasked": sum(b.get("reasked", False) for b in bits),
+            "bit_p50_s_reasked": cg.percentile([b["wall_s"] for b in bits if b.get("reasked", False)], 50),
+            "bit_p95_s_reasked": cg.percentile([b["wall_s"] for b in bits if b.get("reasked", False)], 95),
+            "bit_p50_s_no_reask": cg.percentile([b["wall_s"] for b in bits if not b.get("reasked", False)], 50),
+            "bit_p95_s_no_reask": cg.percentile([b["wall_s"] for b in bits if not b.get("reasked", False)], 95),
             "call_p50_s": cg.percentile(lat, 50), "call_p95_s": cg.percentile(lat, 95),
             "failure_reasons": reasons, "bits_queued": queued,
             "spread_median": cg.percentile(spreads, 50), "exp24_call_p50_s": exp24_call_p50(),
@@ -199,6 +206,7 @@ def table(res: dict) -> str:
             f"| Bits with no thread | {res['bits_with_zero_threads']} | 0 |",
             f"| Writer 100% on the GPU at context {generate.WRITER_CONTEXT} | {'yes' if res['writer_on_gpu'] else 'no'} | yes |",
             f"| Bit wall time p50 / p95 | {cg.fmt(res['bit_p50_s'])} s / {cg.fmt(res['bit_p95_s'])} s | beside the bar |",
+            f"| Bits that re-asked a bad shape ({res['bits_reasked']}): wall p50 / p95 with, then without | {cg.fmt(res['bit_p50_s_reasked'])} s / {cg.fmt(res['bit_p95_s_reasked'])} s, then {cg.fmt(res['bit_p50_s_no_reask'])} s / {cg.fmt(res['bit_p95_s_no_reask'])} s | beside the bar |",
             f"| Call p50 / p95 (Exp 24's one-call p50: {cg.fmt(res['exp24_call_p50_s'])} s) | {cg.fmt(res['call_p50_s'])} s / {cg.fmt(res['call_p95_s'])} s | beside the bar |",
             f"| Bits that queued (slowest call at least {QUEUED_SPREAD:.0f}x the fastest); median ratio {cg.fmt(res['spread_median'])} | {res['bits_queued']} of {res['n']} | beside the bar |",
             f"| Bits with two threads on the same premise | {res['bits_same_premise']} of {res['n']} | beside the bar |"]

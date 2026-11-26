@@ -232,29 +232,79 @@ def test_an_unjudged_thread_is_left_out_of_the_rate_not_counted_as_not_connected
 
 # --- the spot-check ------------------------------------------------------------------------------------------------
 
-def many():
-    """14 connected threads in arm B and none in A, over 7 prompts."""
+def mixed(per_cell=4):
+    """Both arms have threads the judge called connected and threads it called not, `per_cell` of each."""
     recs, verdicts = [], {}
-    for p in range(7):
-        a = [lines(f"a{p}x{i}") for i in range(2)]
-        b = [lines(f"b{p}x{i}") for i in range(2)]
-        recs += [rec(f"c{p:02d}", "A", a), rec(f"c{p:02d}", "B", b)]
-        verdicts.update({tc.thread_hash(t): False for t in a} | {tc.thread_hash(t): True for t in b})
+    for p in range(2):
+        for arm in "AB":
+            ts = [lines(f"{arm}{p}c{i}") for i in range(per_cell)] + [lines(f"{arm}{p}n{i}") for i in range(per_cell)]
+            recs.append(rec(f"c{p:02d}", arm, ts))
+            verdicts.update({tc.thread_hash(t): ("c" in t[0].split()[0][2:]) for t in ts})
     return recs, verdicts
 
 
-def test_the_review_asks_10_judged_connected_threads_with_no_arm_and_resumes(tmp_path):
-    recs, verdicts = many()
-    found = tc.connected_threads(recs, verdicts)
-    picks = tc.review_picks(found)
-    assert len(picks) == 10 and set(picks) <= set(found) and tc.review_picks(found) == picks  # fixed draw
-    shown, answers = [], iter(["y", "y", "q"])
+def few(connected, not_connected):
+    """One bit of arm B with `connected` judged-connected and `not_connected` judged-not threads."""
+    cs = [lines(f"c{i}") for i in range(connected)]
+    ns = [lines(f"n{i}") for i in range(not_connected)]
+    verdicts = {tc.thread_hash(t): True for t in cs} | {tc.thread_hash(t): False for t in ns}
+    return [rec("c00", "B", cs + ns)], verdicts
+
+
+def answers_for(recs, verdicts, disagree):
+    """Human answers that differ from the judge on exactly `disagree` of the picks (the first ones), in both directions."""
+    picks = tc.draw(recs, verdicts)["picks"]
+    out = {}
+    for i, h in enumerate(picks):
+        judged = verdicts[h]
+        out[h] = ("n" if judged else "y") if i < disagree else ("y" if judged else "n")
+    return out
+
+
+def test_the_check_asks_10_threads_half_judged_connected_half_not_spread_over_both_arms():
+    recs, verdicts = mixed()
+    d = tc.draw(recs, verdicts)
+    assert d["asked"] == 10 and len(set(d["picks"])) == 10 and tc.draw(recs, verdicts) == d  # a fixed draw
+    assert (d["connected"], d["not_connected"]) == (5, 5)
+    assert d["arm_A"] + d["arm_B"] == 10 and abs(d["arm_A"] - d["arm_B"]) <= 2  # 3 and 2 within each half
+    arms = {h: arm for r in recs for t in r["threads"] for h, arm in [(tc.thread_hash(t), r["arm"])]}
+    for want in (True, False):
+        half = [h for h in d["picks"] if verdicts[h] is want]
+        assert sorted(sum(arms[h] == a for h in half) for a in "AB") == [2, 3]
+    assert d["picks"] != sorted(d["picks"], key=lambda h: not verdicts[h])  # shuffled: order does not give the half away
+
+
+def test_a_short_half_is_filled_from_the_other_and_the_draw_is_recorded():
+    recs, verdicts = few(2, 20)
+    d = tc.draw(recs, verdicts)
+    assert (d["asked"], d["connected"], d["not_connected"], d["arm_B"], d["arm_A"]) == (10, 2, 8, 10, 0)
+    recs, verdicts = few(20, 1)
+    d = tc.draw(recs, verdicts)
+    assert (d["asked"], d["connected"], d["not_connected"]) == (10, 9, 1)
+    recs, verdicts = few(2, 3)
+    d = tc.draw(recs, verdicts)
+    assert (d["asked"], d["connected"], d["not_connected"]) == (5, 2, 3)  # all there is
+    c = tc.spot_check(recs, verdicts, {})
+    assert (c["asked"], c["drawn_connected"], c["drawn_not_connected"], c["short"]) == (5, 2, 3, True)
+    unanswered = {h: None for h in ()}
+    recs, verdicts = few(3, 3)
+    verdicts[tc.thread_hash(recs[0]["threads"][0])] = None  # a thread the judge could not answer is never drawn
+    assert tc.draw(recs, verdicts)["asked"] == 5 and unanswered == {}
+
+
+def test_the_review_shows_lines_only_resumes_and_records_what_was_drawn(tmp_path):
+    recs, verdicts = mixed()
+    picks = tc.draw(recs, verdicts)["picks"]
+    shown, answers = [], iter(["y", "n", "q"])
     done = tc.review(tmp_path, recs, verdicts, read=lambda prompt: next(answers), out=shown.append)
     assert done == 2
     text = "\n".join(shown)
     assert text.count("Thread ") == 3 and "Thread 1 of 10" in text
-    assert all(w not in text for w in ("gen-v4", "gen-v5", "arm", "judge"))
-    assert set(tc.read_answers(tmp_path)) <= set(found) and len(tc.read_answers(tmp_path)) == 2
+    assert all(w not in text for w in ("gen-v4", "gen-v5", "arm", "judge", "connected", "not connected"))
+    saved = json.loads((tmp_path / "review.json").read_text(encoding="utf-8"))
+    assert len(saved["answers"]) == 2 and set(saved["answers"]) <= set(picks)
+    assert saved["drawn"] == {"asked": 10, "connected": 5, "not_connected": 5, "arm_A": 5, "arm_B": 5} or (
+        saved["drawn"]["asked"] == 10 and saved["drawn"]["connected"] == 5)
     shown.clear()
     rest = iter(["n"] * 8)
     assert tc.review(tmp_path, recs, verdicts, read=lambda prompt: next(rest), out=shown.append) == 10
@@ -262,36 +312,70 @@ def test_the_review_asks_10_judged_connected_threads_with_no_arm_and_resumes(tmp
     assert "Thread 1 of 10" not in text and "Thread 3 of 10" in text  # started at the first unanswered
 
 
-def test_four_no_answers_void_the_judge_and_three_do_not():
-    recs, verdicts = many()
-    picks = tc.review_picks(tc.connected_threads(recs, verdicts))
-    for nos, void in ((0, False), (3, False), (4, True), (10, True)):
-        answers = {h: ("n" if i < nos else "y") for i, h in enumerate(picks)}
-        c = tc.spot_check(recs, verdicts, answers)
-        assert (c["no"], c["void"], c["complete"], c["asked"], c["answered"]) == (nos, void, True, 10, 10)
-        assert c["agreement"] == pytest.approx((10 - nos) / 10)
-    early = tc.spot_check(recs, verdicts, {h: "n" for h in picks[:4]})
-    assert early["void"] is True and early["complete"] is False
-    assert tc.spot_check(recs, verdicts, {})["agreement"] is None
+def test_four_disagreements_of_ten_void_the_judge_and_three_do_not_in_either_direction():
+    recs, verdicts = mixed()
+    for n, void in ((0, False), (3, False), (4, True), (10, True)):
+        c = tc.spot_check(recs, verdicts, answers_for(recs, verdicts, n))
+        assert (c["disagree"], c["void"], c["complete"], c["asked"], c["answered"], c["short"]) == (n, void, True, 10, 10, False)
+        assert c["disagreement"] == pytest.approx(n / 10) and c["yes"] + c["no"] == 10
+    picks = tc.draw(recs, verdicts)["picks"]
+    judged_yes = next(h for h in picks if verdicts[h])
+    judged_no = next(h for h in picks if not verdicts[h])
+    one = tc.spot_check(recs, verdicts, {judged_yes: "n"})
+    two = tc.spot_check(recs, verdicts, {judged_no: "y"})
+    assert one["disagree"] == two["disagree"] == 1  # the judge's false positives and false negatives both count
+    agree = tc.spot_check(recs, verdicts, {judged_yes: "y", judged_no: "n"})
+    assert agree["disagree"] == 0 and agree["complete"] is False
+    early = tc.spot_check(recs, verdicts, {h: answers_for(recs, verdicts, 4)[h] for h in picks[:4]})
+    assert early["void"] is True and early["complete"] is False  # four disagreements already void it
+    assert tc.spot_check(recs, verdicts, {})["disagreement"] is None
 
 
-def test_the_decision_follows_the_bar_and_the_spot_check_in_that_order():
+def test_with_fewer_than_ten_threads_to_check_the_judge_can_never_be_cleared_and_three_of_four_voids_it():
+    recs, verdicts = few(2, 2)  # 4 threads: the old count rule (4 no) could never fire here
+    picks = tc.draw(recs, verdicts)["picks"]
+    assert len(picks) == 4
+    for n, void in ((0, False), (1, False), (2, True), (3, True)):  # 40% of 4 is 1.6: two disagreements void it
+        c = tc.spot_check(recs, verdicts, answers_for(recs, verdicts, n))
+        assert (c["void"], c["short"], c["complete"]) == (void, True, True)
+        b = tc.bar(np.full(20, 0.3))  # a passing bar adopts nothing on a check this small
+        assert tc.decide(b, c) == "inconclusive_judge"
+    three_of_four = tc.spot_check(recs, verdicts, answers_for(recs, verdicts, 3))
+    assert three_of_four["disagree"] == 3 and three_of_four["void"] is True
+    assert tc.decide(tc.bar(np.full(20, 0.3)), tc.spot_check(*few(0, 0), {})) == "inconclusive_judge"  # nothing to check at all
+
+
+def test_the_decision_needs_a_complete_check_that_holds_whatever_the_bar_says():
     good, bad = tc.bar(np.full(20, 0.3)), tc.bar(np.zeros(20))
-    ok = {"void": False, "complete": True}
-    assert tc.decide(good, ok) == "adopt"
-    assert tc.decide(good, {"void": True, "complete": True}) == "inconclusive_judge"  # whatever the CI says
-    assert tc.decide(good, {"void": False, "complete": False}) == "pending_review"
-    assert tc.decide(bad, ok) == "keep_current"
-    assert tc.decide(bad, {"void": True, "complete": True}) == "inconclusive_judge"
+    ok = {"void": False, "short": False, "complete": True}
+    assert tc.decide(good, ok) == "adopt" and tc.decide(bad, ok) == "keep_current"
+    for b in (good, bad):
+        assert tc.decide(b, {**ok, "void": True}) == "inconclusive_judge"  # whatever the CI says
+        assert tc.decide(b, {**ok, "short": True}) == "inconclusive_judge"
+        assert tc.decide(b, {**ok, "complete": False}) == "pending_review"  # a failed bar needs the check too
 
 
-def test_nothing_is_adopted_by_a_passing_bar_alone():
-    recs, verdicts = many()
-    res = tc.summarize(recs, verdicts, {}, n_boot=500)
+def test_nothing_is_decided_by_the_bar_alone():
+    recs = [rec(f"c{p:02d}", arm, [lines(f"{arm}{p}{i}") for i in range(3)]) for p in range(7) for arm in "AB"]
+    verdicts = {tc.thread_hash(t): r["arm"] == "B" for r in recs for t in r["threads"]}  # B always connected, A never
+    res = tc.summarize(recs, verdicts, {}, n_boot=300)
     assert res["bar"]["passes"] is True and res["verdict"] == "pending_review"
-    picks = tc.review_picks(tc.connected_threads(recs, verdicts))
-    assert tc.summarize(recs, verdicts, {h: "y" for h in picks}, n_boot=500)["verdict"] == "adopt"
-    assert tc.summarize(recs, verdicts, {h: "n" for h in picks}, n_boot=500)["verdict"] == "inconclusive_judge"
+    assert tc.summarize(recs, verdicts, answers_for(recs, verdicts, 0), n_boot=300)["verdict"] == "adopt"
+    assert tc.summarize(recs, verdicts, answers_for(recs, verdicts, 4), n_boot=300)["verdict"] == "inconclusive_judge"
+    same, same_v = mixed()  # both arms alike: the bar fails, and a clean check still has to be done first
+    res = tc.summarize(same, same_v, {}, n_boot=300)
+    assert res["bar"]["passes"] is False and res["verdict"] == "pending_review"
+    assert tc.summarize(same, same_v, answers_for(same, same_v, 0), n_boot=300)["verdict"] == "keep_current"
+    assert tc.summarize(same, same_v, answers_for(same, same_v, 4), n_boot=300)["verdict"] == "inconclusive_judge"
+
+
+def test_the_chance_the_check_voids_a_judge_is_the_binomial_tail():
+    got = [tc.p_void(e) for e in (0.2, 0.3, 0.4, 0.5)]
+    assert got == pytest.approx([0.121, 0.350, 0.618, 0.828], abs=0.001)
+    assert tc.p_void(0.0) == 0.0 and tc.p_void(1.0) == 1.0 and got == sorted(got)
+    rng = np.random.default_rng(1)  # and a simulation of the same rule agrees
+    sim = (rng.binomial(10, 0.3, 20000) >= 4).mean()
+    assert abs(sim - tc.p_void(0.3)) < 0.02
 
 
 # --- the whole run, and what reaches the metrics -------------------------------------------------------------------
@@ -302,10 +386,12 @@ def test_a_whole_run_writes_numbers_and_reasons_but_no_thread_text_to_the_metric
     monkeypatch.setattr(cache, "METRICS", tmp_path / "metrics")
     monkeypatch.setattr(generate, "writer_client", fake.client)
     monkeypatch.setattr(generate, "warm_up", lambda *a, **k: 0.1)
+    monkeypatch.setattr(generate, "placement", lambda *a, **k: (1.0, 8192, []))
     judge = FakeJudge()
     monkeypatch.setattr(tc, "make_judge_client", lambda: judge)
     res = cache.run_or_load(tc.NAME, tc.run, **tc.params(6))
     assert res["bar"]["passes"] is True and res["verdict"] == "pending_review" and res["n_prompts"] == 6
+    assert res["writer_on_gpu_after_run"] is True and res["spot_check"]["asked"] == 10
     assert res["arms"]["A"]["threads_delivered"] == res["arms"]["B"]["threads_delivered"] == 18
     assert res["arms"]["A"]["threads_connected"] == 0 and res["arms"]["B"]["threads_connected"] == 18
     assert len(judge.calls) == 36  # one call per thread
@@ -325,7 +411,7 @@ def test_a_run_refuses_a_hosted_writer_and_the_table_prints_numbers(monkeypatch,
     monkeypatch.setattr(generate, "writer_client", lambda: llm.Client("http://x", "k", "m"))
     with pytest.raises(SystemExit):
         tc.run(digest_=tc.digest(), judge_digest_=tc.judge_digest())
-    recs, verdicts = many()
+    recs, verdicts = mixed()
     out = tc.table(tc.summarize(recs, verdicts, {}, n_boot=200))
     assert "pending_review" in out and "zz" not in out and "line " not in out
 
@@ -347,3 +433,24 @@ def test_the_power_simulation_has_few_false_alarms_and_rises_with_the_size_of_th
     null = tc.simulate_power(0.0, reps=150, n_boot=300)
     small, mid, big = (tc.simulate_power(d, reps=150, n_boot=300) for d in (0.1, 0.2, 0.4))
     assert null < 0.12 and small < mid < big and big > 0.95
+
+
+def test_the_writers_gpu_placement_is_read_after_the_run_and_only_when_something_was_written(tmp_path, monkeypatch):
+    fake = FakeOllama()
+    tc.generate_bits(fake.client(), tc.prompts(2), tmp_path, http=ps())
+    assert tc.writer_on_gpu(tmp_path) is True
+    monkeypatch.setattr(generate, "warm_up", lambda *a, **k: 0.1)  # the show's own warm-up would refuse these
+    tc.generate_bits(fake.client(), tc.prompts(2), tmp_path / "off", http=ps(share=0.8))
+    assert tc.writer_on_gpu(tmp_path / "off") is False
+    tc.generate_bits(fake.client(), tc.prompts(2), tmp_path / "ctx", http=ps(context=4096))
+    assert tc.writer_on_gpu(tmp_path / "ctx") is False
+    assert tc.writer_on_gpu(tmp_path / "never") is None
+
+
+def test_wall_time_is_split_by_whether_a_bit_re_asked():
+    recs = [rec("c00", "A", [lines("a")], wall=5.0), rec("c01", "A", [lines("b")], wall=11.0, bad=1),
+            rec("c02", "A", [lines("c")], wall=6.0), rec("c00", "B", [lines("d")], wall=12.0, bad=2)]
+    a = tc.arm_stats(recs, "A", {})
+    assert a["bits_reasked"] == 1 and a["bit_p50_s_reasked"] == 11.0 and a["bit_p50_s_no_reask"] == 5.0
+    assert a["bit_p95_s_no_reask"] == 6.0 and a["bad_replies"] == 1
+    assert tc.arm_stats(recs, "B", {})["bit_p95_s_reasked"] == 12.0 and tc.arm_stats([], "A", {})["bit_p50_s_reasked"] is None

@@ -129,13 +129,27 @@ def parse(reply: str) -> tuple[str, list[str]]:
     return premise.strip(), [line.strip() for line in jokes]
 
 
+def parse_reply(reply: str) -> tuple[str, list[str]]:
+    """`parse` for a reply that came back from `client.chat(..., validate=parse)`. When the re-ask itself failed (a
+    timeout, a 503), the client hands back the first bad reply; the reason says so, so a lost call is not counted as a
+    shape error alone (D-111)."""
+    try:
+        return parse(reply)
+    except GenerationError as e:
+        err = getattr(reply, "reask_error", None)
+        if err is not None:
+            raise GenerationError(f"re-ask failed: {type(err).__name__}: {err}") from e
+        raise
+
+
 class ThreadGenerator:
     """One instance per show. A bit is K calls with one identical prompt, run in parallel, one thread each. The
     prompt tells the model which premises the room has heard (only the thread the show actually played counts,
     `played_thread`, not the alternatives that were generated). Two threads of a bit may share a premise: the calls do
     not see each other, as independent samples of one prompt must not (D-110)."""
 
-    def __init__(self, client: llm.Client, *, budget_s: float = GENERATOR_TIMING[1], prompt_id: str | None = None):
+    def __init__(self, client: llm.Client, *, budget_s: float = GENERATOR_TIMING[1], prompt_id: str | None = None,
+                 told: list[str] | None = None):
         self.client = client
         self.prompt_id = prompt_id or PROMPT_ID
         if self.prompt_id not in PROMPTS:
@@ -143,7 +157,7 @@ class ThreadGenerator:
         self.generator_id = f"{self.prompt_id}:{client.model}"
         self.budget_s = budget_s
         self._bits: dict[int, tuple[str, list[list[str]], list[str], list[str]] | Exception] = {}
-        self._told: list[str] = []
+        self._told: list[str] = list(told or [])  # premises already told: a later bit of a show starts with some
 
     def generate(self, mode: str, bit: int, joke: int, context: dict) -> Batch:
         if bit not in self._bits:
@@ -175,7 +189,7 @@ class ThreadGenerator:
             try:
                 # A bad shape is asked for once more inside this call's deadline (llm.run_with_retries), so one
                 # malformed reply costs a second call, not the thread; a second bad reply drops only this thread.
-                return parse(self.client.chat(system, user, json_reply=schema_for(self.client), temperature=TEMPERATURE,
+                return parse_reply(self.client.chat(system, user, json_reply=schema_for(self.client), temperature=TEMPERATURE,
                                               validate=parse, deadline_s=left))
             except (llm.LLMError, GenerationError) as e:
                 return e  # only this thread is lost

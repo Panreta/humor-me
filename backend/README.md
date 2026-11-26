@@ -143,7 +143,7 @@ Run both after a merge that touches the generator, from the repo root with the r
 ```bash
 python -m sim.thread_timing                # Exp 26: does a bit fit 12 s as 3 parallel calls? -> reports/metrics/thread_timing.json
 python -m sim.thread_coherence run         # Exp 27: both prompts write 20 prompts, Haiku judges each thread (needs ANTHROPIC_API_KEY)
-python -m sim.thread_coherence review      # you answer y/n "is this one bit?" for 10 threads the judge approved (arm hidden); q saves and quits
+python -m sim.thread_coherence review      # you answer y/n "is this one bit?" for 10 threads, 5 the judge approved and 5 it rejected, arm and verdict hidden; q saves and quits. Required, whatever the bar says
 python -m sim.thread_coherence score       # the numbers again with your answers in, no model call -> reports/metrics/thread_coherence.json
 ```
 

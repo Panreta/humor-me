@@ -17,13 +17,20 @@ the thread's text hash, so a rerun does not pay twice. Generated text lives only
 (gitignored); the metrics hold numbers and reason classes only.
 
 Bar, fixed before any run: the mean over prompts of (B's connected rate minus A's), paired by prompt, is above 0 and the
-paired bootstrap 95% CI's lower bound is above 0. Spot-check: you answer "is this one bit?" for 10 threads the judge
-called connected; if you say no to 4 or more, the judge is not trusted and Exp 27 is inconclusive whatever the CI says.
-Reported beside it, with no bar: threads delivered and lost per arm (by reason), `bad_replies`, bit wall time p50/p95.
+paired bootstrap 95% CI's lower bound is above 0. Spot-check, required whatever the bar says: you answer "is this one
+bit?" for 10 threads, 5 the judge called connected and 5 it called not connected, spread over both arms (the other
+group fills in when one is short); you are not told which is which. If you and the judge disagree on 4 or more of the 10
+(40%), the judge is not trusted, and Exp 27 is inconclusive whatever the CI says. So is any run with fewer than 10
+threads to check. Reported beside it, with no bar: threads delivered and lost per arm (by reason, a failed re-ask named),
+`bad_replies`, bit wall time p50/p95 (also split by whether a bad shape was re-asked in the bit), and the writer's GPU
+placement after the run.
+
+Code changes elsewhere (the generator, the client) are NOT in the digest: rerun with `--rerun` after one.
 """
 import argparse
 import hashlib
 import json
+import math
 import os
 import pathlib
 import random
@@ -37,7 +44,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 from app import generate, llm  # noqa: E402
 from sim import cache  # noqa: E402
 from sim import compare_generators as cg  # noqa: E402
-from sim.blind import plain  # noqa: E402
+from sim.blind import PLAIN, plain  # noqa: E402
 from sim.env import AGES, ENERGIES, VENUES  # noqa: E402
 
 NAME = "thread_coherence"
@@ -50,7 +57,7 @@ DATA = ROOT / "data" / "thread_coherence"
 MAX_TOLD = 4
 REVIEW_N = 10
 REVIEW_SEED = 27
-VOID_AT_NO = 4  # this many "no" answers or more and the judge is not trusted
+VOID_DISAGREE = 0.4  # you and the judge disagree on at least this share of the threads checked: the judge is not trusted
 
 # Bland placeholder premises, only here to make a prompt look like a later bit of a show.
 TOPICS = ("a printer that jams", "waiting on hold", "a gym membership", "assembling furniture", "airport security",
@@ -106,8 +113,9 @@ def digest(n: int = N_PROMPTS, seed: str = SEED) -> str:
 
 
 def judge_digest() -> str:
-    return hashlib.sha256("\x00".join([JUDGE_SYSTEM, json.dumps(JUDGE_SCHEMA, sort_keys=True),
-                                       *map(str, judge_model())]).encode()).hexdigest()[:8]
+    shown = judge_user(["a \u2019b\u2019 \u2014 c", "d"])  # how the lines are rendered, plain punctuation included
+    return hashlib.sha256("\x00".join([JUDGE_SYSTEM, json.dumps(JUDGE_SCHEMA, sort_keys=True), shown,
+                                       repr(sorted(PLAIN.items())), *map(str, judge_model())]).encode()).hexdigest()[:8]
 
 
 def run_dir(n: int = N_PROMPTS, seed: str = SEED, root: pathlib.Path | None = None) -> pathlib.Path:
@@ -145,8 +153,8 @@ def bit_path(directory: pathlib.Path, pid: str, arm: str) -> pathlib.Path:
 def write_bit(client, prompt: dict, arm: str) -> dict:
     """One bit through the show's own path. The thread text is kept in the record (the run folder is local); the bit's
     counters are deltas of the client's, exact because bits run one at a time."""
-    gen = generate.ThreadGenerator(client, prompt_id=ARMS[arm])
-    gen._told = list(prompt["told"])  # what a later bit of a show sends: the premises of the threads played so far
+    # `told` is what a later bit of a show sends: the premises of the threads played so far
+    gen = generate.ThreadGenerator(client, prompt_id=ARMS[arm], told=prompt["told"])
     bad0 = client.bad_replies
     start = time.perf_counter()
     threads: list[list[str]] = []
@@ -180,7 +188,22 @@ def generate_bits(client, bits: list[dict], directory: pathlib.Path, http=None) 
                 rec = write_bit(client, p, arm)
                 _write(path, rec)
             out[(p["id"], arm)] = rec
+    if todo:  # parallel calls take more KV cache: read where Ollama kept the writer, as Exp 26 does after its run
+        share, context, others = generate.placement(client, http) if http else generate.placement(client)
+        _write(placement_path(directory), {"gpu_share": share, "context_length": context, "others_loaded": others})
     return [out[(p["id"], a)] for p in bits for a in ARMS]
+
+
+def placement_path(directory: pathlib.Path) -> pathlib.Path:
+    return directory / "placement_after_run.json"
+
+
+def writer_on_gpu(directory: pathlib.Path) -> bool | None:
+    """Whether the writer was 100% on the GPU at the context the show uses after the run; None when not recorded."""
+    p = _read(placement_path(directory))
+    if p is None:
+        return None
+    return p["gpu_share"] is not None and p["gpu_share"] >= 1.0 and p["context_length"] in (None, generate.WRITER_CONTEXT)
 
 
 # --- judging -----------------------------------------------------------------------------------------------------
@@ -239,17 +262,42 @@ def review_path(directory: pathlib.Path) -> pathlib.Path:
     return directory / "review.json"
 
 
-def connected_threads(records: list[dict], verdicts: dict) -> dict[str, list[str]]:
-    """hash -> lines, for the threads the judge called connected, in hash order."""
-    found = {thread_hash(t): t for r in records for t in r["threads"] if verdicts.get(thread_hash(t)) is True}
-    return dict(sorted(found.items()))
+def draw(records: list[dict], verdicts: dict) -> dict:
+    """The threads to check, a fixed seeded draw (a rerun asks the same ones). REVIEW_N threads: half the judge called
+    connected, half not connected, each half spread over the two arms (round robin, so 5 is 3 and 2), the other half
+    filling in when one is short. Threads the judge could not answer are not drawn. Returns the picks in a shuffled
+    order (so the order does not say which half a thread is from) and what was drawn, for the record."""
+    rng = random.Random(REVIEW_SEED)
+    judged: dict[str, tuple[str, bool]] = {}
+    for r in records:
+        for t in r["threads"]:
+            h = thread_hash(t)
+            if verdicts.get(h) is not None and h not in judged:
+                judged[h] = (r["arm"], verdicts[h])
+    pools = {(arm, v): sorted(h for h, (a, x) in judged.items() if (a, x) == (arm, v)) for arm in ARMS for v in (True, False)}
+    for pool in pools.values():
+        rng.shuffle(pool)
+
+    def take(v: bool, k: int) -> list[str]:
+        got: list[str] = []
+        while len(got) < k and any(pools[(a, v)] for a in ARMS):
+            for a in ARMS:
+                if len(got) < k and pools[(a, v)]:
+                    got.append(pools[(a, v)].pop())
+        return got
+    half = REVIEW_N // 2
+    yes, no = take(True, half), take(False, half)
+    yes += take(True, REVIEW_N - len(yes) - len(no))  # a half that came up short is filled from the other
+    no += take(False, REVIEW_N - len(yes) - len(no))
+    picks = yes + no
+    rng.shuffle(picks)
+    return {"picks": picks, "asked": len(picks), "connected": sum(judged[h][1] for h in picks),
+            "not_connected": sum(not judged[h][1] for h in picks),
+            "arm_A": sum(judged[h][0] == "A" for h in picks), "arm_B": sum(judged[h][0] == "B" for h in picks)}
 
 
-def review_picks(found: dict[str, list[str]]) -> list[str]:
-    """The threads to check: REVIEW_N of the judged-connected ones, a fixed random draw (so a rerun asks the same ones),
-    pooled over both arms and shown with no arm."""
-    hashes = list(found)
-    return random.Random(REVIEW_SEED).sample(hashes, min(REVIEW_N, len(hashes)))
+def threads_by_hash(records: list[dict]) -> dict[str, list[str]]:
+    return {thread_hash(t): t for r in records for t in r["threads"]}
 
 
 def read_answers(directory: pathlib.Path) -> dict[str, str]:
@@ -257,14 +305,16 @@ def read_answers(directory: pathlib.Path) -> dict[str, str]:
 
 
 def review(directory: pathlib.Path, records: list[dict], verdicts: dict, read=input, out=print) -> int:
-    """Asks the user y/n for each pick not answered yet, saving after every answer. Returns how many are answered."""
-    picks = review_picks(connected_threads(records, verdicts))
-    found = connected_threads(records, verdicts)
+    """Asks the user y/n for each pick not answered yet, saving after every answer (and what was drawn, once). The
+    user sees the lines only: not the judge's verdict, the arm or the half. Returns how many picks are answered."""
+    d = draw(records, verdicts)
+    text = threads_by_hash(records)
     answers = read_answers(directory)
-    for n, h in enumerate(picks, 1):
+    _write(review_path(directory), {"answers": answers, "drawn": {k: v for k, v in d.items() if k != "picks"}})
+    for n, h in enumerate(d["picks"], 1):
         if h in answers:
             continue
-        out(f"\nThread {n} of {len(picks)}\n" + judge_user(found[h]))
+        out(f"\nThread {n} of {len(d['picks'])}\n" + judge_user(text[h]))
         while True:
             a = read("Is this ONE bit (one premise, each line builds on the one before)? [y/n/q] ").strip().lower()
             if a in ("y", "n", "q"):
@@ -272,19 +322,32 @@ def review(directory: pathlib.Path, records: list[dict], verdicts: dict, read=in
         if a == "q":
             break
         answers[h] = a
-        _write(review_path(directory), {"answers": answers})
-    return sum(h in answers for h in picks)
+        _write(review_path(directory), {"answers": answers, "drawn": {k: v for k, v in d.items() if k != "picks"}})
+    return sum(h in answers for h in d["picks"])
 
 
 def spot_check(records: list[dict], verdicts: dict, answers: dict[str, str]) -> dict:
-    """Numbers only. `void` is the fixed rule: VOID_AT_NO "no" answers or more. `complete` is whether every pick has an
-    answer; an unfinished check cannot clear the judge, but it can void it early."""
-    picks = review_picks(connected_threads(records, verdicts))
-    got = [answers[h] for h in picks if h in answers]
-    no = got.count("n")
-    return {"asked": len(picks), "answered": len(got), "yes": got.count("y"), "no": no,
-            "agreement": got.count("y") / len(got) if got else None, "void_at_no": VOID_AT_NO,
-            "void": no >= VOID_AT_NO, "complete": len(got) == len(picks) and bool(picks)}
+    """Numbers only. A disagreement is a thread where your answer differs from the judge's verdict. `void` is the fixed
+    rule: disagreement on VOID_DISAGREE of the threads to check or more, counted against the number asked so an early
+    run of disagreements already voids it. `short` means fewer than REVIEW_N threads could be drawn: the check cannot
+    clear the judge. `complete` means every pick is answered."""
+    d = draw(records, verdicts)
+    got = {h: answers[h] for h in d["picks"] if h in answers}
+    disagree = sum((a == "y") != verdicts[h] for h, a in got.items())
+    return {"asked": d["asked"], "answered": len(got), "drawn_connected": d["connected"],
+            "drawn_not_connected": d["not_connected"], "drawn_arm_A": d["arm_A"], "drawn_arm_B": d["arm_B"],
+            "yes": sum(a == "y" for a in got.values()), "no": sum(a == "n" for a in got.values()),
+            "disagree": disagree, "disagreement": disagree / len(got) if got else None,
+            "void_at_share": VOID_DISAGREE, "short": d["asked"] < REVIEW_N,
+            "void": d["asked"] > 0 and disagree >= VOID_DISAGREE * d["asked"] - 1e-9,
+            "complete": len(got) == d["asked"] and d["asked"] > 0}
+
+
+def p_void(error: float, n: int = REVIEW_N) -> float:
+    """The chance the check voids a judge that is wrong on each thread independently with probability `error`: the
+    chance of at least ceil(0.4 n) disagreements out of n. Exact (binomial). The independence is an assumption."""
+    need = math.ceil(VOID_DISAGREE * n - 1e-9)
+    return sum(math.comb(n, k) * error ** k * (1 - error) ** (n - k) for k in range(need, n + 1))
 
 
 # --- scoring -----------------------------------------------------------------------------------------------------
@@ -326,33 +389,40 @@ def arm_stats(records: list[dict], arm: str, rates: dict) -> dict:
         for x in r["lost"]:
             reasons[x] = reasons.get(x, 0) + 1
     walls = [r["wall_s"] for r in mine]
+    re = [r for r in mine if r["bad_replies"] > 0]  # a bad reply is re-asked unless the budget is gone: close enough
+    rest = [r for r in mine if r["bad_replies"] == 0]
     judged = sum(v[arm]["judged"] for v in rates.values() if arm in v)
     return {"prompt": ARMS[arm], "bits": len(mine), "threads_delivered": sum(len(r["threads"]) for r in mine),
             "threads_lost": sum(len(r["lost"]) for r in mine), "lost_by_reason": dict(sorted(reasons.items())),
             "bits_with_no_thread": sum(not r["threads"] for r in mine), "bad_replies": sum(r["bad_replies"] for r in mine),
             "threads_judged": judged, "threads_connected": sum(v[arm]["connected"] for v in rates.values() if arm in v),
-            "bit_p50_s": cg.percentile(walls, 50), "bit_p95_s": cg.percentile(walls, 95)}
+            "bit_p50_s": cg.percentile(walls, 50), "bit_p95_s": cg.percentile(walls, 95),
+            "bits_reasked": len(re), "bit_p50_s_reasked": cg.percentile([r["wall_s"] for r in re], 50),
+            "bit_p95_s_reasked": cg.percentile([r["wall_s"] for r in re], 95),
+            "bit_p50_s_no_reask": cg.percentile([r["wall_s"] for r in rest], 50),
+            "bit_p95_s_no_reask": cg.percentile([r["wall_s"] for r in rest], 95)}
 
 
 def decide(b: dict, check: dict) -> str:
-    """`keep_current`: the bar failed. `adopt`: the bar passed and the spot-check is complete and did not void it.
-    `inconclusive_judge`: the spot-check voided the judge, whatever the CI says. `pending_review`: the bar passed and
-    the check is not finished."""
-    if check["void"]:
+    """The spot-check is required whatever the bar says. `inconclusive_judge`: it voided the judge, or fewer than
+    REVIEW_N threads could be drawn, whatever the CI says. `pending_review`: not all picks are answered yet. `adopt`:
+    the bar passed, and `keep_current`: it did not, each with a complete check that did not void the judge."""
+    if check["void"] or check["short"]:
         return "inconclusive_judge"
-    if not b["passes"]:
-        return "keep_current"
-    return "adopt" if check["complete"] else "pending_review"
+    if not check["complete"]:
+        return "pending_review"
+    return "adopt" if b["passes"] else "keep_current"
 
 
-def summarize(records: list[dict], verdicts: dict, answers: dict[str, str], n_boot: int = N_BOOT) -> dict:
+def summarize(records: list[dict], verdicts: dict, answers: dict[str, str], n_boot: int = N_BOOT,
+              on_gpu: bool | None = None) -> dict:
     rates = per_prompt(records, verdicts)
     ids, diffs = paired_diffs(rates)
     b = bar(diffs, n_boot)
     check = spot_check(records, verdicts, answers)
     return {"n_prompts": len(rates), "arms": {a: arm_stats(records, a, rates) for a in ARMS},
             "per_prompt": {p: {a: rates[p][a] for a in ARMS if a in rates[p]} for p in sorted(rates)},
-            "paired_prompts": ids, "bar": b, "spot_check": check,
+            "paired_prompts": ids, "bar": b, "spot_check": check, "writer_on_gpu_after_run": on_gpu,
             "judge_failures": sum(v is None for v in verdicts.values()), "verdict": decide(b, check)}
 
 
@@ -393,7 +463,7 @@ def run(n_prompts: int = N_PROMPTS, seed: str = SEED, digest_: str = "", judge_d
         raise SystemExit("Exp 27 writes with the local writer: set JOKE_WRITER_PROVIDER=ollama")
     records = generate_bits(client, bits, directory)
     verdicts = judge_all(make_judge_client(), records, directory)
-    return summarize(records, verdicts, read_answers(directory))
+    return summarize(records, verdicts, read_answers(directory), on_gpu=writer_on_gpu(directory))
 
 
 def score(n_prompts: int = N_PROMPTS, seed: str = SEED) -> dict:
@@ -408,7 +478,7 @@ def score(n_prompts: int = N_PROMPTS, seed: str = SEED) -> dict:
         for t in r["threads"]:
             c = _read(verdict_path(directory, thread_hash(t)))
             verdicts[thread_hash(t)] = None if c is None else c["connected"]
-    return summarize(records, verdicts, read_answers(directory))
+    return summarize(records, verdicts, read_answers(directory), on_gpu=writer_on_gpu(directory))
 
 
 def stored() -> dict | None:
@@ -421,7 +491,9 @@ def table(res: dict) -> str:
     mean = "n/a" if b["mean_diff"] is None else f"{b['mean_diff']:+.3f}"
     rows = ["| Check | Result | Bar |", "|---|---|---|",
             f"| Mean paired difference B - A (over {b['n_paired']} prompts) | {mean}, CI {ci} | above 0, CI lower bound above 0 |",
-            f"| Spot-check: you said no | {c['no']} of {c['answered']} answered ({c['asked']} asked) | fewer than {c['void_at_no']} |",
+            f"| Spot-check: you and the judge disagree on | {c['disagree']} of {c['answered']} answered ({c['asked']} asked: "
+            f"{c['drawn_connected']} judged connected, {c['drawn_not_connected']} not; {c['drawn_arm_A']} from A, {c['drawn_arm_B']} from B) "
+            f"| under {c['void_at_share']:.0%}, and all {REVIEW_N} asked |",
             f"| Verdict | {res['verdict']} | |"]
     for a, s in res["arms"].items():
         rows.append(f"| Arm {a} ({s['prompt']}): delivered / lost / connected | {s['threads_delivered']} / {s['threads_lost']}"
@@ -447,7 +519,7 @@ def main() -> None:
         verdicts = {thread_hash(t): (_read(verdict_path(directory, thread_hash(t))) or {}).get("connected")
                     for r in records for t in r["threads"]}
         done = review(directory, records, verdicts)
-        print(f"{done} of {len(review_picks(connected_threads(records, verdicts)))} answered; now `score`.")
+        print(f"{done} of {draw(records, verdicts)['asked']} answered; now `score`.")
         return
     else:
         res = score()
