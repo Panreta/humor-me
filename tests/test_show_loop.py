@@ -439,3 +439,21 @@ def test_a_pause_is_refused_once_run_show_has_raised(server, monkeypatch):
         ws.send_json({"type": "pause"})
         refusal = json.loads(ws.receive()["text"])
     assert refusal["type"] == "error" and refusal["about"] == "pause"
+
+
+def test_a_writer_that_cannot_load_stops_the_show_before_it_starts(server, monkeypatch):
+    from app import llm
+
+    def down(generator):
+        raise llm.LLMError("the writer bonsai-2:4b did not load: is `ollama serve` running")
+
+    monkeypatch.setattr(main, "warm_up", down)
+    opened = []
+    monkeypatch.setattr(main, "SessionLog", lambda *a, **k: opened.append(a) or 1 / 0)
+    with TestClient(main.app).websocket_connect("/ws") as ws:
+        ws.send_json({**start("sim"), "consent": True})
+        seen = pump(ws)
+        assert any(m["type"] == "error" and "ollama serve" in m["message"] for m in seen)
+        assert seen[-1]["status"] == "aborted" and seen[-1]["ratable"] is False
+        assert not any(m["type"] == "record" for m in seen)  # the microphone was never asked for
+    assert opened == []  # stopped before the session log was made: no bank-only show logged as a bonsai one

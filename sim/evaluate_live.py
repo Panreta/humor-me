@@ -95,6 +95,7 @@ def bank_reason(reason: str) -> str:
 
 def one_show(tts, age: str, seed: int, n_bits: int) -> dict:
     gen, flt, fallback, bridges = generate.llm_stack("sim")
+    generate.warm_up(gen)  # as the server does before each show (D-109); before `timed`, so it is not a counted call
     gen_calls, safe_calls, player = [], [], RealTimePlayer()
     timed(gen.client, gen_calls)
     timed(flt.client, safe_calls)

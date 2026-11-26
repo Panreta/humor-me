@@ -37,12 +37,12 @@ Learning the material from scratch (RL foundations → our experiments → Explo
 
 | Use | Provider / model | Notes |
 |---|---|---|
-| Live show loop | Gemini `gemini-flash-lite-latest` (`JOKE_WRITER_MODEL`) | TTFT ~0.6 s measured. Free tier: a 503 sends the bit to the bank. Replacement: `bonsai-2:4b` on Ollama, chosen by Exp 24 (D-107); wiring it into the show is the next PR |
+| Live show loop | `bonsai-2:4b` on Ollama, on this laptop (`JOKE_WRITER_PROVIDER=ollama`, D-107, D-109) | Exp 24: p50 5.2 s, p95 6.9 s, free. Each show loads it first and refuses to start unless it is 100% on the GPU. Gemini Flash-Lite and Claude Haiku still work by setting the provider |
 | Safety check | Claude `claude-haiku-5-5`, thinking off (`SAFETY_CHECK_*`, D-100) | p95 3.6 s per bit against a 7 s bar (moved from 3 s after the data); about $0.003 a show. Moved off Gemini's free tier for its 503s |
 | Offline pipeline (S4/S5) | Gemini `gemini-flash-latest` (`TRANSCRIPT_PIPELINE_MODEL`) | Paused with the transcript pipeline |
 | rJokes mode/safety labels | `Qwen/Qwen2.5-7B-Instruct` via `transformers`, greedy, on Explorer V100 | `explorer/label_modes.py`; vLLM can't run on Explorer's driver/GPUs |
 | Config | `backend/.env` (gitignored), template `backend/sample.env`; settings are named by job (D-93) | Gemini's OpenAI-compatible endpoint |
-| Live show loop, optional | Claude `claude-haiku-5-5` via the official SDK (`JOKE_WRITER_PROVIDER=anthropic`, `ANTHROPIC_API_KEY`), $0.10 in / $0.50 out per MTok | Built and unit-tested on a fake SDK, never called for real. Needs a paid key |
+| Live show loop, fallback | Claude `claude-haiku-5-5` via the official SDK (`JOKE_WRITER_PROVIDER=anthropic`, `ANTHROPIC_API_KEY`) | Funnier than bonsai in Exp 24, but not clearly (D-107); $0.017 for 5 shows |
 | Considered | Claude API (Haiku 5.5 live, Sonnet/Opus 5.5 offline), local 8B via Ollama on the RTX 4060 | decisions-detail.md 2026-10-21 |
 
 ## Evaluation protocol (don't break this)

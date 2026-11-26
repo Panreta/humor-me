@@ -17,10 +17,10 @@ cp sample.env .env
 
 | Variable | Example |
 |---|---|
-| `GEMINI_BASE_URL` | `https://api.groq.com/openai/v1`, `http://localhost:11434/v1` (Ollama) |
+| `GEMINI_BASE_URL` | `https://api.groq.com/openai/v1` (for Ollama use `JOKE_WRITER_PROVIDER=ollama` instead: only that route warms the model and checks the GPU) |
 | `GEMINI_API_KEY` | provider key (empty for Ollama) |
 | `JOKE_WRITER_MODEL` | e.g. `llama-3.1-8b-instant` |
-| `JOKE_WRITER_PROVIDER` | `openai` (default, the three above) or `anthropic` (official SDK, key in `ANTHROPIC_API_KEY`, `JOKE_WRITER_MODEL=claude-haiku-5-5`) |
+| `JOKE_WRITER_PROVIDER` | `ollama` (the shipped writer, `bonsai-2:4b` on this laptop, no key, `OLLAMA_URL` to move it; D-107, D-109), `openai`/`gemini` (the three above) or `anthropic` (official SDK, key in `ANTHROPIC_API_KEY`, `JOKE_WRITER_MODEL=claude-haiku-5-5`) |
 
 ## Run
 
@@ -66,6 +66,13 @@ per bit (Claude Haiku 5.5 with thinking off by default, D-100; needs `ANTHROPIC_
 twice inside a deadline; a failed generation or a bit whose candidates are all rejected falls back to the hand-checked bank (rules only, no API call), logged in
 `candidates`. A `live` room refuses to start without `app/blocklist.local.txt`.
 
+**The writer is `bonsai-2:4b` on Ollama (D-107).** Start Ollama before the backend: quit the tray app, then in PowerShell
+`$env:OLLAMA_CONTEXT_LENGTH=8192; $env:OLLAMA_KEEP_ALIVE="-1"; ollama serve` (once: `ollama pull bonsai-2:4b`). Each show
+loads the writer before it starts and checks that Ollama put it all on the GPU (D-109). If it can't load, or another model
+holds the GPU, or it runs at a context other than 8192, the show stops before it begins and says why (e.g. "also loaded:
+gemma4:12b (`ollama stop <name>`)"). `KEEP_ALIVE=-1` keeps every model loaded, so after Exp 24 or judge runs `ollama stop`
+the others. `OLLAMA_URL` must end in `/v1`.
+
 ```sh
 .venv/Scripts/python -m uvicorn app.main:app --port 8000 --env-file .env   # with JOKE_SOURCE=llm in .env
 ```
@@ -80,7 +87,8 @@ The user runs the shows; `sim/acceptance.py` scores them. Needed: 3 simulated sh
 - Windows Sound settings, Communications tab: **Do nothing** (otherwise Windows ducks the robot's voice when it hears a "call").
 - Microphone properties, Advanced: **Audio enhancements off** (with them on, echo cancellation removed the laptop's own output from the recording).
 - The room is told the show is recorded and agrees, then tick the consent box. Without it the show runs and nothing is recorded.
-- `backend/.env` has the Gemini key and `backend/app/blocklist.local.txt` exists (a live room refuses to start without it).
+- `backend/.env` has `ANTHROPIC_API_KEY` (the safety check) and `backend/app/blocklist.local.txt` exists (a live room refuses to start without it).
+- Ollama is serving bonsai and nothing else is loaded (`ollama ps`); see the writer note above.
 
 **Start the backend from the main checkout** (`D:/vs-code-workspace/humor-me`, not a worktree: the key and the blocklist are there), in a Python 3.12 venv as in Setup (on the operator laptop the working one is `D:/vs-code-workspace/humor-me-demo/backend/.venv`; the main checkout's `backend/.venv` is a stale 3.14 venv):
 
@@ -126,7 +134,7 @@ Compares Claude Haiku 5.5 and two local Ollama models (`bonsai-2:4b`, `qwen3:4b-
 
 **The first Exp 24 run was aborted by a Google outage and archived, not scored (D-96).** The new candidates start a fresh `data/model_comparison/gen-<digest>/` folder on their own; rename the old one (`gen-f036d862`) to `gen-f036d862.aborted-gemini-outage-2026-11-25` so it is not mistaken for data. **Caveat:** the comparison runs without the Kokoro voice. Kokoro speaks on the CPU, so it does not take GPU memory; a model fully on the GPU (the D-97 gate) should be close to its measured speed in a show, but Kokoro's CPU use alongside it is not measured.
 
-Everything under `data/model_comparison/` (joke text, ballot, key, votes) is gitignored: never commit it. To run a show on Claude, set `JOKE_WRITER_PROVIDER=anthropic` (the model defaults to `claude-haiku-5-5`); the safety check stays on Gemini unless `SAFETY_CHECK_PROVIDER=anthropic` is set too, so leave it for now.
+Everything under `data/model_comparison/` (joke text, ballot, key, votes) is gitignored: never commit it. Shows write with bonsai on Ollama (D-107, D-109). To run one on Claude instead, set `JOKE_WRITER_PROVIDER=anthropic` (the model defaults to `claude-haiku-5-5`).
 
 ## Cached bits run (Exp 23)
 

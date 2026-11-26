@@ -992,3 +992,19 @@ Decided by the user, 2026-11-25, after D-107 showed the gap. Built in the same P
 **Changing a pre-fixed rule after a result.** Allowed here because it does not change this result, and the change is the same rule's own next criterion, not a new one. Test: two models with equal mean rank, the slower one first by name; the faster goes through (`tests/test_compare_generators.py`), and it fails on the old key.
 
 **Judgment call, not measured.** No experiment: a rule for ties, with no data that would favour another order.
+
+## <a id="d-109"></a>D-109 · 2026-11-25 — bonsai-2:4b writes the show through Ollama; each show loads it first and refuses to start unless it is all on the GPU (user)
+Decided by the user, 2026-11-25, while wiring D-107's pick into the show.
+
+**What ships.** `JOKE_WRITER_PROVIDER=ollama` (new; `bonsai-2:4b` by default, `OLLAMA_URL` to move the server, no key) builds the same OpenAI-compatible client Exp 24 timed: thinking off (`reasoning_effort: none`), the reply schema sent as `json_schema`, the generator's 10 s attempt / 12 s deadline and 2 retries. A test holds the show's client to the harness's `make_client` field by field, so the show runs what was measured. `backend/sample.env` ships it.
+
+**Warm-up (judgment call, not measured).** A local model's first request loads it into VRAM: Exp 24's warm-ups took 6.1 s and 0.8 s for bonsai, and Ollama drops an idle model after 5 minutes by default. Inside a bit that eats the 12 s deadline, so each show sends one untimed request (300 s budget, no retries, on a copy of the client so the show's counters are untouched) before the microphone and the log open. `OLLAMA_KEEP_ALIVE=-1` in the run command keeps it loaded between shows. **Options:** (a) no warm-up: the first bit of each show risks the bank; (b) warm at server start: a model dropped while idle would still reload mid-show; (c, chosen) warm at each show's start.
+
+**The GPU check (user's choice).** The first real smoke run (2026-11-25) loaded bonsai in 19.3 s and then timed out both bits at 12 s: `gemma4:12b` was loaded beside it at context 32768, holding 6.8 of 8 GB and 85% of the GPU, so bonsai was not listed in `/api/ps` as on the GPU. The warm-up had passed, so a show would have played every bit from the bank. **Options:** (a, chosen) refuse the show: after the warm-up, read `/api/ps`; unless the writer is listed with all of it in VRAM, the show stops before `show_start` with an error naming what else is loaded (`ollama stop <name>`); (b) warn and run: the bank covers the bits, but the show is not what was measured; (c) no check. It is D-97's gate, simplified for the show: 100% on the GPU and loaded at context 8192 (the context Exp 24 measured; a server started without `OLLAMA_CONTEXT_LENGTH`, or by the tray app, loads at another one), no file-size check, and a missing, implausible or unreadable report counts as not on the GPU (fails closed). Names are compared as Ollama lists them, so a model given without a tag matches `<name>:latest`. Added in review.
+
+**Smoke run once the GPU was free (2026-11-25, same server):** warm-up 10.5 s; bonsai 100% on the GPU at context 8192; six bits, one per mode, in 4.6 to 6.1 s, no retries, no bad replies (Exp 24's p50: 5.2 s). No safety check or voice in this run; Exp 23's shows cover those.
+
+**A failed warm-up stops the show before it starts.** The browser gets `show failed: <why>` and no rating prompt; no session log is written, so no bank-only show is logged as a bonsai show. The operator fixes Ollama and presses Start again.
+
+**What would change it.** Exp 23's simulated shows (between-bit silence with the LLM stack) run on bonsai now; a gap over its bar would mean the 5.2 s p50 does not hold beside Kokoro.
+

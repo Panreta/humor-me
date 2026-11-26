@@ -1,6 +1,6 @@
 """A small OpenAI-compatible chat call. `GEMINI_BASE_URL` picks the endpoint, `JOKE_WRITER_MODEL` and
 `SAFETY_CHECK_MODEL` the models, `GEMINI_API_KEY` the account (backend/sample.env); `from_env` also builds the Claude
-client (app.llm_anthropic).
+client (app.llm_anthropic) and the local Ollama one (`OLLAMA_URL`, no key).
 
 Used by the safety filter's LLM check and the generator. Every failure is an `LLMError`, so callers can tell "the
 model said no" from "the model could not answer". Retries are opt-in and bounded by a deadline: a live show can wait
@@ -115,6 +115,7 @@ class Client:
     output_tokens: int = 0
     extra_body: dict | None = None  # provider-specific request fields, merged into every request
     json_schema: bool = False  # send a dict `json_reply` as a json_schema response_format (Ollama enforces it), not json_object
+    local: bool = False  # a model on this machine (Ollama): its first request loads it, so a show warms it first
 
     def chat(self, system: str, user: str, *, json_reply: bool | dict = False, temperature: float = 0.0,
              validate: Callable[[str], None] | None = None) -> str:
@@ -174,7 +175,9 @@ LEGACY = {"GEMINI_BASE_URL": "LLM_BASE_URL", "GEMINI_API_KEY": "LLM_API_KEY", "J
           "TRANSCRIPT_PIPELINE_MODEL": "PIPELINE_MODEL",
           "JOKE_WRITER_MODEL": "LLM_MODEL", "SAFETY_CHECK_MODEL": "LLM_MODEL"}
 ROLES = {"joke_writer": "JOKE_WRITER", "safety_check": "SAFETY_CHECK"}
-PROVIDERS = ("gemini", "anthropic")  # gemini = any OpenAI-compatible endpoint at GEMINI_BASE_URL (Groq, Ollama too)
+PROVIDERS = ("gemini", "anthropic", "ollama")  # gemini = any OpenAI-compatible endpoint at GEMINI_BASE_URL (Groq too)
+OLLAMA_URL = "http://127.0.0.1:11434/v1"  # Ollama's OpenAI-compatible endpoint; `OLLAMA_URL` overrides it
+OLLAMA_MODEL = "bonsai-2:4b"  # D-107: Exp 24's pick, the live writer and the SFT/DPO base
 
 
 def setting(name: str, default: str = "") -> str:
@@ -184,8 +187,8 @@ def setting(name: str, default: str = "") -> str:
 def from_env(timeout: float = 8.0, *, role: str = "joke_writer", provider: str | None = None, model: str | None = None,
              **options):
     """The client for one job: `role` is `joke_writer` (writes the live jokes) or `safety_check` (judges each line
-    before the voice). Each role reads only its own `<ROLE>_PROVIDER` (`gemini`, the default, or `anthropic`, the
-    official SDK in app.llm_anthropic) and `<ROLE>_MODEL`, so the safety check never follows the joke writer to
+    before the voice). Each role reads only its own `<ROLE>_PROVIDER` (`gemini`, the default; `anthropic`, the
+    official SDK in app.llm_anthropic; or `ollama`, a local model) and `<ROLE>_MODEL`, so the safety check never follows the joke writer to
     another provider. Both clients expose `chat(system, user, *, json_reply, temperature, validate)` and raise
     `LLMError`. `provider` and `model` override the env (the Exp 24 harness compares several in one process).
     Raises RuntimeError for a missing setting, or a model name that belongs to the other provider."""
@@ -206,6 +209,15 @@ def from_env(timeout: float = 8.0, *, role: str = "joke_writer", provider: str |
             raise RuntimeError(f"{prefix}_THINKING={thinking!r}: expected on or off")
         options.setdefault("thinking", thinking == "on")  # D-100: the safety check runs with it off
         return llm_anthropic.from_env(timeout, model=model, **options)
+    if provider == "ollama":
+        model = model or OLLAMA_MODEL
+        if model.startswith("claude"):
+            raise RuntimeError(f"{prefix}_MODEL={model!r} is a Claude model but the provider is ollama")
+        # Exp 24 measured the local writers exactly so (D-101): thinking off, the reply schema enforced. A test holds
+        # this client to the harness's, so the show runs what was measured.
+        options.setdefault("extra_body", OLLAMA_NO_THINK)
+        options.setdefault("json_schema", True)
+        return Client(os.environ.get("OLLAMA_URL") or OLLAMA_URL, "", model, timeout, local=True, **options)
     if not model and not named:
         model = os.environ.get("LLM_MODEL", "")  # an unrenamed .env: the old name, a Gemini model by construction
     if model.startswith("claude"):

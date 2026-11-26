@@ -3,6 +3,7 @@ no real API or Kokoro. The timing numbers live in notebooks/decisions-live.ipynb
 import asyncio
 import json
 import pathlib
+import re
 import sys
 import threading
 import time
@@ -740,3 +741,126 @@ def test_bridge_lines_cover_the_worst_wait_for_a_bit():
     from app import show
     worst = generate.GENERATOR_TIMING[1] + generate.FILTER_TIMING[1]
     assert show.MAX_BRIDGES * 5.0 >= worst  # about 5 s per bridge line
+
+
+# --- the local writer (D-107, D-109) ---
+
+OLLAMA_ENV = ("JOKE_WRITER_PROVIDER", "JOKE_WRITER_MODEL", "OLLAMA_URL", "LLM_MODEL")
+
+
+def test_the_ollama_writer_runs_with_thinking_off_the_schema_enforced_and_no_key(monkeypatch):
+    for name in OLLAMA_ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("JOKE_WRITER_PROVIDER", "ollama")
+    c = llm.from_env(role="joke_writer")
+    assert (c.base_url, c.api_key, c.model) == ("http://127.0.0.1:11434/v1", "", "bonsai-2:4b")
+    assert c.extra_body == llm.OLLAMA_NO_THINK and c.json_schema is True and c.local is True
+    monkeypatch.setenv("OLLAMA_URL", "http://box:1/v1")
+    monkeypatch.setenv("JOKE_WRITER_MODEL", "qwen3:4b-instruct")
+    c = llm.from_env(role="joke_writer")
+    assert (c.base_url, c.model) == ("http://box:1/v1", "qwen3:4b-instruct")
+    monkeypatch.setenv("JOKE_WRITER_MODEL", "claude-haiku-5-5")
+    with pytest.raises(RuntimeError, match="Claude model but the provider is ollama"):
+        llm.from_env(role="joke_writer")
+    assert llm.Client("http://g", "k", "m").local is False  # Gemini and Groq are never warmed
+
+
+def test_the_shows_writer_is_the_client_exp_24_measured(monkeypatch):
+    """The show must run bonsai the way Exp 24 timed it: same endpoint, timeout, retries, deadline and request fields."""
+    from sim import compare_generators as cg
+    for name in OLLAMA_ENV + ("BONSAI_OLLAMA_TAG", "SAFETY_CHECK_PROVIDER", "SAFETY_CHECK_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("JOKE_WRITER_PROVIDER", "ollama")
+    monkeypatch.setenv("GEMINI_BASE_URL", "http://g/v1")  # the filter's client is built too; it is not under test
+    monkeypatch.setenv("SAFETY_CHECK_MODEL", "flash-lite")
+    show = generate.llm_stack("sim")[0].client
+    measured = cg.make_client(cg.MODELS["bonsai-2-4b"])
+    fields = ("base_url", "api_key", "model", "timeout", "retries", "deadline_s", "extra_body", "json_schema")
+    assert {f: getattr(show, f) for f in fields} == {f: getattr(measured, f) for f in fields}
+
+
+def local_writer(*script):
+    transport, seen = server(*script)
+    c = llm.Client("http://local/v1", "", "bonsai-2:4b", 10.0, transport=transport, retries=2, deadline_s=12.0,
+                   local=True, extra_body=llm.OLLAMA_NO_THINK, json_schema=True)
+    return generate.GeminiGenerator(c), seen
+
+
+def ps(*models, context=8192):
+    """A fake `/api/ps`: (name, size, size_vram) per loaded model."""
+    asked = []
+
+    def http(url):
+        asked.append(url)
+        return {"models": [{"name": n, "model": n, "size": s, "size_vram": v, "context_length": context}
+                           for n, s, v in models]}
+    return http, asked
+
+
+ON_GPU = ps(("bonsai-2:4b", 1_940_000_000, 1_940_000_000))[0]
+
+
+def test_warm_up_loads_a_local_writer_once_without_touching_the_shows_client():
+    gen, seen = local_writer((200, completion('{"ready": true}')))
+    http, asked = ps(("bonsai-2:4b", 1_940_000_000, 1_940_000_000))
+    assert isinstance(generate.warm_up(gen, http), float) and len(seen) == 1
+    assert asked == ["http://local/api/ps"]
+    assert seen[0]["model"] == "bonsai-2:4b" and seen[0]["reasoning_effort"] == "none"
+    assert gen.client.attempts == 0 and gen.client.timeout == 10.0  # a copy carried the long timeout
+    assert generate.warm_up(generate.GeminiGenerator(llm.Client("http://g", "k", "m"))) is None
+    assert generate.warm_up(BankGenerator()) is None
+
+
+def test_a_writer_that_cannot_load_is_an_error_that_says_how_to_fix_it():
+    gen, seen = local_writer(httpx.ConnectError("refused"))
+    with pytest.raises(llm.LLMError, match="ollama serve.*ollama pull bonsai-2:4b"):
+        generate.warm_up(gen, ON_GPU)
+    assert len(seen) == 1  # no retries: a down server is not a busy one
+
+
+@pytest.mark.parametrize("loaded, says", [
+    ((("gemma4:12b", 7_000_000_000, 6_000_000_000), ("bonsai-2:4b", 1_940_000_000, 1_000_000_000)),
+     "only 52% of it is on the GPU; also loaded: gemma4:12b"),  # 2026-11-25: gemma held the GPU, every bit timed out
+    ((("gemma4:12b", 7_000_000_000, 7_000_000_000),), "Ollama does not list it; also loaded: gemma4:12b"),
+    ((("bonsai-2:4b", 0, 0),), "Ollama does not list it"),
+    ((("bonsai-2:4b", 1_000, 2_000),), "Ollama does not list it"),  # more in VRAM than its size: a bad report
+])
+def test_a_writer_not_all_on_the_gpu_stops_the_show_and_names_what_holds_it(loaded, says):
+    gen, _ = local_writer((200, completion('{"ready": true}')))
+    with pytest.raises(llm.LLMError, match=re.escape(says)):
+        generate.warm_up(gen, ps(*loaded)[0])
+
+
+def test_an_unreadable_gpu_report_counts_as_not_on_the_gpu():
+    gen, _ = local_writer((200, completion('{"ready": true}')))
+
+    def down(url):
+        raise OSError("refused")
+    with pytest.raises(llm.LLMError, match="does not list it"):
+        generate.warm_up(gen, down)
+
+
+def test_the_shipped_sample_env_writes_with_bonsai_on_ollama(monkeypatch):
+    sample = pathlib.Path(__file__).resolve().parents[1] / "backend" / "sample.env"
+    values = dict(line.split("=", 1) for line in sample.read_text(encoding="utf-8").splitlines()
+                  if line and not line.startswith("#"))
+    for name in OLLAMA_ENV:
+        monkeypatch.delenv(name, raising=False)
+    for name in ("JOKE_WRITER_PROVIDER", "JOKE_WRITER_MODEL"):
+        monkeypatch.setenv(name, values[name])
+    c = llm.from_env(role="joke_writer")
+    assert c.local and c.model == "bonsai-2:4b"
+
+
+def test_a_writer_named_without_a_tag_is_found_as_ollama_lists_it():
+    gen, _ = local_writer((200, completion('{"ready": true}')))
+    gen.client.model = "bonsai-2"  # Ollama answers to it and lists it as bonsai-2:latest
+    assert isinstance(generate.warm_up(gen, ps(("bonsai-2:latest", 10, 10))[0]), float)
+
+
+def test_a_writer_loaded_at_another_context_than_exp_24_measured_stops_the_show():
+    from sim import compare_generators as cg
+    assert generate.WRITER_CONTEXT == cg.GATE_CONTEXT
+    gen, _ = local_writer((200, completion('{"ready": true}')))
+    with pytest.raises(llm.LLMError, match="context 4096, not 8192.*OLLAMA_CONTEXT_LENGTH=8192"):
+        generate.warm_up(gen, ps(("bonsai-2:4b", 10, 10), context=4096)[0])
