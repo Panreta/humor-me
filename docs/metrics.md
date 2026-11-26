@@ -758,3 +758,19 @@ The Stage 0 exit (T11). Three simulated shows back to back, then one live show w
 
 **All three fail the check.** The labels are the model's guess, and part of the skew is the prompt (showcase was described as an audience for clever or odd material, which fits most Reddit jokes). Teens = 1 is expected for Reddit's adult material. Chart: `reports/figures/decision-plot/exp25-room-labels.png`.
 
+
+## Generator models (Exp 24, 2026-11-25)
+
+`python -m sim.compare_generators score`; raw numbers in `reports/metrics/model_comparison.json` (no joke text). 60 prompts per model, one attempt each; the user ranked 30 blind. Decision: [D-107](agent/decisions-detail.md#d-107).
+
+| Model | Attempts | Failed (95% upper) | p50 | p95 | Line pass | Playable | Mean rank (95% CI) | Cost, 5 shows | GPU | Eligible |
+|---|---|---|---|---|---|---|---|---|---|---|
+| qwen3-4b-instruct | 60 | 0 (6%) | 6.7 s | 8.2 s | 87% | 87% | 2.17 (1.90 to 2.43) | $0.000 | 100% | yes |
+| bonsai-2-4b | 60 | 1 (9%) | 5.2 s | 6.9 s | 89% | 92% | 2.17 (1.87 to 2.43) | $0.000 | 100% | yes |
+| claude-haiku-5-5 | 60 | 2 (11%) | 5.6 s | 7.4 s | 91% | 95% | 1.67 (1.40 to 1.97) | $0.017 | - | yes |
+
+**Pick: bonsai-2-4b.** All three pass the speed and failure bars. Funniness is not clear: Haiku leads bonsai by 0.50 ranks, but the 95% interval is 0.00 to 1.00, so it touches 0. The rule then takes the cheaper, then faster, model. Haiku won first place 16 times of 30, bonsai 8, qwen 6. Lower rank is funnier.
+
+**Caveats.** One rater, 30 prompts. Local speeds were measured without the voice, so they are a best case. Haiku is the funnier reference that SFT and DPO must close in on.
+
+Chart: `reports/figures/decision-plot/exp24-generator-pick.png`.
