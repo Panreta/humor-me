@@ -788,3 +788,9 @@ Chart: `reports/figures/decision-plot/exp24-generator-pick.png`.
 **Read it:** Exp 28 sizes the problem; it is not a test of the rule. "100% of cached lines heard" is true by construction (a cached line is a logged show's own played text), and "0 heard lines in the rule's pool" is the filter checked against itself; the tests on synthetic logs check the rule. The informative numbers: the cached pool is 17 lines without the rule and 0 with it, and **all 10 filler lines have been heard** (4 earlier shows played them; the live show alone played 12), so the fallback repeats across shows. The dev-log's "11 bridge lines" was 18 rows in the logs.
 
 **Caveat:** it counts what was played, not what was noticed, and it matches on lowercase text with spaces collapsed, so a reworded line counts as new.
+
+## Where a bit's wait goes (Exp 29, 2026-11-25)
+
+**Not run yet.** After your next shows: `python -m sim.stage_timing <session ids> --record` (seconds from the local logs, no model call), then `python scripts/run_notebook.py`. Raw: `reports/metrics/stage_timing.json`. Decision: [D-113](agent/decisions-detail.md#d-113).
+
+The rule (revised after review, before any data) counts bits 1 and up of LLM-generator shows and reports bit 0 apart. A stage's share is its total seconds over the total wait. The largest share is fixed first if it is at least 25% and its 95% interval for `share - 1.1 x runner-up`, resampling shows, is above 0; otherwise "inconclusive". It needs 2 shows and 16 bits. Stages map to fixes (a) end the bridge early (bridge overhang), (b) render the first joke ahead of bridge renders (voice queue), (c) check each thread's safety as it arrives (safety). A dominant writer or voice has no fix among these. Command: `python -m sim.stage_timing <show ids> --record`.
