@@ -19,6 +19,8 @@ from app.rooms import RealClock, SimRoom  # noqa: E402
 from app.show import GUESS_AFTER_JOKE, UniformSelector, run_show  # noqa: E402
 from sim.env import AudienceEnv, Context  # noqa: E402
 from tests.test_generate import CTX, FAST, FakePlayer, FakeVoice, Filter, Gen, completion, parallel_client, thread_reply  # noqa: E402
+from app.bank import BankGenerator  # noqa: E402
+from app.live import BankOnlySafety  # noqa: E402
 from tests.test_headless_show import Scripted, director, same  # noqa: E402
 
 MODES = AudienceEnv().modes
@@ -32,6 +34,11 @@ class SpyLog(SessionLog):
     def write(self, event, **fields):
         self.events.append((event, fields.get("bit")))
         super().write(event, **fields)
+
+
+class SafeGen(Gen):
+    """A writer with no state that the guessed prep could disturb: it may be guessed for."""
+    speculative_safe = True
 
 
 class SpyGen(Gen):
@@ -192,9 +199,9 @@ def test_a_hit_closes_the_gap_and_a_miss_falls_back_to_the_filler_path(tmp_path)
     waits = {True: [], False: []}
     for seed in range(4):
         rows, _, _, _ = play(tmp_path, n_bits=3, seed=seed, d=director(seed=seed), room_seed=seed,
-                             gen=Gen(delay=0.08), seconds=0.4, bridges=["b1", "b2", "b3"])
+                             gen=SafeGen(delay=0.08), seconds=0.4, bridges=["b1", "b2", "b3"])
         off, _, _, _ = play(tmp_path, n_bits=3, seed=seed, d=director(seed=seed), room_seed=seed, predict=False,
-                            gen=Gen(delay=0.08), seconds=0.4, bridges=["b1", "b2", "b3"])
+                            gen=SafeGen(delay=0.08), seconds=0.4, bridges=["b1", "b2", "b3"])
         for p in rows_of(rows, "prediction"):
             waits[p["hit"]].append((wait_s(rows, p["bit"]), wait_s(off, p["bit"])))
             fillers = [r for r in rows if r["event"] == "bridge" and r["bit"] == p["bit"]]
@@ -221,7 +228,7 @@ class OrderVoice(FakeVoice):
 
 def test_the_guessed_bits_first_render_waits_for_the_current_bits_remaining_renders(tmp_path):
     voice = OrderVoice(0.15)
-    play(tmp_path, n_bits=2, voice=voice, seconds=0.3, gen=Gen())  # instant prep: the worst case for queuing
+    play(tmp_path, n_bits=2, voice=voice, seconds=0.3, gen=SafeGen())  # instant prep: the worst case for queuing
     now = [s for t, s in voice.spans.items() if t.startswith("ok 0.")]
     nxt = [s for t, s in voice.spans.items() if t.startswith("ok 1.")]
     assert len(now) == 5 and nxt
@@ -310,7 +317,8 @@ def row(**fields):
 
 
 @pytest.mark.parametrize("bad", [dict(hit="yes"), dict(hit=False), dict(predicted=3), dict(started_at="x"),
-                                 dict(decided="observer", hit=True)])
+                                 dict(decided="observer", hit=True), dict(after_joke=0), dict(after_joke=True),
+                                 dict(spec_stage="done"), dict(spec_prefetched="y"), dict(learned=1), dict(adopted="no")])
 def test_the_log_refuses_a_malformed_prediction_row(bad):
     with pytest.raises(ValueError):
         validate(row(**bad))
@@ -319,6 +327,7 @@ def test_the_log_refuses_a_malformed_prediction_row(bad):
 def test_the_log_accepts_a_good_prediction_row_and_a_speculative_prep_row():
     validate(row())
     validate(row(decided="observer", hit=False))
+    validate(row(after_joke=3, spec_stage="safety", spec_prefetched=True, learned=False, adopted=False))
     prep = dict(schema=2, session="s", at=1.0, event="prep", bit=1, started_at=1.0, generate_s=1.0, safety_s=1.0,
                 render_wait_s=1.0, ready_at=4.0, bank_fallbacks=0)
     validate({**prep, "speculative": True})
@@ -335,3 +344,153 @@ def test_teaching_the_copy_the_partial_reward_changes_the_guess_somewhere():
             differs += predict_mode(d.inner, obs, action, levels, n_bits=8, learn=True) != predict_mode(
                 d.inner, obs, action, levels, n_bits=8, learn=False)
     assert differs >= 3
+
+
+# --- every stateful part a guess touches is forked, so a wrong guess changes nothing (B1) ---
+
+
+def run_with(tmp_path, seed, predict, gen, safety, fallback=None, n_bits=6, player=None):
+    voice, log = FakeVoice(), SessionLog(tmp_path)
+    d = director(seed=seed)
+    asyncio.run(run_show(d, "sim", CTX, generator=gen, safety=safety, selector=UniformSelector(seed), tts=voice,
+                         player=player or FakePlayer(voice, seconds=0.01), source=SimRoom(CTX, seed),
+                         clock=RealClock(), log=log, n_bits=n_bits, config=FAST, predict=predict, fallback=fallback,
+                         explore_seed=1))
+    return read_session(log.path), d
+
+
+def test_the_bank_as_the_writer_gives_the_same_show_with_the_guess_on_or_off_including_after_a_miss(tmp_path):
+    misses = 0
+    for seed in range(6):
+        on, d_on = run_with(tmp_path, seed, True, BankGenerator(), BankOnlySafety())
+        off, d_off = run_with(tmp_path, seed, False, BankGenerator(), BankOnlySafety())
+        misses += sum(not r["hit"] for r in rows_of(on, "prediction"))
+        assert core(on) == core(off) and same(d_on, d_off)
+    assert misses >= 3  # the old bug showed on seeds with a miss
+
+
+class FailsGen(SafeGen):
+    """A writer that is down, so every joke goes to the bank fallback inside the (guessed) prep."""
+
+    def generate(self, mode, bit, joke, context):
+        raise RuntimeError("writer down")
+
+
+def test_a_fallback_that_consults_the_bank_inside_a_guessed_prep_changes_nothing_on_a_miss(tmp_path):
+    misses = hits = 0
+    for seed in range(6):
+        on, d_on = run_with(tmp_path, seed, True, FailsGen(), Filter(), fallback=BankGenerator())
+        off, d_off = run_with(tmp_path, seed, False, FailsGen(), Filter(), fallback=BankGenerator())
+        misses += sum(not r["hit"] for r in rows_of(on, "prediction"))
+        hits += sum(r["hit"] for r in rows_of(on, "prediction"))
+        assert core(on) == core(off) and same(d_on, d_off)
+        assert any("hand-checked bank" in i["reason"] for r in rows_of(on, "candidates") for i in r["items"])
+    assert misses >= 3 and hits >= 3
+
+
+def test_a_writer_that_says_nothing_about_state_is_not_guessed_for(tmp_path):
+    rows, _ = run_with(tmp_path, 0, True, Gen(), Filter())
+    assert not rows_of(rows, "prediction")
+
+
+def test_a_fallback_that_cannot_be_forked_stops_the_guess(tmp_path):
+    rows, _ = run_with(tmp_path, 0, True, SafeGen(), Filter(), fallback=Gen())
+    assert not rows_of(rows, "prediction")
+
+
+# --- a hit whose prep is still running when the bit ends (B2), with the real generator ---
+
+
+class SlowThreads(generate.ThreadGenerator):
+    """The real ThreadGenerator machinery with a slow, stubbed model call: each fetch is a numbered batch."""
+
+    def __init__(self, delay):
+        self.prompt_id, self.generator_id, self.budget_s = "p", "slow", 1.0
+        self._bits, self._told, self._spec, self._dead = {}, [], {}, set()
+        self.delay, self.n = delay, 0
+
+    def _fetch(self, mode, context):
+        time.sleep(self.delay)
+        self.n += 1
+        k = self.n
+        return ("prompt", [[f"ok {k}.{j}.{t}" for t in range(3)] for j in range(5)], [f"premise {k}.{t}" for t in range(3)], [])
+
+
+def test_a_hit_that_is_still_being_written_when_the_bit_ends_is_adopted_whole_and_its_premise_told(tmp_path):
+    hits = misses = 0
+    for seed in range(8):
+        g = SlowThreads(0.5)  # longer than the last two jokes: the prep is unfinished at the boundary
+        rows, _ = run_with(tmp_path, seed, True, g, Filter(), n_bits=3, player=FakePlayer(FakeVoice(), seconds=0.05))
+        pred = {r["bit"]: r for r in rows_of(rows, "prediction")}
+        hits += sum(r["hit"] for r in pred.values())
+        misses += sum(not r["hit"] for r in pred.values())
+        played = {}
+        for r in rows_of(rows, "joke_played"):
+            played.setdefault(r["bit"], []).append(r["text"])
+        assert [len(v) for v in played.values()] == [5, 5, 5]
+        told = list(g._told)
+        assert len(told) == 3, (seed, told)  # one premise per bit played, none lost to a hit that was not ready, none from a miss
+        for bit, texts in played.items():
+            fetches = {t.split()[1].split(".")[0] for t in texts}
+            assert len(fetches) == 1, (seed, bit, texts)  # a bit comes from one fetch, not split across two threads
+            k, thread = texts[0].split()[1].split(".")[0], texts[0].split(".")[-1]
+            assert told[bit].startswith(f"premise {k}.")
+        time.sleep(0.7)  # a discarded fetch that ends late must write nothing
+        assert g._spec == {} and g._bits.keys() == {0, 1, 2}, (seed, list(g._spec))
+    assert hits >= 2 and misses >= 1
+
+
+def test_a_discarded_guess_that_finishes_late_leaves_no_thread_and_the_real_request_is_its_own():
+    g = SlowThreads(0.3)
+    import threading
+    out = {}
+    t = threading.Thread(target=lambda: out.update(b=g.generate_speculative("cynic", 1, 0, CTX)))
+    t.start()
+    time.sleep(0.05)
+    g.discard(1, "cynic")
+    real = g.generate("observer", 1, 0, CTX)
+    t.join()
+    assert g._spec == {} and g._bits.keys() == {1}
+    assert real.texts[0].startswith("ok 2.") and out["b"].texts[0].startswith("ok 1.")  # two separate fetches
+
+
+# --- what the guess cost, and whether the fork was still good ---
+
+
+def test_every_guess_row_says_how_far_it_got_whether_the_copy_learned_and_whether_it_was_used(tmp_path):
+    for seed in range(4):
+        rows, _, _, _ = play(tmp_path, n_bits=4, seed=seed, d=director(seed=seed), room_seed=seed)
+        for p in rows_of(rows, "prediction"):
+            assert p["after_joke"] == 3 and p["spec_stage"] in ("generating", "safety", "rendering", "ready")
+            assert isinstance(p["spec_prefetched"], bool) and isinstance(p["learned"], bool)
+            assert p["adopted"] is p["hit"]  # nothing moved the originals here
+
+
+class Touching(FakePlayer):
+    """Uses the real selector while the last jokes play, as a bank consult after a failed voice would."""
+
+    def __init__(self, voice, selector_box, **kw):
+        super().__init__(voice, **kw)
+        self.box = selector_box
+
+    async def play(self, wav, text):
+        if self.box:
+            self.box[0].pick(["x", "y", "z"])
+        await super().play(wav, text)
+
+
+def test_a_right_guess_is_not_adopted_when_the_real_selector_moved_after_it_was_forked(tmp_path):
+    stale = 0
+    for seed in range(6):
+        voice, log, box = FakeVoice(), SessionLog(tmp_path), []
+        sel = UniformSelector(seed)
+        box.append(sel)
+        asyncio.run(run_show(director(seed=seed), "sim", CTX, generator=SafeGen(), safety=Filter(), selector=sel, tts=voice,
+                             player=Touching(voice, box, seconds=0.01), source=SimRoom(CTX, seed), clock=RealClock(),
+                             log=log, n_bits=5, config=FAST, predict=True, explore_seed=1))
+        rows = read_session(log.path)
+        for p in rows_of(rows, "prediction"):
+            assert p["adopted"] is False  # every bit's plays touch the selector after the fork
+            stale += p["hit"]
+        assert not any(r.get("speculative") for r in rows_of(rows, "prep"))  # a stale hit is prepared again, not adopted
+    assert stale >= 3

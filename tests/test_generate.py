@@ -723,6 +723,10 @@ class Gen:
         return generate.Batch("p", f"prompt {bit}", [f"{self.tag} {bit}.{joke}.{i}" for i in range(self.threads)], self.lost)
 
 
+class SpecGen(Gen):
+    speculative_safe = True  # no state a guessed prep could disturb
+
+
 def show(tmp_path, gen, flt, voice=None, fallback=None, bridges=None, n_bits=3, seed=0, **kw):
     voice = voice or FakeVoice()
     log = SessionLog(tmp_path)
@@ -749,11 +753,14 @@ def test_every_line_that_reaches_the_voice_passed_the_filter_first(tmp_path):
 
 def test_one_prefetch_per_bit_with_all_candidates_before_any_check(tmp_path):
     flt = Filter()
-    show(tmp_path, Gen(), flt, predict=False)  # a wrong guess costs one more prefetch (D-115), counted elsewhere
+    rows, _ = show(tmp_path, SpecGen(), flt)
     kinds = [c[0] for c in flt.calls]
-    assert kinds.count("prefetch") == 3
-    for start in range(0, len(kinds), 16):  # one prefetch, then 5 jokes x 3 checks
-        assert kinds[start] == "prefetch" and len(flt.calls[start][1]) == 15
+    # a wrong guess whose prep reached the safety stage cost one more prefetch (D-115), and says so in its row
+    wasted = sum(r["spec_prefetched"] and not r["adopted"] for r in rows if r["event"] == "prediction")
+    assert kinds.count("prefetch") == 3 + wasted
+    assert [r["bit"] for r in rows if r["event"] == "prep"] == [0, 1, 2]
+    first = kinds.index("prefetch")
+    assert len(flt.calls[first][1]) == 15 and kinds[first + 1:first + 16] == ["check"] * 15  # all candidates before any check
 
 
 def test_next_line_is_rendered_while_the_current_one_plays(tmp_path):

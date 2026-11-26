@@ -43,6 +43,7 @@ OPTIONAL_CHOICES = {("bridge", "kind"): ("filler", "cached")}
 # Optional numbers of a `prep` row (null when the voice cannot split the render into queue and synthesis)
 PREP_OPTIONAL = ("bank_s", "other_s", "render_queue_s", "render_s")
 PREP_DURATIONS = ("generate_s", "safety_s", "render_wait_s", *PREP_OPTIONAL)
+SPEC_STAGES = ("generating", "safety", "rendering", "ready")  # how far a guessed bit's prep had got when the bit ended
 CACHED_SOURCE = ("session", "bit", "joke")  # where a cached line came from; a bridge row of kind "cached" needs it
 
 
@@ -139,6 +140,13 @@ def validate(record: dict) -> None:
             raise ValueError("prediction.hit must say whether predicted equals decided")
         if not _is_number(record["started_at"]):
             raise ValueError("prediction.started_at must be a number")
+        for key in ("spec_prefetched", "learned", "adopted"):  # optional: what the guess cost, and whether it was used
+            if record.get(key) is not None and not isinstance(record[key], bool):
+                raise ValueError(f"prediction.{key} must be a boolean")
+        if record.get("after_joke") is not None and not (_is_int(record["after_joke"]) and record["after_joke"] >= 1):
+            raise ValueError("prediction.after_joke must be a positive integer")
+        if record.get("spec_stage") is not None and record["spec_stage"] not in SPEC_STAGES:
+            raise ValueError(f"prediction.spec_stage must be one of {SPEC_STAGES}")
     if event == "joke_played" and record.get("bridge_overhang_s") is not None:  # optional (D-113): the bit's first line
         if not _is_number(record["bridge_overhang_s"]) or record["bridge_overhang_s"] < 0:
             raise ValueError("joke_played.bridge_overhang_s must be a non-negative number")

@@ -30,6 +30,7 @@ SIM_RESULT = {"started_at", "generate_s", "safety_s", "bank_s", "render_wait_s",
 
 class SlowGenerator:
     generator_id = "slow"
+    speculative_safe = True  # no state a guessed prep could disturb
 
     def __init__(self, clock, per_call):
         self.clock, self.per_call = clock, per_call
@@ -426,3 +427,12 @@ def test_a_bit_prepared_on_a_guess_is_marked_and_kept_out_of_the_stage_shares_bu
     report = st.show_report("s", rows)
     assert report["speculative_bits"] == len(spec)
     assert report["wait_s"]["n"] == len([b for b in bits if b["bit"] >= 1])  # the wait columns still hold them
+
+
+def test_the_report_counts_guesses_hits_by_whether_the_copy_learned_and_wasted_prefetches():
+    def row(hit, learned, adopted, prefetched):
+        return {"event": "prediction", "hit": hit, "learned": learned, "adopted": adopted, "spec_prefetched": prefetched}
+    rows = [row(True, True, True, True), row(False, True, False, True), row(True, False, False, False), row(False, False, False, False)]
+    got = st.guess_stats(rows)
+    assert got == {"n": 4, "hits": 2, "adopted": 1, "learned_n": 2, "learned_hits": 1, "wasted_prefetch": 1}
+    assert st.guess_stats([])["n"] == 0

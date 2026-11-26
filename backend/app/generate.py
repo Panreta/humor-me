@@ -159,6 +159,7 @@ class ThreadGenerator:
         self._bits: dict[int, tuple[str, list[list[str]], list[str], list[str]] | Exception] = {}
         self._told: list[str] = list(told or [])  # premises already told: a later bit of a show starts with some
         self._spec: dict[tuple[int, str], tuple | Exception] = {}  # bits written on a guess, not yet adopted
+        self._dead: set[tuple[int, str]] = set()  # guesses thrown away: a fetch that ends late writes nothing
 
     def generate(self, mode: str, bit: int, joke: int, context: dict) -> Batch:
         if bit not in self._bits:
@@ -174,15 +175,20 @@ class ThreadGenerator:
     # A bit prepared on a guess of its mode (D-115) is kept apart, keyed by the mode it was written for, so a wrong guess
     # can neither answer the real request for that bit nor add its premise to the told list. Only `adopt` moves it over.
     def generate_speculative(self, mode: str, bit: int, joke: int, context: dict) -> Batch:
-        if (bit, mode) not in self._spec:
-            self._spec[(bit, mode)] = self._fetch(mode, context)
-        return self._batch(self._spec[(bit, mode)], mode, bit, joke)
+        key = (bit, mode)
+        if key not in self._spec:
+            got = self._fetch(mode, context)  # a worker thread cannot be cancelled: it may end after a discard
+            if key in self._dead:
+                return self._batch(got, mode, bit, joke)  # nobody will ask again; keep nothing
+            self._spec[key] = got
+        return self._batch(self._spec[key], mode, bit, joke)
 
     def adopt(self, bit: int, mode: str) -> None:
         if (bit, mode) in self._spec:
             self._bits[bit] = self._spec.pop((bit, mode))
 
     def discard(self, bit: int, mode: str) -> None:
+        self._dead.add((bit, mode))
         self._spec.pop((bit, mode), None)
 
     def played_thread(self, bit: int, thread: int) -> None:

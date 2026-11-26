@@ -2,6 +2,7 @@
 import asyncio
 import copy
 import logging
+import pickle
 import random
 import secrets
 from collections.abc import Awaitable, Callable
@@ -156,6 +157,15 @@ def _marginal(i: int, passing: list[int], tied: list[int]) -> float:
     return (own + borrowed) / len(tied)
 
 
+def _snapshot(*parts) -> tuple | None:
+    """The state of the parts a guess forked, as bytes, so the show can tell whether an original moved since. None when a
+    part cannot be pickled. Only the selector and the parts that fork are compared."""
+    try:
+        return tuple(b"" if p is None else pickle.dumps(p) for p in parts)
+    except Exception:
+        return None
+
+
 class _Deferred:
     """Stands in for the log while a bit is prepared on a guess: its rows are kept and written, marked speculative,
     only if the guess is adopted. A thrown-away prep leaves nothing in the log (invariant 6 needs what the room heard)."""
@@ -172,7 +182,7 @@ class _Deferred:
 
 
 async def _prepare(bit, mode, context, *, generator, fallback, safety, selector, tts, clock, log, jokes_per_bit, spawn,
-                   gate: list[asyncio.Task] = (), speculative: bool = False, on_pick=None):
+                   gate: list[asyncio.Task] = (), speculative: bool = False, on_pick=None, progress: dict | None = None):
     """Everything a bit needs before its first line: candidates, the safety verdicts and the first render.
     `speculative` (D-115) prepares the bit for a guessed mode: the generator keeps it apart (`generate_speculative`),
     and the thread picked is handed to `on_pick` instead of being told to the generator, so a wrong guess leaves no
@@ -195,7 +205,10 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
             reasons.append(f"generation failed: {type(e).__name__}: {e}")
             lost[joke] = list(getattr(e, "threads_lost", []))
     generated = clock.now()
+    progress = {} if progress is None else progress  # how far a guessed prep got, read by the show when it is thrown away
+    progress["stage"] = "safety"
     if prefetch := getattr(safety, "prefetch", None):  # the LLM layer judges the whole bit in one call
+        progress["prefetched"] = True  # set before the call is submitted, so True means a request went out
         await asyncio.to_thread(prefetch, [t for b in batches if b for t in b.texts], age)
     judged = [[_judge(safety.check, t, age) for t in b.texts] if b else [] for b in batches]
     passing = [[i for i, item in enumerate(items) if item["verdict"] == "pass"] for items in judged]
@@ -203,6 +216,7 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
         if batch and not passing[joke]:
             reasons[joke] = "every candidate rejected"
     judged_at = clock.now()
+    progress["stage"] = "rendering"
     picked = _pick_thread(batches, passing, selector)
     if picked and (told := on_pick or getattr(generator, "played_thread", None)):
         told(bit, picked[0])  # so the next bit is not told a premise the room never heard
@@ -240,6 +254,7 @@ async def _prepare(bit, mode, context, *, generator, fallback, safety, selector,
         # is handled when the line is spoken, so it is only waited for here.
         await asyncio.gather(first.render, return_exceptions=True)
     ready = clock.now()
+    progress["stage"] = "ready"
 
     def span(a, b):  # the wall clock can step back (NTP); a bad stage must not fail the row and the bit
         return max(0.0, b - a)
@@ -482,8 +497,13 @@ class _Guess:
     task: asyncio.Task
     rows: _Deferred
     selector: Selector  # a copy, so the guess never moves the real selector's random state
+    generator: Generator  # the generator the prep used: a fork when it has state of its own, else the real one
+    fallback: Generator | None
     picked: list  # the thread the prep picked, told to the generator only if the guess is adopted
+    progress: dict  # how far the prep had got: stage and whether a safety request went out
+    snapshot: tuple | None  # the originals as they were when the forks were made, to see if they moved since
     started_at: float
+    learned: bool  # the copy was taught the partial reward (3 labels) and not just asked as it was
 
 
 async def run_show(director, room: str, context: dict, *, generator: Generator, safety: SafetyFilter,
@@ -537,11 +557,19 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
         last_action = last_reward = None
         guess: _Guess | None = None
         # A stateful generator that cannot keep a guessed bit apart would answer the real request with the guess's lines.
-        can_guess = predict and jokes_per_bit > GUESS_AFTER_JOKE and (
-            hasattr(generator, "generate_speculative") or not hasattr(generator, "played_thread"))
+        # A guess runs the prep early and may throw it away, so every stateful part it touches must be forkable or
+        # keep a guess apart; a part that says neither is assumed to move when used, and nothing is guessed.
+        def safe(c):
+            return c is None or any(hasattr(c, a) for a in ("generate_speculative", "fork")) or getattr(c, "speculative_safe", False)
+        can_guess = predict and jokes_per_bit > GUESS_AFTER_JOKE and safe(generator) and safe(fallback)
+
+        def snap():
+            return _snapshot(selector, generator if hasattr(generator, "fork") else None,
+                             fallback if hasattr(fallback, "fork") else None)
 
         def prepare(bit, action, **kw):
-            return spawn(_prepare(bit, modes[action], context, generator=generator, fallback=fallback, safety=safety,
+            return spawn(_prepare(bit, modes[action], context, generator=kw.pop("generator", generator),
+                                  fallback=kw.pop("fallback", fallback), safety=safety,
                                   selector=kw.pop("selector", selector), tts=tts, clock=clock, log=kw.pop("log", log),
                                   jokes_per_bit=jokes_per_bit, spawn=spawn, **kw))
 
@@ -556,20 +584,23 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
                       scores={m: float(x) for m, x in zip(modes, scores)}, greedy=modes[greedy],
                       action=modes[action], probs={m: float(p) for m, p in zip(modes, probs)})
             source.begin_bit(action)
-            held = None
+            held = adopt = None
             if guess is not None:
                 hit = guess.mode == action
+                # A fork made from a state the original has since left would replay the wrong picks: not adopted.
+                stale = guess.snapshot is not None and guess.snapshot != snap()
+                use = hit and not stale
                 log.write("prediction", bit=bit, predicted=modes[guess.mode], decided=modes[action], hit=hit,
-                          started_at=guess.started_at)
-                if hit:
-                    selector = guess.selector  # it made the picks the real one would have, from the same state
-                    getattr(generator, "adopt", lambda *_: None)(bit, modes[action])
-                    if guess.picked and (told := getattr(generator, "played_thread", None)):
-                        told(bit, guess.picked[0])
+                          started_at=guess.started_at, after_joke=GUESS_AFTER_JOKE, learned=guess.learned,
+                          adopted=use, spec_stage=guess.progress.get("stage", "generating"),
+                          spec_prefetched=bool(guess.progress.get("prefetched", False)))
+                if use:
+                    selector, generator, fallback = guess.selector, guess.generator, guess.fallback
                     held = guess.rows  # written once the prep has ended: it may still be running
+                    adopt = (bit, modes[action], guess.picked)
                     prep = guess.task
                 else:
-                    guess.task.cancel()
+                    guess.task.cancel()  # also cancels the gathered first render
                     getattr(generator, "discard", lambda *_: None)(bit, modes[guess.mode])
                     prep = prepare(bit, action)
                 guess = None
@@ -588,6 +619,12 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
             plans = await prep
             if held is not None:
                 held.flush(log)
+            if adopt is not None:
+                # Only now: while the prep ran, a part of the guessed bit could still be on its way, and moving it over
+                # or telling its premise early would split the bit or tell a premise that was not yet picked.
+                getattr(generator, "adopt", lambda *_: None)(adopt[0], adopt[1])
+                if adopt[2] and (told := getattr(generator, "played_thread", None)):
+                    told(adopt[0], adopt[2][0])
             if plans and plans[0].ready_from is not None:
                 # A bit prepared on a right guess was ready before the previous one ended; only the time after counts.
                 plans[0].ready_from = max(plans[0].ready_from, boundary)
@@ -607,12 +644,16 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
                         _start_render(plans, j, tts, clock, spawn)  # this bit's own lines go first on the voice
                     # On a copy: the real director, its random draws and the real selector are not touched.
                     mode = predict_mode(inner, obs, action, levels, n_bits=n_bits)
-                    picked, rows = [], _Deferred()
+                    picked, rows, progress = [], _Deferred(), {"stage": "generating", "prefetched": False}
                     fork = copy.deepcopy(selector)
-                    task = prepare(bit + 1, mode, selector=fork, log=rows, speculative=True,
-                                   on_pick=lambda b, t, picked=picked: picked.append(t),
-                                   gate=[p.render for p in plans[joke + 1:] if p.render])
-                    guess = _Guess(bit + 1, mode, task, rows, fork, picked, clock.now())
+                    gen_fork = generator.fork() if hasattr(generator, "fork") else generator
+                    fb_fork = fallback.fork() if hasattr(fallback, "fork") else fallback
+                    snapshot = snap()
+                    task = prepare(bit + 1, mode, selector=fork, generator=gen_fork, fallback=fb_fork, log=rows,
+                                   speculative=True, on_pick=lambda b, t, picked=picked: picked.append(t),
+                                   gate=[p.render for p in plans[joke + 1:] if p.render], progress=progress)
+                    guess = _Guess(bit + 1, mode, task, rows, fork, gen_fork, fb_fork, picked, progress, snapshot,
+                                   clock.now(), reward_v1(levels) is not None)
             reward = reward_v1(levels)
             log.write("bit_end", bit=bit, n_labels=sum(lv is not None for lv in levels), reward_version=VERSION,
                       reward=reward)
