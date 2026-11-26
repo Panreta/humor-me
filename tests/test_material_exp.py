@@ -87,7 +87,7 @@ def test_the_digest_follows_the_prompt_the_material_files_and_the_paragraph_and_
         m.setattr(generate, "MATERIAL_PARAGRAPH", generate.MATERIAL_PARAGRAPH + " x")
         assert m32.digest() != before
     with monkeypatch.context() as m:
-        m.setattr(generate, "PROMPT_ID", "gen-v5")
+        m.setattr(generate, "PROMPT_ID", next(i for i in generate.PROMPTS if i != generate.PROMPT_ID))
         assert m32.digest() != before
     with monkeypatch.context() as m:
         m.setattr(m32, "file_hash", lambda name: "changed")

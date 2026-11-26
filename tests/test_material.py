@@ -150,8 +150,8 @@ def test_prompts_are_untouched_and_the_off_generator_sends_the_old_request():
     g.generate("cynic", 0, 0, CTX)
     system, user = w.calls[0]
     assert generate.MATERIAL_PARAGRAPH not in system and set(user) == {"venue", "energy", "premises_already_told"}
-    assert g.generator_id == "gen-v4:w"
-    assert generate.PROMPTS["gen-v4"] is generate.SYSTEM and generate.MATERIAL_PARAGRAPH not in generate.SYSTEM_CONNECTED
+    assert g.generator_id == f"{generate.PROMPT_ID}:w"
+    assert all(generate.MATERIAL_PARAGRAPH not in p for p in generate.PROMPTS.values())
 
 
 @pytest.mark.parametrize("prompt_id", ["gen-v4", "gen-v5"])
