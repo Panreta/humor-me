@@ -1309,6 +1309,127 @@ Depends on the made-up `audience.yaml` values `noise`, `fatigue` and the `base` 
 - **Ratings beside, not a claim:** before 2, 1, 2 (`9fedcfa07c3f` has none); after 3, 3, 2, 2.
 On the waits in these 4 shows D-115 did what it set out to do; n is small. No new decision.
 
+## <a id="d-116"></a>D-116 · 2026-11-26 — Keep a show ledger: one row per logged show, with the user's rating as the outcome, and commit the played lines (Exp 32) (user)
+The user asked for the joke quality of the show runs to be tracked for the report, and later (same day) for the bits themselves to be kept for comparison, then to push them. Light log: reporting infrastructure, not a model choice.
+
+**What is tracked (`sim/show_ledger.py`, `reports/metrics/show_ledger.json`).** Per show: session id, start time (UTC), room, status, bits played, code version (`git_sha`) and the pull request that first merged it into `main` (first-parent, `Merge pull request #N`; the sha when git cannot say), writer (generator id: prompt and model), guess on/off (`prediction` rows present), bridge rule (from the `cache` row: none, repeats allowed, skips heard lines), the user's rating, delivery signals (bank share, lost threads by error class, median and worst wait and total wait before bits' first jokes, bridge lines, guess hit rate) and a hash per bit. Setups = writer x guess x bridge rule, ordered by first use. Wait logic is `sim/evaluate_gaps.show_report`, bank share `sim/acceptance.bank_jokes`; nothing duplicated.
+
+**Why the rating is the outcome and sim reactions are not.** Invariant 5: the episode rating is the reported outcome. The rating is the user's own in every room. In a `sim` room the reactions and bit rewards are the made-up audience's (`audience.yaml`), so they say nothing about whether the jokes were funny; they are recorded per show and per setup in a block labelled "simulated audience", apart from the "live" block, and no pooled number exists (a test fails if one appears; mutation-checked). Only one live show finished (`43251e36e02d`), so live reaction evidence is n = 1.
+
+| Option for the bits | For | Against | Choice |
+|---|---|---|---|
+| (a) Ledger with ids and hashes only; no text anywhere in git | Matches "no session data" the safest way | The report cannot show which bit was good; the user cannot compare setups side by side | Rejected by the user's later call |
+| (b) Played lines in local files under `data/` (gitignored) | Nothing leaves the laptop | The comparison cannot be cited or reviewed; lost with the laptop | Offered first, replaced by (c) |
+| (c) Commit the played lines under `reports/show_bits/<setup>/<session>.md` and an index | The lines are generated (writer or bank), safety-filtered and played, so they are the evidence the report cites; reviewable in the PR | Text enters git; must never include anything people said | **Chosen (user: "These jokes are generated, not anyone's content. We can push it.")** |
+
+**What is committed now:** only `joke_played.text` and `bridge.text` (generated, bank or earlier generated lines, safety-filtered, played) with each line's reaction level and its room label ("live" or "simulated audience"), the show's setup and the user's rating. The ledger JSON still holds only ids, numbers and a 16-hex hash per bit (sha256 of the played lines), so the report can cite a bit by hash. **Still not committed:** session logs, the recordings, ballots, reaction keys as rows, rJokes, transcript text, anything said by people present. **What was checked for live shows:** the log schema (`backend/app/log.py` `EVENTS`) has no field for transcribed or audio-derived text: a live show's rows hold generated text, button keys and levels, the venue/energy/age tags and the rating; speech exists only in the WAV beside the log, which is never read or committed. So live bits are included. The export reads only the two text fields above (a test with a planted string in every other field checks it). The PR template's "no session data" box still holds: only derived generated lines are exported, never the log.
+
+**Layout of the show files.** Each file reads top to bottom as the room heard it: header (date, setup in plain words, simulated or live, rating), then every line in audio order, with the opener, filler and replayed lines labelled, bank lines marked, a plain reaction word after each line (for a sim room, labelled "simulated audience"), and a one-line gap note between bits. `reports/show_bits/index.md` lists shows by setup, newest first.
+
+**How to update after each show:** `python -m sim.show_ledger --record` (the cache key is the logs' names, sizes and mtimes plus the head of `main`, so a new show re-records), `python -m sim.show_ledger export` to refresh `reports/show_bits/`, then `python scripts/run_notebook.py notebooks/decision-plot.ipynb`.
+
+**Review fixes (Opus, same day).** The pull request of a show is its own merge when its `git_sha` is on `main`'s first-parent line (every logged sha is), else the first merge that brought it in (before this, every show was credited to the next PR). gen-v4 shows on #78 code (before D-111's counted schema and re-ask, which landed in #79) are a separate setup, "gen-v4 before D-111 fixes", because `generator_id` did not change when the behaviour did. A show cut short before its first guess on guess code (#83 on) is filed with the guess (`prediction_inferred`); the log has no flag for `PREDICT_NEXT_BIT`. The permutation test cannot reach p below 0.05 at 1 to 4 ratings a side (2 against 2 at best 0.33, 2 against 4 0.13, 3 against 4 0.057), so `within_noise` is null ("too few ratings to tell") unless the sizes could have rejected; the best possible p is stored beside each p (`p_min`). Gap notes count replayed (`cached`) lines apart from filler; a bridge row with no `kind` is filler. Dates are the machine's local time with the UTC offset stored. `export` clears the old files first. The headline wait is the ledger's own pair of setups (gen-v4 with no guess and no heard lines, then with the guess); D-115's live check used a different "before" set (it included `6c09c721b0bb`, which the ledger files one setup earlier), hence 108.7 s to 21.6 s there. Show `e9a42ccc6b36` logs gen-v3 on code that already had gen-v4 (the backend was not restarted after a merge); it is aborted and counts nowhere.
+
+**Judgment calls, not measured:** the setup axes; the 0.05 line for the permutation test and requiring 2 ratings per side; the label for each setup change on the chart (`CHANGES`); the pull-request mapping by first merge; excluding bank-only shows from the chart (no model wrote them); counting aborted shows as rows only. Ratings are the user's, one rater, 1 to 4 per setup, so differences are within noise and the report says so.
+
+## <a id="d-117"></a>D-117 · 2026-11-26 — Give each bit a topic and two robot facts so the writer stops landing on the robot's hardware (Exp 33) (user)
+The user chose the problem, the options (character sheet plus topic list now, tonight's context later) and the bars; the lead agent specified it and a Sonnet agent built it. Result: keep off. Repetition bar passed, funniness bar failed (table at the end of this entry).
+
+**The problem.** In the 35 logged shows, 249 of 882 played jokes (28%) name robot hardware (battery, power, data, charging, processor top). The personality is also bland. Cause, from `ThreadGenerator._fetch`: the writer's only inputs are a one-sentence identity, the mode, venue and energy, and the premises told this show. The told list resets each show, so nothing stops the next show from writing the same bit; and the identity has no specifics to draw on, so the model reaches for its own hardware.
+
+| Option | For | Against | Choice |
+|---|---|---|---|
+| A. Topic list: one everyday topic per bit, never reused across shows on this laptop | Directly breaks the repeat; cheap; no new inputs at show time | A topic alone does not give the robot a voice | Chosen now (user) |
+| B. Operator-typed "tonight" context | Fresh, relevant material | Needs a UI and an operator who types; a later PR | Later PR, not this one. Scope now (user, 2026-11-26): the operator's typed facts about tonight, plus 5 to 10 of the day's headlines from a news RSS feed and the day's stock market move as a number. Both pass the safety check (tragedies and named people are dropped) and the operator approves them on the operator screen before the show |
+| C. Character sheet: specific facts about the robot, 2 per bit, rotated | Gives bits something specific; punches at self (invariant 1) | A fact can pull the bit back to hardware if the model leans on it | Chosen now (user) |
+| D. Topic seeds from rJokes | Large, varied | Copying risk, and the rJokes-text rule | Rejected |
+| E. Train it away (SFT or DPO) | None at show time | Both sharpen what the model already writes; DPO narrows diversity; 60 + 60 pairs is too few. Judgment call, not measured | Rejected |
+
+**Design (C + A).** `backend/app/material.py`, data in `backend/app/material/character-v1.yaml` (facts) and `topics-v1.yaml` (topics; `adult: true` marks the ones a teen room skips; `from: character` marks the robot's own life as a bit's whole topic). One `ShowMaterial` per show with a logged seed orders topics and facts.
+- **Topic.** About 1 bit in 3 (`CHARACTER_EVERY = 3`: bits 1, 4, 7) takes the next unused `from: character` topic, the others the next unused everyday one; an empty pool falls back to the other before anything recycles. Unused means no earlier logged show (any room, sim or live; `used_topics` mirrors `cache.heard_texts`) and no earlier bit this show. When every topic is used, the least recently used of the bit's pool is taken and the row says `recycled: true`.
+- **Facts.** The 2 least used this show, ties by the seeded order.
+- **Used means played.** A topic or fact is spent when the bit's thread is played (`played_thread`), as the told premises are. A bit written on a guess (D-115) spends nothing when discarded; an adopted bit keeps the material it was written with; drawing twice for one bit gives one answer (a draw is a pure function of what has been played). Tested in `tests/test_material.py`.
+- **Request.** With `MATERIAL=1` the user JSON gets `topic` and `robot_facts`, and one fixed paragraph is appended to the system prompt (the PROMPTS entries stay frozen; it works with any prompt id, the live one at run time). The generator id gets `+mat-v1`.
+- **Log (invariant 6).** One `material` row per bit that plays: bit, topic, from, facts, sheet_id, list_id, seed, recycled. Schema stays v2; every reader dispatches on event names, and a test loads a log with these rows through the director, the cache and `load_sessions`.
+- **Setting.** `MATERIAL`, off by default until Exp 33 passes.
+
+**Exp 33 (`sim/material.py`, offline, the user runs it).** 5 consecutive simulated shows of 8 bits, 40 bits per arm, modes and rooms from one fixed seed and identical for both arms. A: the live prompt, material off. B: the same prompt, material on, topics skipping those used in earlier shows of the run (empty history at the start, so it does not depend on this laptop's logs). The played thread is thread 0. Writer: the live one (bonsai-2:4b on Ollama); bits are written one at a time.
+- **Metric 1 (repetition, gates).** Share of bits whose premise and lines are about the robot's own hardware, labeled by a Claude Haiku 5.5 judge with one fixed yes/no question, blind to the arm; a word-list share beside it as a cross-check. **Bar (user): B at most 15% and the paired bootstrap 95% CI of (B - A), paired by bit slot, entirely below 0.** Reported with no bar: the share for character-topic bits against everyday-topic bits.
+- **Metric 2 (user, blind, gates funniness).** 20 pairs (same slot, A against B, sides randomized by seed). For each: (a) which is funnier, (b) which sounds more like a specific character. **Bar (user) for (a): B wins at least 10 of 20; a tie is not a win.** (b) is reported with a Wilson 95% interval, not gated. 20 pairs detect only large differences: if B is truly preferred 60% of the time it reaches 10 wins about 87% of the time, and under a coin flip it still reaches 10 about 59% of the time. So the gate is "not clearly worse", and a pass is weak evidence of "funnier".
+- **Adopt** (flip the `MATERIAL` default to on, in the same PR) only when both bars pass. A failed repetition bar cannot be rescued by the pairs.
+- **What is made up.** No `audience.yaml` value is involved: there is no sim room reward. The slot modes and rooms are seeded draws; the judge's question and the 15% bar are judgment calls (15% is about half of the live 28%).
+- **Commands (user).** `python -m sim.material run --env-file backend/.env`, then `python -m sim.material review`, then `python -m sim.material score --record`.
+
+**Judgment calls, not measured.** 2 facts per bit (not 1 or 3); character topics for 1 bit in 3; the paragraph's wording; that a fact is rotated by least-used rather than random; the 15% bar.
+
+**Result (2026-11-26, the user ran `run`, `review`, `score --record`; record `reports/metrics/material.json`). Verdict `keep_off`: `MATERIAL` stays off by default.** 5 shows of 8 bits, 40 slots per arm, all bits delivered in both arms, no thread lost, 0 recycled topics (40 distinct topics, 15 character-topic bits), judge failures 0, 20 of 20 pairs answered. A = gen-v5 (material off), B = gen-v5 + material.
+
+| Check | Result | Bar | Met |
+|---|---|---|---|
+| Hardware share, B (material on) | 12% (5 of 40 bits) | at most 15% | yes |
+| Hardware share, A (material off) | 88% (35 of 40) | beside the bar | |
+| Paired B - A over 40 slots | -0.750, CI -0.900 to -0.600 | CI entirely below 0 | yes |
+| Word-list share, A / B (cross-check) | 90% / 42% | beside the bar | |
+| Hardware share, character-topic / everyday bits (B) | 20% (3 of 15) / 8% (2 of 25) | beside the bar | |
+| (a) Funnier: B wins | 6 of 20 (A 9, ties 5) | at least 10 | no |
+| (b) More like a specific character: B wins | 10 of 20 (A 7, ties 3), Wilson 95% 30% to 70% | beside the bar | |
+
+Writer time per bit: A p50 4.3 s, p95 7.4 s; B p50 4.4 s, p95 7.6 s. Arm B had 1 bad reply (A had 0); it was counted, not dropped.
+
+**Reading.** The repetition bar passed by a wide margin: the share of bits about the robot's own hardware fell from 88% to 12%, and the paired CI is far from 0. The funniness bar failed as defined: B needed 10 wins of 20 and got 6; the user preferred the material-off bit more often (A 9, B 6, 5 ties). With 20 pairs this does not show B is worse (6 against 9 is well inside coin-flip noise), only that the pre-set bar was not met, and under the rule a failed bar means keep off. Nothing was rescued by (b), which is reported and not gated: B was picked as more like a specific character in 10 of 20 (A 7, ties 3), an interval of 30% to 70%, so no direction. The word-list cross-check agrees on the direction (90% to 42%) but is far less extreme than the judge's 12%, so the word list flags many B bits the judge does not (probably battery or power words used in passing); the bar rides on the judge, which labels the bit's premise and lines. Character-topic bits stayed more hardware-heavy (20%) than everyday ones (8%) even with material on, on 15 and 25 bits.
+
+**Outcome.** Keep `MATERIAL` off. Not run: a variant with fewer or softer facts, or everyday topics only (character-topic bits are where hardware survives). Whether to try one is the user's call. Judgment call, not measured: that the funniness loss comes from the facts rather than the topics (the run did not separate them).
+
+
+## <a id="d-118"></a>D-118 · 2026-11-26 — Try the topic alone, with no robot facts, against Exp 33's old bits (Exp 34) (user)
+The user's hypothesis after Exp 33 failed on funniness: the two robot facts make the bit stiff and pull it back toward hardware, so give the writer a topic only. Result: keep off. Repetition bar failed (topic only 17.5% hardware, bar 15%), so the funniness pairs were not judged (table at the end of this entry).
+
+**This is the second attempt at the same bars after Exp 33 failed.** Under no real difference, one attempt reaches 10 wins of 20 about 59% of the time (D-117's figure, ties ignored), so two attempts reach it at least once about 83% of the time (1 - 0.41 squared). A pass here is weak evidence of "funnier", and weaker than the same pass would have been on a first try. 20 pairs kept (user choice, 2026-11-26, over 30); 20 pairs only detect large differences.
+
+| Option | For | Against | Choice |
+|---|---|---|---|
+| A. Topic only, no facts (arm C) | Tests the user's hypothesis directly; the topics are the part that fixed the repeat; cheapest change | If the facts were what made the bit specific, "more like a character" falls | Chosen now (user) |
+| B. Fewer facts (1) or softer facts | Keeps some voice | Two things changed from D-117 at once if the wording also moves; does not isolate the cause | Not run |
+| C. Everyday topics only (drop robot-life topics) | Robot-life topics keep the most hardware (20% in Exp 33) | Loses the robot's own life as a subject; also confounded with the facts | Not run |
+| D. Leave it off | No more risk of a lucky pass | The repeat problem stays (28% of live jokes on hardware) | Not chosen |
+
+**Design.** `MATERIAL` selects the variant: `1` (or `true`, `yes`, `on`, `full`) is D-117 unchanged, `topic` is the new one, anything else is off (still the default). `ShowMaterial(variant=...)` draws the same topics as before; in the topic variant `facts` is empty and `sheet_id` is null.
+- **Request.** User JSON has `venue`, `energy`, `premises_already_told` and `topic`, with no `robot_facts` key. The system prompt gets `TOPIC_PARAGRAPH`, a separate fixed paragraph that mentions only the topic and keeps the "not about your own hardware" sentence. D-117's `MATERIAL_PARAGRAPH` is byte-identical (a test holds a copy). Generator id suffix `+mat-topic-v1` (D-117's stays `+mat-v1`).
+- **Same as D-117.** Topic list, character topics 1 bit in 3 (`CHARACTER_EVERY = 3`), "used means played", the draw order for one seed (facts are still shuffled, never drawn, so the same seed gives the same topic order).
+- **Log row.** The `material` row gets an optional `variant` (`full` or `topic`; a D-117 row has none and reads as `full`), with `facts: []` for topic. Schema stays v2.
+
+**Exp 34 (`sim/material.py --exp 34`, offline, the user runs it).** Arm C = topic only. Same 40 slots (5 shows x 8 bits), same modes and rooms, same writer (bonsai-2:4b on Ollama), and the same material seeds as Exp 33, so C's topics are exactly B's topics from Exp 33: C and B differ only by the facts.
+- **Arm A is not rewritten.** Exp 33's 40 material-off bits are read from `data/material/run-94cc8faa/bits/*-A.json` (gitignored; that folder name is Exp 33's digest and still matches the code). The run refuses to start if the folder is missing (a code change moved its digest), a bit is missing, or a stored bit does not match its slot (slot id, arm, mode, no topic). Arm A's judge verdicts are reused from Exp 33's judge cache too, so A is labeled once.
+- **Metric 1 (gates).** Hardware share by the same Claude Haiku judge with the same yes/no question, blind to the arm; word-list share beside it. **Bar: C at most 15% AND the paired bootstrap 95% CI of (C - A), paired by slot, entirely below 0.**
+- **Metric 2 (gates).** 20 new blind pairs, C against A, same slot, sides randomized by pair seed 34 (Exp 33 used 32), the same two questions. The pairs come only from the 20 slots Exp 33's review did not show (pre-merge review fix, before any run): the user has read the arm A bit of each of Exp 33's 20 pairs, and with seed 34 alone 12 of the 20 new pairs would have reused one, so a familiar bit could give away which side is A. `exp33_shown` recomputes Exp 33's pairs (plus any slot answered) and the run refuses when Exp 33's arm B bits are gone. With all 40 C bits written, the draw is exactly the other 20 slots; a C bit with no thread there makes the review short, not refilled. **Bar for (a) funnier: C wins at least 10 of 20; a tie is not a win.** (b) is reported with an interval and not gated. Pairs are stored under `data/material/run-<digest>/review.json` (gitignored), as in Exp 33.
+- **Adopt** (make `MATERIAL` default to `topic`, in the same PR) only when both bars pass; that flip happens after the user runs Exp 34, not before.
+- **Record** `reports/metrics/material_topic.json` via `sim.cache.run_or_load`, seed string `exp34` (the slots keep Exp 33's seed so A matches).
+- **Commands (user).** `python -m sim.material run --exp 34 --env-file backend/.env`, then `python -m sim.material review --exp 34`, then `python -m sim.material score --exp 34 --record`.
+
+**What is made up.** No `audience.yaml` value is involved (no sim room reward). Slot modes and rooms are seeded draws; the judge's question and the 15% bar are judgment calls carried over from D-117.
+
+**Judgment calls, not measured.** The wording of `TOPIC_PARAGRAPH`; keeping the hardware sentence in it; that the 20 unseen slots are a fair sample of the 40 (they are Exp 33's seeded leftovers, not chosen by content); that the facts (not the topics) are what cost the laughs (the hypothesis this run tests, with only 20 pairs).
+
+**Result (2026-11-26, the user ran `run --exp 34`; record `reports/metrics/material_topic.json`). Verdict `keep_off`: `MATERIAL` stays off by default.** 5 shows of 8 bits, 40 slots per arm, all bits delivered in both arms, 0 recycled topics (40 distinct, 15 character-topic bits), judge failures 0, writer on the GPU after the run. A = gen-v5 (material off, Exp 33's stored bits), C = gen-v5 + topic.
+
+| Check | Result | Bar | Met |
+|---|---|---|---|
+| Hardware share, C (topic only) | 17.5% (7 of 40 bits) | at most 15% | **no** |
+| Hardware share, A (material off) | 87.5% (35 of 40) | beside the bar | |
+| Paired C - A over 40 slots | -0.700, CI -0.850 to -0.525 | CI entirely below 0 | yes |
+| Word-list share, A / C (cross-check) | 90% / 55% | beside the bar | |
+| Hardware share, character-topic / everyday bits (C) | 40% (6 of 15) / 4% (1 of 25) | beside the bar | |
+| Same split in Exp 33's B (topic + facts) | 20% (3 of 15) / 8% (2 of 25) | for comparison | |
+| (a) Funnier: C wins | not judged (0 of 20 answered) | at least 10 | no (by rule) |
+| (b) More like a specific character | not judged | beside the bar | |
+
+Arm C: 1 thread lost, 0 bad replies (A: 0, 0). Writer time per bit: A p50 4.3 s, p95 7.4 s; C p50 4.8 s, p95 7.3 s.
+
+**Reading.** Taking the facts away did not lower hardware; it raised it on the robot's-own-life topics (20% with facts, 40% without), where the facts were giving the bit something else to talk about. Everyday topics are near hardware-free with or without facts (8% and 4%, 25 bits). Exp 33's B and Exp 34's C differ only by the facts (same slots, modes, topics), so the gap on robot-life topics is the facts' effect on 15 bits, a small sample.
+
+**Pairs not judged, by rule.** The pre-set rule says a failed repetition bar cannot be rescued by the pairs, so the user was told and agreed (2026-11-26) not to judge the 20 pairs. The funniness bar is therefore "not met" by default, not by a vote.
+
+**Outcome.** Keep `MATERIAL` off. Not adopted, not run: everyday topics only (4% here looks promising), because that idea was picked after seeing this data and would be a third attempt at the same bar, with the multiple-attempts penalty on the funniness gate. Whether to try it is the user's call.
 ## <a id="d-119"></a>D-119 · 2026-11-26 — Give the writer tonight's context: approved headline gists, the market line and one optional typed line (Exp 35) (user)
 The user chose the problem, the scope of option B and every option below (2026-11-26); typed facts were then cut to at most 1 by the user. The two bars of Exp 35 were **set by Claude, confirmed by the user 2026-11-26**. The lead agent specified it and a Sonnet agent built it. Results: pending, the user runs Exp 35.
 
@@ -1354,3 +1475,4 @@ The user chose the problem, the scope of option B and every option below (2026-1
 - Why adopt anyway (user's call): the operator approves every gist before the show, which is the real safety net; with nothing approved the show runs as before; and it was not less funny. `TONIGHT` is now on by default.
 - Fixes after the run, same PR: fetch timeout 10 s to 30 s with one retry (FRED is slow, not down); every gist that does not reach the operator is kept with its reason in the day's file (Exp 35 could not say why its 3 name rejects were); and the pool grows from today's 10 top stories to today's top stories plus 14-day searches in technology, business, entertainment and sports (Google's top 8 of each by its own ranking, deduplicated, at most 40, condensed 15 per call). RSS has no read counts, so "popular" means Google's ranking (user asked for the stories followed over the last couple of weeks). No world or politics search, where the disasters were.
 - Still open: bar 1 needs more days of fetches to mean anything (`fetch` alone, no pairs).
+- **With material on as well (merged from main, D-117/D-118; material is off by default).** Judgment call, not measured: on bits 2 and 6 an approved headline is the topic and the bit draws no material, so it spends no topic or facts and writes no `material` row; other bits get material as usual. The generator id carries both suffixes (`gen-v5+mat-v1+tonight-v1:model`). With both off the writer is still called with two arguments, as `tests/test_predict_next.py` needs.

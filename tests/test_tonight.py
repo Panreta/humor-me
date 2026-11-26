@@ -423,6 +423,24 @@ def test_every_bit_gets_the_background_and_only_bits_2_and_6_a_topic():
     assert "topic" not in first and second["topic"] == "a chip appears" and second["tonight"] == first["tonight"]
 
 
+def test_with_material_too_a_headline_bit_draws_no_material_and_the_id_carries_both_suffixes():
+    from app import material
+    c, seen, _ = parallel_client(*(thread_reply(tag=t) for t in "abcdef"))
+    mat = material.ShowMaterial(1, facts=[f"fact {i}" for i in range(4)],
+                                topics=[(f"topic {i}", False, "everyday") for i in range(4)])
+    g = generate.ThreadGenerator(c, material=mat)
+    g.set_tonight(ctx_of())
+    assert g.generator_id.endswith(f"{generate.MATERIAL_SUFFIX}{tonight.SUFFIX}:m")
+    g.generate("cynic", 2, 0, CTX)  # a headline bit
+    g.generate("cynic", 3, 0, CTX)  # an ordinary bit
+    headline, ordinary = (json.loads(next(m["content"] for m in req["messages"] if m["role"] == "user")) for req in (seen[0], seen[3]))
+    assert headline["topic"] == "a chip appears" and "robot_facts" not in headline
+    assert ordinary["topic"].startswith("topic ") and ordinary["robot_facts"]
+    g.played_thread(2, 0)
+    g.played_thread(3, 0)
+    assert g.material_row(2) is None and g.material_row(3)["topic"] == ordinary["topic"]
+
+
 def test_a_headline_is_spent_when_its_bits_thread_is_played_not_when_it_is_written():
     c, seen, _ = parallel_client(*(thread_reply(tag=t) for t in "abcdef"))
     g = generate.ThreadGenerator(c)

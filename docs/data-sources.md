@@ -24,6 +24,11 @@ If transcripts are used at all, the low-risk use is **aggregate statistics only*
 locally and never committed as text: laugh markers per minute, words between laughs, bit
 length. These can seed the simulated audience's timing priors. Not needed for M1.
 
+**What is committed from our own shows (D-116).** Only the lines the show played that the writer or the bank generated
+(`reports/show_bits/`, from `python -m sim.show_ledger export`) and the ledger's numbers and per-bit hashes
+(`reports/metrics/show_ledger.json`). Session logs, recordings, reaction rows, rJokes and transcript text stay out of git,
+and nothing said by people in the room is ever exported.
+
 ## Tooling (to evaluate, not data)
 
 | Need | Candidates | Stage |

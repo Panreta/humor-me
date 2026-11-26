@@ -921,3 +921,102 @@ Decision: [D-115](agent/decisions-detail.md#d-115). Sim only, no model calls. Ra
 - **Against Exp 31(b)'s bar** (hit-rate 95% interval lower end at least 0.5): 23 of 28 right (0.82), Wilson 95% interval 0.64 to 0.92, so the lower end 0.64 clears it. The interval is optimistic: guesses within a show are not independent. All 28 were on 3 labels; 23 used (Exp 31's sim: about 0.7).
 - **Waits:** the median fell from 13.7 s to 0.0 s and bridge lines from 17.5 to 3.5 per show. The 7 gaps that still waited took 6.1 to 18.7 s: 5 follow a wrong guess (12.1 to 18.7 s, the whole prep back in the wait) and 2 a right guess whose prep was not ready (6.1 and 6.2 s). The p95 stays high because a wrong guess waits as long as before; a miss being slower than no guess is not visible (those 5 waits sit inside the before range of 9.8 to 27.4 s).
 - **The number D-115 estimated** (total wait over bits 1+ per show): 108.7 s before, 21.6 s after, about 87 s saved per show against the ~50 s estimate. Different shows, so an indication.
+
+## Show ledger: how each setup did (Exp 32, 2026-11-26)
+
+Decision: [D-116](agent/decisions-detail.md#d-116). Raw: `reports/metrics/show_ledger.json`. Code: `sim/show_ledger.py`. Chart: `reports/figures/decision-plot/exp32-show-ledger.png`. The played lines: `reports/show_bits/`.
+
+**The plain answer.** Your ratings have stayed between 1 and 4 in every setup, and there are too few ratings (1 to 4 per setup) to tell any setup from another. What clearly changed is the wait: with the next bit prepared early, the total wait per show fell from 115 s to 22 s. (D-115's own live check gives 108.7 s to 21.6 s because it counted a different set of shows as "before": it included show `6c09c721b0bb`, which the ledger files under the setup before D-112, since that show still replayed heard lines.)
+
+36 logged shows (15 from the hand bank, 21 written by a model), all readable; 18 finished, 18 aborted (12 of the aborted are bank test runs). Only 1 live show finished (rated 3). Sim-room reactions are the made-up audience's, so they are not counted as quality. Dates are local time. Setups in the order they started:
+
+| Setup | What changed (and the PR its first show ran on) | Finished shows | Your ratings | Mean | Lines from the bank | Threads lost per show | Typical wait (average of per-show medians, s) | Total wait per show (s) | Guess right |
+|---|---|---|---|---|---|---|---|---|---|
+| Gemini writer, 3 threads in one reply (gen-v3); next bit prepared after; no cached lines | T9 LLM writer (#55 feat/t11-rating-acceptance) | 4 | 2, 2, 3, 4 | 2.75 | 22% | 0.0 | 11.3 | 84 | - |
+| local (bonsai) writer, 3 threads in one reply (gen-v3); next bit prepared after; may replay heard lines | D-109 shows write with bonsai + D-91 cached bridge lines (#77 feat/bonsai-writer) | 1 | 1 | 1.00 | 28% | 0.0 | 13.2 | 79 | - |
+| local (bonsai) writer, one call per thread, 3 in parallel, before the reply-format fixes (gen-v4 before D-111 fixes); next bit prepared after; may replay heard lines | D-110 one call per thread (#78 feat/per-thread-generator) | 1 | 3 | 3.00 | 0% | 3.0 | 12.8 | 95 | - |
+| local (bonsai) writer, one call per thread, 3 in parallel (gen-v4); next bit prepared after; may replay heard lines | D-111 reply-format fixes (#79 feat/connected-threads) | 1 | 2 | 2.00 | 0% | 0.0 | 12.9 | 89 | - |
+| local (bonsai) writer, one call per thread, 3 in parallel (gen-v4); next bit prepared after; skips heard lines | D-112 skips heard lines (#81 feat/stage-timing) | 3 | 1, 2 (1 unrated) | 1.50 | 1% | 0.7 | 16.5 | 115 | - |
+| local (bonsai) writer, one call per thread, 3 in parallel (gen-v4); next bit prepared early; skips heard lines | D-115 next bit prepared early (#83 feat/early-prep) | 4 | 2, 2, 3, 3 | 2.50 | 0% | 0.0 | 0.0 | 22 | 23 of 28 |
+| local (bonsai) writer, connected-bit prompt, each line builds on the last (gen-v5); next bit prepared early; skips heard lines | D-111 addendum: connected-bit prompt live (#84 feat/exp27-extension) | 1 | 4 | 4.00 | 5% | 2.0 | 0.0 | 20 | 6 of 7 |
+
+**Code names.** The names in brackets in the table (and in `reports/show_bits/`) mean:
+
+| Code name | What it is | Decision | PR |
+|---|---|---|---|
+| bank-v1 | hand-written bank only | D-66 | #40 |
+| gen-v3 Gemini | Gemini writer, 3 threads in one reply | D-82 | #50 |
+| gen-v3 bonsai | local (bonsai) writer, 3 threads in one reply | D-107, D-109 | #77 |
+| gen-v4 before D-111 fixes | one call per thread, 3 in parallel, before the reply-format fixes | D-110 | #78 |
+| gen-v4 | one call per thread, 3 in parallel, with the reply-format fixes | D-110, D-111 | #78, #79 |
+| gen-v5 | connected-bit prompt, each line builds on the last | D-111 addendum | #84 |
+| + guess | next bit prepared early | D-115 | #83 |
+| + skip-heard | skips heard lines | D-112 | #80 |
+
+The chart uses the code names only. "Before D-111 fixes" is the one-call-per-thread writer on code from before the counted reply format and the re-ask (a show on #78 code, which is why it is its own setup).
+
+The hand-bank shows (3 finished, 12 aborted, no ratings) are in the ledger, not in the table. Lost threads were timeouts and badly shaped replies; the show on the connected-bit prompt (gen-v5) lost 2 of 3 threads in one bit to a timeout. One finished show, `9fedcfa07c3f`, was not rated.
+
+**Noise.** Exact test between neighbouring rated setups; with 1 to 4 ratings a side none can reach the usual 5% line, so none says anything either way:
+- gen-v3 Gemini to gen-v3 bonsai: n 4 and 1, mean -1.75: too few ratings to tell (a setup has fewer than 2)
+- gen-v3 bonsai to gen-v4 before D-111 fixes: n 1 and 1, mean +2.00: too few ratings to tell (a setup has fewer than 2)
+- gen-v4 before D-111 fixes to gen-v4: n 1 and 1, mean -1.00: too few ratings to tell (a setup has fewer than 2)
+- gen-v4 to gen-v4 + skip-heard: n 1 and 2, mean -0.50: too few ratings to tell (a setup has fewer than 2)
+- gen-v4 + skip-heard to gen-v4 + skip-heard + guess: n 2 and 4, mean +1.00: a random reshuffle of the same ratings gives a gap this big 27% of the time, and these sizes can never do better than 13%, so too few ratings to tell
+- gen-v4 + skip-heard + guess to gen-v5 + skip-heard + guess: n 4 and 1, mean +1.50: too few ratings to tell (a setup has fewer than 2)
+
+**What is made up.** Every sim-room reaction and reward (the audience in `sim/audience.yaml`). Waits depend on it only through when reactions arrive. The setups are different shows, not paired runs, and the rater is one person. Show `459d47bb396a` (aborted before its first bit) is filed under next-bit-guess because its code is the guess code.
+
+**After each show:** `python -m sim.show_ledger --record`, `python -m sim.show_ledger export`, then `python scripts/run_notebook.py notebooks/decision-plot.ipynb`.
+
+## Topics and robot facts for each bit (Exp 33, 2026-11-26)
+
+Decision: [D-117](agent/decisions-detail.md#d-117). Raw: `reports/metrics/material.json`. Code: `sim/material.py`. Setup: a topic and two robot facts per bit (gen-v5 + material) against the live prompt alone (gen-v5), 5 shows of 8 bits each, same modes and rooms. No `audience.yaml` value is involved.
+
+**Answer: keep it off.** Material cut the hardware jokes a lot (88% to 12% of bits), but you found the new bit funnier in only 6 of 20 pairs, and the bar was 10.
+
+| Check | Result | Bar |
+|---|---|---|
+| Bits about the robot's hardware, with material (gen-v5 + material) | 12% (5 of 40) | at most 15%: met |
+| Bits about the robot's hardware, without (gen-v5) | 88% (35 of 40) | beside the bar |
+| Drop, bit by bit (paired, 40 slots) | -0.750; 95% interval -0.900 to -0.600 | interval entirely below 0: met |
+| Same count by word list (cross-check) | 90% without, 42% with | beside the bar |
+| Hardware share: robot-life topics / everyday topics (with material) | 20% (3 of 15) / 8% (2 of 25) | beside the bar |
+| (a) Funnier: with material wins | 6 of 20 (without 9, ties 5) | at least 10: **not met** |
+| (b) More like a specific character: with material wins | 10 of 20 (without 7, ties 3); 95% interval 30% to 70% | beside the bar |
+| Verdict | keep_off | both bars |
+
+**Read it:**
+- The repeat problem is fixed in this test; the funniness bar is not met. 20 pairs cannot show the material bit is worse (6 against 9 is within coin-flip noise), only that the bar was missed, and the rule says a missed bar means off.
+- (b) points nowhere: 10 against 7 with an interval of 30% to 70%.
+- Robot-life topics kept more hardware jokes (20%) than everyday ones (8%), on 15 and 25 bits.
+- The word list finds 42% with material where the judge finds 12%; the bar rests on the judge, which reads each bit's premise and lines.
+- 1 bad reply with material, 0 without; time per bit is the same (median 4.3 s without, 4.4 s with). No topic was reused (40 distinct).
+- Not tested: whether the facts or the topics cost the laughs (the run did not separate them).
+
+
+## Topics only, no robot facts (Exp 34, 2026-11-26)
+
+Decision: [D-118](agent/decisions-detail.md#d-118). Raw: `reports/metrics/material_topic.json`. Code: `sim/material.py --exp 34`. Setup: a topic per bit, no robot facts (gen-v5 + topic, arm C) against Exp 33's material-off bits (gen-v5, arm A), the same 40 slots. Arm A is read from Exp 33's stored bits, not rewritten. No `audience.yaml` value is involved.
+
+**Answer: keep it off.** Topic only left 17.5% of bits on hardware (7 of 40), above the 15% bar. The funniness pairs were not judged: a missed first bar cannot be rescued by them.
+
+| Check | Result | Bar |
+|---|---|---|
+| Bits about the robot's hardware, topic only (gen-v5 + topic) | 17.5% (7 of 40) | at most 15%: **not met** |
+| Bits about the robot's hardware, without (gen-v5) | 87.5% (35 of 40) | beside the bar |
+| Drop, bit by bit (paired, 40 slots) | -0.70; 95% interval -0.85 to -0.525 | interval entirely below 0: met |
+| Same count by word list (cross-check) | 90% without, 55% with topic only | beside the bar |
+| Hardware share: robot-life topics / everyday topics (topic only) | 40% (6 of 15) / 4% (1 of 25) | beside the bar |
+| Same split in Exp 33 (topic and facts) | 20% (3 of 15) / 8% (2 of 25) | for comparison |
+| (a) Funnier, 20 new blind pairs | not judged (0 of 20) | at least 10: not met by rule |
+| Verdict | keep_off | both bars |
+
+**Read it:**
+- Taking the facts away did not lower hardware. On robot-life topics it went up, from 20% to 40%: the facts were giving the bit something else to talk about.
+- Everyday topics are near hardware-free with or without facts (8% and 4%).
+- Exp 33 and Exp 34 differ only by the facts (same slots, modes and topics), but 15 robot-life bits is a small sample.
+- 1 thread lost and 0 bad replies with topic only (0 and 0 without).
+- "Everyday topics only" looks promising (4%), but that idea came after seeing this data and would be a third try at the same bar. Not adopted, not run.
+
+**This was a second attempt at the same bars.** With no real difference, one attempt reaches 10 wins of 20 about 59% of the time, so two attempts reach it at least once about 83% of the time. 20 pairs only catch big differences.

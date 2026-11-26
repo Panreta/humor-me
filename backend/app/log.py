@@ -6,7 +6,7 @@ import pathlib
 import time
 import uuid
 
-SCHEMA = 2  # v2 adds the `bridge`, `cache`, `pause`, `resume` and `prep` events; a v1 log has none and replays unchanged
+SCHEMA = 2  # v2 adds the `bridge`, `cache`, `pause`, `resume`, `prep`, `prediction` and `material` events; a v1 log has none and replays unchanged
 READABLE = (1, 2)
 SESSIONS = pathlib.Path(__file__).resolve().parents[2] / "data" / "sessions"
 
@@ -22,6 +22,8 @@ EVENTS = {
     # The mode guessed for a bit while the one before it played its last jokes, and whether the director then picked it
     # (D-115). Written right after the bit's `bit_decision`; absent when no guess was made.
     "prediction": ("bit", "predicted", "decided", "hit", "started_at"),
+    # What a played bit was written from (D-117): its topic and the two character-sheet facts; only a bit that played.
+    "material": ("bit", "topic", "from", "facts", "sheet_id", "list_id", "seed", "recycled"),
     # Tonight's approved context (D-119): written once right after show_start, then one `tonight_use` row for each played
     # bit that took a headline as its topic.
     "tonight": ("facts", "market", "gists", "report"),
@@ -90,7 +92,7 @@ def validate(record: dict) -> None:
     event = record["event"]
     if not isinstance(event, str) or event not in EVENTS:
         raise ValueError(f"unknown event {event!r}")
-    if event in ("prep", "bridge", "cache", "pause", "resume", "prediction", "tonight", "tonight_use") and record["schema"] < 2:
+    if event in ("prep", "bridge", "cache", "pause", "resume", "prediction", "material", "tonight", "tonight_use") and record["schema"] < 2:
         raise ValueError(f"a schema 1 log has no {event} event")
     _need_keys(event, record, EVENTS[event])
     for (name, field), allowed in CHOICES.items():
@@ -135,6 +137,16 @@ def validate(record: dict) -> None:
             raise ValueError("prep.speculative must be a boolean")  # D-115: prepared on a guess that was then adopted
         if not (_is_int(record["bank_fallbacks"]) and record["bank_fallbacks"] >= 0):
             raise ValueError("prep.bank_fallbacks must be a non-negative integer")
+    if event == "material":
+        if not (isinstance(record["topic"], str) and isinstance(record["facts"], list)
+                and all(isinstance(f, str) for f in record["facts"])):
+            raise ValueError("material.topic must be a string and material.facts a list of strings")
+        if record["from"] not in ("character", "everyday"):
+            raise ValueError("material.from must be 'character' or 'everyday'")
+        if not isinstance(record["recycled"], bool) or not _is_int(record["seed"]):
+            raise ValueError("material.recycled must be a boolean and material.seed an integer")
+        if record.get("variant", "full") not in ("full", "topic"):  # optional (D-118): absent in a D-117 log, which is "full"
+            raise ValueError("material.variant must be 'full' or 'topic'")
     if event == "tonight":
         if not (isinstance(record["facts"], list) and isinstance(record["gists"], list)
                 and all(isinstance(t, str) for t in record["facts"] + record["gists"])

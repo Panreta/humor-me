@@ -22,6 +22,8 @@ VALID = {
                         audio_start_at=1.0, audio_end_at=2.0),
     "prep": dict(bit=1, started_at=10.0, generate_s=3.0, safety_s=1.5, render_wait_s=0.5, ready_at=15.0, bank_fallbacks=0),
     "prediction": dict(bit=1, predicted="cynic", decided="observer", hit=False, started_at=12.0),
+    "material": dict(bit=1, topic="airport security lines", **{"from": "everyday"}, facts=["a fact", "another"], sheet_id="character-v1",
+                     list_id="topics-v1", seed=7, recycled=False),
     "tonight": dict(facts=["it's snowing"], market="The S&P 500 closed up 0.4% at its last close.", gists=["a tech CEO announces a new chip"],
                     report={"fetched": 10, "approved": 1}),
     "tonight_use": dict(bit=2, gist="a tech CEO announces a new chip"),
