@@ -74,6 +74,7 @@ FILTER_RETRIES = 3
 # Ollama drops an idle model after 5 minutes by default). Inside a bit that would eat the 12 s deadline, so the show
 # pays it once before `show_start`, with the Exp 24 harness's warm-up budget.
 WARMUP_TIMEOUT_S = 300.0
+WRITER_CONTEXT = 8192  # the context Exp 24 measured the local writers at (D-97's gate); a test holds it to the harness's
 
 
 class GenerationError(Exception):
@@ -141,26 +142,33 @@ def _ollama_json(url: str, timeout: float = 5.0) -> dict:
         return json.loads(r.read().decode("utf-8"))
 
 
-def gpu_share(client: llm.Client, http=_ollama_json) -> tuple[float | None, list[str]]:
-    """The share of the writer that Ollama put in VRAM, from its own `/api/ps`, and the other models loaded beside it.
-    None when the writer is not listed or the report cannot be read: unknown, which the show treats as not on the GPU."""
+def _tagged(name: str) -> str:
+    """Ollama lists a model pulled without a tag as `<name>:latest`; the chat call accepts either."""
+    return name if ":" in name else f"{name}:latest"
+
+
+def placement(client: llm.Client, http=_ollama_json) -> tuple[float | None, int | None, list[str]]:
+    """Where Ollama put the writer, from its own `/api/ps`: the share in VRAM, the context it was loaded at, and the
+    other models loaded beside it. The share is None when the writer is not listed or the report is implausible or
+    cannot be read: unknown, which the show treats as not on the GPU."""
     root = client.base_url.rstrip("/").removesuffix("/v1")
     try:
         loaded = http(f"{root}/api/ps").get("models") or []
     except Exception:
-        return None, []
-    mine = next((m for m in loaded if client.model in (m.get("name"), m.get("model"))), None)
+        return None, None, []
+    want = _tagged(client.model)
+    mine = next((m for m in loaded if want in (_tagged(m.get("name", "")), _tagged(m.get("model", "")))), None)
     others = [m.get("name", "?") for m in loaded if m is not mine]
     size, vram = (mine or {}).get("size"), (mine or {}).get("size_vram")
-    if not isinstance(size, (int, float)) or not isinstance(vram, (int, float)) or size <= 0:
-        return None, others
-    return min(vram / size, 1.0), others
+    if not isinstance(size, (int, float)) or not isinstance(vram, (int, float)) or size <= 0 or not 0 <= vram <= size:
+        return None, None, others
+    return vram / size, mine.get("context_length"), others
 
 
 def warm_up(generator, http=_ollama_json) -> float | None:
     """Loads a local writer before the show and checks it is all on the GPU. One untimed request on a copy of its
     client, so its counters and the show's deadlines are untouched. Returns the seconds it took, or None when the
-    writer is not local. Raises `llm.LLMError` when the model cannot answer or is not 100% in VRAM (D-109): a writer
+    writer is not local. Raises `llm.LLMError` when the model cannot answer, is not 100% in VRAM or runs at another context (D-109): a writer
     partly on the CPU answers too slowly for the 12 s deadline, and the show would run on the bank alone."""
     client = getattr(generator, "client", None)
     if not getattr(client, "local", False):
@@ -173,12 +181,16 @@ def warm_up(generator, http=_ollama_json) -> float | None:
         raise llm.LLMError(f"the writer {client.model} did not load ({e}): is `ollama serve` running at "
                            f"{client.base_url}, and is the model pulled (`ollama pull {client.model}`)?", e.status) from e
     took = time.monotonic() - start
-    share, others = gpu_share(client, http)
+    share, context, others = placement(client, http)
     if share is None or share < 1.0:
         where = "Ollama does not list it" if share is None else f"only {share:.0%} of it is on the GPU"
         beside = f"; also loaded: {', '.join(others)} (`ollama stop <name>`)" if others else ""
         raise llm.LLMError(f"the writer {client.model} is not all on the GPU: {where}{beside}. "
                            "Start the show again once it fits (D-97, D-109)")
+    if context is not None and context != WRITER_CONTEXT:
+        raise llm.LLMError(f"the writer {client.model} is loaded at context {context}, not {WRITER_CONTEXT} as Exp 24 "
+                           "measured it: quit the Ollama tray app and restart `ollama serve` with "
+                           f"OLLAMA_CONTEXT_LENGTH={WRITER_CONTEXT} (D-97, D-109)")
     return took
 
 

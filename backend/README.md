@@ -17,7 +17,7 @@ cp sample.env .env
 
 | Variable | Example |
 |---|---|
-| `GEMINI_BASE_URL` | `https://api.groq.com/openai/v1`, `http://localhost:11434/v1` (Ollama) |
+| `GEMINI_BASE_URL` | `https://api.groq.com/openai/v1` (for Ollama use `JOKE_WRITER_PROVIDER=ollama` instead: only that route warms the model and checks the GPU) |
 | `GEMINI_API_KEY` | provider key (empty for Ollama) |
 | `JOKE_WRITER_MODEL` | e.g. `llama-3.1-8b-instant` |
 | `JOKE_WRITER_PROVIDER` | `ollama` (the shipped writer, `bonsai-2:4b` on this laptop, no key, `OLLAMA_URL` to move it; D-107, D-109), `openai`/`gemini` (the three above) or `anthropic` (official SDK, key in `ANTHROPIC_API_KEY`, `JOKE_WRITER_MODEL=claude-haiku-5-5`) |
@@ -69,7 +69,9 @@ twice inside a deadline; a failed generation or a bit whose candidates are all r
 **The writer is `bonsai-2:4b` on Ollama (D-107).** Start Ollama before the backend: quit the tray app, then in PowerShell
 `$env:OLLAMA_CONTEXT_LENGTH=8192; $env:OLLAMA_KEEP_ALIVE="-1"; ollama serve` (once: `ollama pull bonsai-2:4b`). Each show
 loads the writer before it starts and checks that Ollama put it all on the GPU (D-109). If it can't load, or another model
-holds the GPU, the show stops before it begins and says why (e.g. "also loaded: gemma4:12b (`ollama stop <name>`)").
+holds the GPU, or it runs at a context other than 8192, the show stops before it begins and says why (e.g. "also loaded:
+gemma4:12b (`ollama stop <name>`)"). `KEEP_ALIVE=-1` keeps every model loaded, so after Exp 24 or judge runs `ollama stop`
+the others. `OLLAMA_URL` must end in `/v1`.
 
 ```sh
 .venv/Scripts/python -m uvicorn app.main:app --port 8000 --env-file .env   # with JOKE_SOURCE=llm in .env

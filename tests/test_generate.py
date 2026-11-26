@@ -786,13 +786,14 @@ def local_writer(*script):
     return generate.GeminiGenerator(c), seen
 
 
-def ps(*models):
+def ps(*models, context=8192):
     """A fake `/api/ps`: (name, size, size_vram) per loaded model."""
     asked = []
 
     def http(url):
         asked.append(url)
-        return {"models": [{"name": n, "model": n, "size": s, "size_vram": v} for n, s, v in models]}
+        return {"models": [{"name": n, "model": n, "size": s, "size_vram": v, "context_length": context}
+                           for n, s, v in models]}
     return http, asked
 
 
@@ -822,6 +823,7 @@ def test_a_writer_that_cannot_load_is_an_error_that_says_how_to_fix_it():
      "only 52% of it is on the GPU; also loaded: gemma4:12b"),  # 2026-11-25: gemma held the GPU, every bit timed out
     ((("gemma4:12b", 7_000_000_000, 7_000_000_000),), "Ollama does not list it; also loaded: gemma4:12b"),
     ((("bonsai-2:4b", 0, 0),), "Ollama does not list it"),
+    ((("bonsai-2:4b", 1_000, 2_000),), "Ollama does not list it"),  # more in VRAM than its size: a bad report
 ])
 def test_a_writer_not_all_on_the_gpu_stops_the_show_and_names_what_holds_it(loaded, says):
     gen, _ = local_writer((200, completion('{"ready": true}')))
@@ -848,3 +850,17 @@ def test_the_shipped_sample_env_writes_with_bonsai_on_ollama(monkeypatch):
         monkeypatch.setenv(name, values[name])
     c = llm.from_env(role="joke_writer")
     assert c.local and c.model == "bonsai-2:4b"
+
+
+def test_a_writer_named_without_a_tag_is_found_as_ollama_lists_it():
+    gen, _ = local_writer((200, completion('{"ready": true}')))
+    gen.client.model = "bonsai-2"  # Ollama answers to it and lists it as bonsai-2:latest
+    assert isinstance(generate.warm_up(gen, ps(("bonsai-2:latest", 10, 10))[0]), float)
+
+
+def test_a_writer_loaded_at_another_context_than_exp_24_measured_stops_the_show():
+    from sim import compare_generators as cg
+    assert generate.WRITER_CONTEXT == cg.GATE_CONTEXT
+    gen, _ = local_writer((200, completion('{"ready": true}')))
+    with pytest.raises(llm.LLMError, match="context 4096, not 8192.*OLLAMA_CONTEXT_LENGTH=8192"):
+        generate.warm_up(gen, ps(("bonsai-2:4b", 10, 10), context=4096)[0])
