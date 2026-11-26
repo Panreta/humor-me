@@ -454,3 +454,144 @@ def test_wall_time_is_split_by_whether_a_bit_re_asked():
     assert a["bits_reasked"] == 1 and a["bit_p50_s_reasked"] == 11.0 and a["bit_p50_s_no_reask"] == 5.0
     assert a["bit_p95_s_no_reask"] == 6.0 and a["bad_replies"] == 1
     assert tc.arm_stats(recs, "B", {})["bit_p95_s_reasked"] == 12.0 and tc.arm_stats([], "A", {})["bit_p50_s_reasked"] is None
+
+
+# --- the 100-prompt extension (D-111 and D-114 addenda, 2026-11-26) -------------------------------------------------
+
+def test_the_100_prompts_start_with_exactly_exp_27s_20():
+    import hashlib
+    first = tc.prompts(20)
+    assert hashlib.sha256(json.dumps(first, sort_keys=True).encode()).hexdigest()[:16] == "2569b9b062446b8d"  # Exp 27's own
+    big = tc.prompts(tc.N_EXT)
+    assert big[:20] == first and len(big) == 100
+    assert [p["id"] for p in big] == [f"c{i:02d}" for i in range(100)]
+    assert [len(p["told"]) for p in big] == [i % 5 for i in range(100)]  # told counts keep the round robin by index
+
+
+def test_the_run_folder_and_records_are_keyed_on_the_first_20_not_on_n(monkeypatch):
+    assert tc.gen_digest(100) == tc.gen_digest(20) == tc.digest(20) and tc.run_dir(100) == tc.run_dir(20)
+    assert tc.digest(100) != tc.digest(20)  # keyed on n, the extension would start an empty folder and redo c00 to c19
+    assert tc.gen_digest(5) == tc.digest(5) != tc.digest(20)
+    assert tc.params(20)["digest_"] == tc.digest(20) and tc.rescore_params("v2", 20)["digest_"] == tc.digest(20)
+    assert (tc.metric_name(tc.NAME, 20), tc.metric_name(tc.RESCORE_NAME, 20)) == ("thread_coherence", "thread_coherence_rescore")
+    assert tc.metric_name(tc.RESCORE_NAME, 100) == "thread_coherence_rescore_n100"
+    assert tc.rescore_params("v2", 100) != tc.rescore_params("v2", 20)  # n is in the key
+    before = tc.run_dir(100)
+    with monkeypatch.context() as m:  # a change to what the bits are made of still starts a new folder
+        m.setenv("JOKE_WRITER_MODEL", "other:4b")
+        assert tc.run_dir(100) != before and tc.run_dir(100) == tc.run_dir(20)
+
+
+@pytest.fixture
+def small_ext(tmp_path, monkeypatch):
+    """Exp 27 shrunk to 4 prompts and its extension to 8, so the folder logic runs on a fake writer."""
+    fake = FakeOllama()
+    monkeypatch.setattr(tc, "N_PROMPTS", 4)
+    monkeypatch.setattr(tc, "N_EXT", 8)
+    monkeypatch.setattr(tc, "DATA", tmp_path / "data")
+    monkeypatch.setattr(cache, "METRICS", tmp_path / "metrics")
+    monkeypatch.setattr(generate, "writer_client", fake.client)
+    monkeypatch.setattr(generate, "warm_up", lambda *a, **k: 0.1)
+    monkeypatch.setattr(generate, "placement", lambda *a, **k: (1.0, 8192, []))
+    return fake
+
+
+def exp27_bits(fake):
+    return tc.generate_bits(fake.client(), tc.prompts(4), tc.run_dir(4), http=ps())
+
+
+def test_the_extension_reads_back_the_first_bits_and_writes_only_the_new_ones(small_ext):
+    first = exp27_bits(small_ext)
+    files = {p.name: p.read_bytes() for p in (tc.run_dir(4) / "bits").glob("*.json")}
+    seen = len(small_ext.seen)
+    res = cache.run_or_load(tc.metric_name(tc.NAME, 8), tc.run_extension, **tc.ext_params(8))
+    new_calls = small_ext.seen[seen:]
+    assert len(new_calls) == 4 * 2 * 3  # 4 new prompts x 2 arms x 3 threads: c00 to c03 not rewritten
+    assert {p.name: p.read_bytes() for p in (tc.run_dir(4) / "bits").glob("*.json") if p.name in files} == files
+    assert tc.gather(tc.run_dir(8), tc.prompts(8)) is not None and tc.run_dir(8) == tc.run_dir(4)
+    assert tc.gather(tc.run_dir(8), tc.prompts(8))[:len(first)] == first
+    assert res["new_prompts"] == 4 and res["reused_prompts"] == 4 and res["arms"]["A"]["bits"] == 8
+    assert "threads_judged" not in res["arms"]["A"] and "spot_check" not in res and "verdict" not in res
+    text = json.dumps(res)
+    assert "zz" not in text and "line " not in text
+    assert (cache.METRICS / "thread_coherence_n8.json").exists() and not (cache.METRICS / "thread_coherence.json").exists()
+    n = len(small_ext.seen)
+    tc.run_extension(8, tc.SEED, tc.gen_digest(8))  # everything is there now: nothing written, not even a warm-up
+    assert len(small_ext.seen) == n
+
+
+def test_the_extension_stops_when_exp_27s_own_bits_are_not_in_the_folder(small_ext):
+    with pytest.raises(SystemExit):
+        tc.run_extension(8, tc.SEED, tc.gen_digest(8))
+    assert small_ext.seen == [] and not (tc.run_dir(8) / "bits").exists()
+    exp27_bits(small_ext)
+    (tc.run_dir(4) / "bits" / "c02-B.json").unlink()
+    seen = len(small_ext.seen)
+    with pytest.raises(SystemExit):
+        tc.run_extension(8, tc.SEED, tc.gen_digest(8))
+    assert len(small_ext.seen) == seen
+
+
+def test_the_extension_refuses_a_stale_call_and_a_call_that_is_not_an_extension(small_ext):
+    with pytest.raises(AssertionError):
+        tc.run_extension(8, tc.SEED, "0" * 8)
+    with pytest.raises(AssertionError):
+        tc.run_extension(4, tc.SEED, tc.gen_digest(4))
+
+
+def test_review_and_score_need_no_review_for_the_extension_and_say_so():
+    with pytest.raises(SystemExit):
+        tc.score(100)
+    for command in ("review", "score"):
+        r = subprocess.run([sys.executable, "-m", "sim.thread_coherence", command, "--n", "100"], cwd=ROOT, capture_output=True,
+                           text=True)
+        assert r.returncode != 0 and "superseded" in r.stderr and "Is this ONE bit" not in r.stdout
+
+
+def test_the_rescore_for_n_is_its_own_record_cached_for_the_first_bits_and_current_only_for_that_n(small_ext, monkeypatch):
+    from sim import judge_calibration as jc
+    monkeypatch.setattr(jc, "stored", lambda: {"kept": "v2", "rescore_allowed": True})
+    exp27_bits(small_ext)
+    judge = FakeJudge()
+    r4 = tc.rescore("v2", 4, tc.SEED, tc.gen_digest(4), tc.judge_digest("v2"), client=judge)
+    assert len(judge.calls) == 4 * 2 * 3 and r4["n"] == 4
+    with pytest.raises(SystemExit) as e:  # the extension's bits are not written yet
+        tc.rescore("v2", 8, tc.SEED, tc.gen_digest(8), tc.judge_digest("v2"), client=judge)
+    assert "run --n 8" in str(e.value) and len(judge.calls) == 24
+    tc.run_extension(8, tc.SEED, tc.gen_digest(8))
+    r8 = tc.rescore("v2", 8, tc.SEED, tc.gen_digest(8), tc.judge_digest("v2"), client=judge)
+    assert len(judge.calls) == 24 + 24  # c00 to c03's verdicts are read from the cache under v2's digest
+    assert r8["n"] == 8 and r8["n_prompts"] == 8 and r8["bar"]["n_paired"] == 8 and "zz" not in json.dumps(r8)
+    prov = {"calibration_digest": "x", "verdict": "keep_v2_trusted"}
+    monkeypatch.setattr(tc, "exp30_provenance", lambda: prov)
+    assert tc.rescore_current({**r8, "exp30": prov}, 8) is True
+    assert tc.rescore_current({**r8, "exp30": prov}, 4) is False  # another n: the same record is not current for it
+    assert tc.rescore_current({**r8, "exp30": prov, "n": 4}, 8) is False
+    assert tc.rescore_current({**r8, "exp30": {**prov, "verdict": "keep_v1"}}, 8) is False
+    cache.save(tc.metric_name(tc.RESCORE_NAME, 8), tc.rescore_params("v2", 8), {**r8, "exp30": prov})
+    assert tc.rescore_status("v2", 8)[0] == "current" and tc.rescore_status("v2", 4)[0] == "none"
+    monkeypatch.setattr(tc, "exp30_provenance", lambda: {**prov, "verdict": "keep_v1"})
+    assert tc.rescore_status("v2", 8)[0] == "stale"
+
+
+def test_the_extension_rescore_is_not_recorded_on_a_judge_gap(small_ext, monkeypatch):
+    from sim import judge_calibration as jc
+    monkeypatch.setattr(jc, "stored", lambda: {"kept": "v2", "rescore_allowed": True})
+    exp27_bits(small_ext)
+    tc.run_extension(8, tc.SEED, tc.gen_digest(8))
+    with pytest.raises(SystemExit):
+        tc.rescore("v2", 8, tc.SEED, tc.gen_digest(8), tc.judge_digest("v2"), client=FakeJudge(fail=True))
+    assert not (tc.run_dir(8) / "judge_cache" / tc.judge_digest("v2")).exists()  # an outage is not cached either
+
+
+def test_the_bar_is_unchanged_at_100_prompts_and_a_lower_bound_of_exactly_0_fails():
+    assert tc.bar(np.full(100, 0.1))["passes"] is True
+    assert tc.bar(np.zeros(100))["passes"] is False
+    edge = tc.bar(np.array([0.0] * 99 + [1 / 3]))  # mean above 0, but the resample often holds only zeros: lower bound 0
+    assert edge["mean_diff"] > 0 and edge["ci95"][0] == 0.0 and edge["lower_above_zero"] is False and edge["passes"] is False
+    assert tc.bar(np.array([0.2] * 60 + [0.0] * 40))["n_paired"] == 100
+
+
+def test_the_power_at_100_prompts_is_high_for_the_gains_that_matter():
+    small, observed, big = (tc.simulate_power(d, 0.3, n=100, reps=100, n_boot=300) for d in (0.1, 0.13, 0.2))
+    assert small < observed <= big and big > 0.95 and tc.simulate_power(0.0, 0.3, n=100, reps=100, n_boot=300) < 0.1

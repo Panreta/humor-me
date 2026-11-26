@@ -27,6 +27,19 @@ threads to check. Reported beside it, with no bar: threads delivered and lost pe
 placement after the run.
 
 Code changes elsewhere (the generator, the client) are NOT in the digest: rerun with `--rerun` after one.
+
+Extension to 100 prompts (D-111 and D-114 addenda, the user's call 2026-11-26; fixed before any new data). The 20-prompt
+result above is kept as it is. Judge v2 re-scored it: mean B - A +0.133, CI [0.0, 0.25], so the bar failed at exactly 0,
+too close to call. So ids `c20` to `c99` are added (`prompts(100)[:20] == prompts(20)`, a test), no new user labels:
+    python -m sim.thread_coherence run --n 100 --env-file backend/.env
+    python -m sim.thread_coherence rescore --judge v2 --n 100 --env-file backend/.env
+`run --n 100` writes only the bits that are missing (c00 to c19 are read back, never rewritten; the run folder is keyed
+on the first 20 prompts, not on n) and judges nothing: v2 decides, v1 is not asked for the new threads and its spot-check
+is superseded (D-114), so `review` and `score` refuse n=100. `rescore --n 100` judges all 100 prompts' threads with v2
+(c00 to c19 are cached) and stores `thread_coherence_rescore_n100.json`.
+Bar, same form: the paired mean B - A over all 100 prompts under judge v2 (a prompt where an arm has no judged thread
+drops out; `n_paired` is reported) is above 0 and the paired bootstrap 95% CI's lower bound is above 0. Adopting gen-v5
+also needs D-114's conditions (`judge_calibration.adoptable`, which reads the n=100 record).
 """
 import argparse
 import hashlib
@@ -49,7 +62,8 @@ from sim.blind import PLAIN, plain  # noqa: E402
 from sim.env import AGES, ENERGIES, VENUES  # noqa: E402
 
 NAME = "thread_coherence"
-N_PROMPTS = 20
+N_PROMPTS = 20  # Exp 27's own prompts; the extension (N_EXT) keeps these as its first 20
+N_EXT = 100
 SEED = "exp27"
 ARMS = {"A": "gen-v4", "B": "gen-v5"}
 N_BOOT = 10_000
@@ -120,6 +134,18 @@ def digest(n: int = N_PROMPTS, seed: str = SEED) -> str:
     return generation_digest(prompts(n, seed), seed, n)
 
 
+def gen_digest(n: int = N_PROMPTS, seed: str = SEED) -> str:
+    """Keys the run folder and the records. Beyond Exp 27's 20 prompts it is the 20-prompt digest, so the extension
+    reads and adds to the folder (and keeps the digests) Exp 27's record was made under; what the first 20 bits are
+    made of is the same either way. Below 20 it is `digest(n)`."""
+    return digest(min(n, N_PROMPTS), seed)
+
+
+def metric_name(base: str, n: int) -> str:
+    """The 20-prompt records keep their names; another n gets its own file, so the extension never overwrites them."""
+    return base if n == N_PROMPTS else f"{base}_n{n}"
+
+
 def generation_digest(bits: list[dict], seed: str, n: int) -> str:
     """What the generated bits are made of: both prompts, the reply shapes, timing, model and the prompts' contents. A
     change starts a new run folder. The judge has its own digest (`judge_digest`), as its verdicts can be redone alone.
@@ -143,11 +169,16 @@ def judge_digest(version: str = "v1") -> str:
 
 
 def run_dir(n: int = N_PROMPTS, seed: str = SEED, root: pathlib.Path | None = None) -> pathlib.Path:
-    return (root or DATA) / f"run-{digest(n, seed)}"
+    return (root or DATA) / f"run-{gen_digest(n, seed)}"
 
 
 def params(n: int = N_PROMPTS, seed: str = SEED) -> dict:
-    return {"n_prompts": n, "seed": seed, "digest_": digest(n, seed), "judge_digest_": judge_digest()}
+    return {"n_prompts": n, "seed": seed, "digest_": gen_digest(n, seed), "judge_digest_": judge_digest()}
+
+
+def ext_params(n: int = N_EXT, seed: str = SEED) -> dict:
+    """The extension's writing step has no judge in it, so no judge digest."""
+    return {"n_prompts": n, "seed": seed, "digest_": gen_digest(n, seed)}
 
 
 def thread_hash(lines: list[str]) -> str:
@@ -479,7 +510,7 @@ def gather(directory: pathlib.Path, bits: list[dict]) -> list[dict] | None:
 
 
 def run(n_prompts: int = N_PROMPTS, seed: str = SEED, digest_: str = "", judge_digest_: str = "") -> dict:
-    assert digest_ == digest(n_prompts, seed), "the prompts, timing or request changed since this call was built"
+    assert digest_ == gen_digest(n_prompts, seed), "the prompts, timing or request changed since this call was built"
     assert judge_digest_ == judge_digest(), "the judge's prompt or model changed since this call was built"
     client = generate.writer_client()
     bits, directory = prompts(n_prompts, seed), run_dir(n_prompts, seed)
@@ -490,9 +521,34 @@ def run(n_prompts: int = N_PROMPTS, seed: str = SEED, digest_: str = "", judge_d
     return summarize(records, verdicts, read_answers(directory), on_gpu=writer_on_gpu(directory))
 
 
+def run_extension(n_prompts: int = N_EXT, seed: str = SEED, digest_: str = "") -> dict:
+    """Writes the missing bits of prompts c20 onward into Exp 27's run folder and returns timing and loss numbers: no
+    judging (the rescore does it with v2) and no review. Exp 27's own 20 bits must already be there: with another
+    digest (a changed writer setting, another checkout) the folder would be empty and the first 20 would be written
+    again, so this stops instead of quietly mixing two runs."""
+    assert digest_ == gen_digest(n_prompts, seed), "the prompts, timing or request changed since this call was built"
+    assert n_prompts > N_PROMPTS, "the extension adds prompts to Exp 27's 20"
+    client = generate.writer_client()
+    bits, directory = prompts(n_prompts, seed), run_dir(n_prompts, seed)
+    if gather(directory, bits[:N_PROMPTS]) is None:
+        raise SystemExit(f"Exp 27's {N_PROMPTS} prompts' bits are not all in {directory}: run from the checkout that holds "
+                         "data/thread_coherence, with the writer settings Exp 27 ran with")
+    if gather(directory, bits) is None and not getattr(client, "local", False):
+        raise SystemExit("Exp 27 writes with the local writer: set JOKE_WRITER_PROVIDER=ollama")
+    records = generate_bits(client, bits, directory)
+    arms = {}
+    for a in ARMS:
+        s = arm_stats(records, a, {})
+        arms[a] = {k: v for k, v in s.items() if k not in ("threads_judged", "threads_connected")}
+    return {"n_prompts": n_prompts, "reused_prompts": N_PROMPTS, "new_prompts": n_prompts - N_PROMPTS, "arms": arms,
+            "writer_on_gpu_after_run": writer_on_gpu(directory)}
+
+
 def score(n_prompts: int = N_PROMPTS, seed: str = SEED) -> dict:
     """The numbers again from the run folder, with the user's answers, and no model call. Raises when a bit or a
     verdict is missing: finish `run` first."""
+    if n_prompts > N_PROMPTS:
+        raise SystemExit("score is Exp 27's v1 path with the spot-check, superseded by v2 (D-114): use `rescore --judge v2`")
     bits, directory = prompts(n_prompts, seed), run_dir(n_prompts, seed)
     records = gather(directory, bits)
     if records is None:
@@ -515,7 +571,11 @@ RESCORE_NAME = "thread_coherence_rescore"
 
 
 def rescore_params(judge: str, n: int = N_PROMPTS, seed: str = SEED) -> dict:
-    return {"judge": judge, "n_prompts": n, "seed": seed, "digest_": digest(n, seed), "judge_digest_": judge_digest(judge)}
+    return {"judge": judge, "n_prompts": n, "seed": seed, "digest_": gen_digest(n, seed), "judge_digest_": judge_digest(judge)}
+
+
+def rescore_record(judge: str = "v2", n: int = N_PROMPTS) -> dict | None:
+    return cache.load(metric_name(RESCORE_NAME, n), rescore_params(judge, n))
 
 
 def rescore_allowed(judge: str) -> bool:
@@ -538,16 +598,18 @@ def exp30_provenance() -> dict | None:
             "agree_v1": j.get("v1", {}).get("agree"), "agree_v2": j.get("v2", {}).get("agree"), "scored": r.get("scored")}
 
 
-def rescore_current(res: dict) -> bool:
-    return res.get("exp30") is not None and res["exp30"] == exp30_provenance()
+def rescore_current(res: dict, n: int = N_PROMPTS) -> bool:
+    """Current for this n and the Exp 30 record as it stands now. A record without `n` is the 20-prompt one."""
+    return res.get("n", N_PROMPTS) == n and res.get("exp30") is not None and res["exp30"] == exp30_provenance()
 
 
-def rescore_status(judge: str = "v2") -> tuple[str, dict | None]:
-    """('none' | 'stale' | 'current', the stored re-score). Stale: made under an Exp 30 record that has changed."""
-    res = cache.load(RESCORE_NAME, rescore_params(judge))
+def rescore_status(judge: str = "v2", n: int = N_PROMPTS) -> tuple[str, dict | None]:
+    """('none' | 'stale' | 'current', the stored re-score). Stale: made under an Exp 30 record that has changed, or
+    for another n."""
+    res = rescore_record(judge, n)
     if res is None:
         return "none", None
-    return ("current" if rescore_current(res) else "stale"), res
+    return ("current" if rescore_current(res, n) else "stale"), res
 
 
 def rescore(judge: str, n_prompts: int = N_PROMPTS, seed: str = SEED, digest_: str = "", judge_digest_: str = "",
@@ -555,18 +617,22 @@ def rescore(judge: str, n_prompts: int = N_PROMPTS, seed: str = SEED, digest_: s
     """Exp 27's bar again, with the stored threads judged by `judge` (cached under that judge's digest). No new writing.
     The spot-check is not repeated: the fresh-sample agreement of Exp 30 is the judge check, because the 10 threads of
     Exp 27's spot-check are judge v2's training set. So this record holds the bar and nothing that adopts gen-v5."""
-    assert digest_ == digest(n_prompts, seed) and judge_digest_ == judge_digest(judge), "the prompts or the judge changed"
+    assert digest_ == gen_digest(n_prompts, seed) and judge_digest_ == judge_digest(judge), "the prompts or the judge changed"
     if not rescore_allowed(judge):
         raise SystemExit(f"judge {judge} may not re-score Exp 27: Exp 30 has not kept and trusted it (D-114)")
     bits, directory = prompts(n_prompts, seed), run_dir(n_prompts, seed)
     records = gather(directory, bits)
     if records is None:
-        raise SystemExit("Exp 27's bits are not all in the run folder")
+        raise SystemExit("Exp 27's bits are not all in the run folder" + (
+            f": run `python -m sim.thread_coherence run --n {n_prompts}` first" if n_prompts > N_PROMPTS else ""))
     verdicts = judge_all(client or make_judge_client(), records, directory, judge)
+    if n_prompts > N_PROMPTS and any(v is None for v in verdicts.values()):
+        raise SystemExit("the judge could not answer some threads (an outage is not cached): run again to fill them in, "
+                         "so the 100-prompt record is not made on a gap")
     rates = per_prompt(records, verdicts)
     ids, diffs = paired_diffs(rates)
     b = bar(diffs)
-    return {"judge": judge, "exp30": exp30_provenance(), "n_prompts": len(rates), "paired_prompts": ids, "bar": b,
+    return {"judge": judge, "n": n_prompts, "exp30": exp30_provenance(), "n_prompts": len(rates), "paired_prompts": ids, "bar": b,
             "arms": {a: {"threads_judged": sum(v[a]["judged"] for v in rates.values() if a in v),
                          "threads_connected": sum(v[a]["connected"] for v in rates.values() if a in v)} for a in ARMS},
             "per_prompt": {p: {a: rates[p][a] for a in ARMS if a in rates[p]} for p in sorted(rates)},
@@ -594,6 +660,7 @@ def table(res: dict) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("command", choices=("run", "review", "score", "rescore"))
+    ap.add_argument("--n", type=int, default=N_PROMPTS, help=f"prompts: {N_PROMPTS} is Exp 27, {N_EXT} its extension")
     ap.add_argument("--judge", choices=tuple(JUDGES), default="v2", help="rescore: which judge re-scores")
     ap.add_argument("--rerun", action="store_true", help="run: recompute from the run folder even if a record exists")
     ap.add_argument("--env-file")
@@ -602,6 +669,17 @@ def main() -> None:
         from dotenv import load_dotenv
         load_dotenv(a.env_file, override=True)
     os.environ.setdefault("JOKE_WRITER_PROVIDER", "ollama")
+    if a.n < N_PROMPTS or (a.n > N_PROMPTS and a.command in ("review", "score")):
+        raise SystemExit(f"n={a.n}: Exp 27 is {N_PROMPTS} prompts; the extension ({N_EXT}) is `run --n` then `rescore --n` "
+                         "(no review: the v1 spot-check is superseded by v2, D-114)")
+    if a.command == "run" and a.n > N_PROMPTS:
+        res = cache.run_or_load(metric_name(NAME, a.n), run_extension, rerun=a.rerun, **ext_params(a.n))
+        print(json.dumps({k: res[k] for k in ("n_prompts", "new_prompts", "writer_on_gpu_after_run")}), flush=True)
+        for arm, st in res["arms"].items():
+            print(f"arm {arm} ({st['prompt']}): delivered {st['threads_delivered']}, lost {st['threads_lost']}, "
+                  f"bit p50/p95 {cg.fmt(st['bit_p50_s'])}/{cg.fmt(st['bit_p95_s'])} s")
+        print(f"now: python -m sim.thread_coherence rescore --judge v2 --n {a.n}")
+        return
     if a.command == "run":
         res = cache.run_or_load(NAME, run, rerun=a.rerun, **params())
     elif a.command == "review":
@@ -615,10 +693,11 @@ def main() -> None:
         print(f"{done} of {draw(records, verdicts)['asked']} answered; now `score`.")
         return
     elif a.command == "rescore":
-        status, _ = rescore_status(a.judge)
-        res = cache.run_or_load(RESCORE_NAME, rescore, rerun=a.rerun or status == "stale", **rescore_params(a.judge))
+        status, _ = rescore_status(a.judge, a.n)
+        res = cache.run_or_load(metric_name(RESCORE_NAME, a.n), rescore, rerun=a.rerun or status == "stale",
+                                **rescore_params(a.judge, a.n))
         b = res["bar"]
-        print(f"judge {res['judge']}: mean B - A {b['mean_diff']} CI {b['ci95']} over {b['n_paired']} prompts; bar passes: {res['bar_passes']}")
+        print(f"judge {res['judge']}, n={a.n}: mean B - A {b['mean_diff']} CI {b['ci95']} over {b['n_paired']} prompts; bar passes: {res['bar_passes']}")
         return
     else:
         res = score()
