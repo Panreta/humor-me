@@ -1,27 +1,32 @@
-"""The LLM generator: one call per bit returns K threads of the bit (thread-major in the reply, joke-major in a Batch).
-Candidate i of every joke belongs to thread i, and the show plays one thread through (app.show._pick_thread).
+"""The LLM generator (gen-v4, D-110): a bit is K threads, each written by its own call; the K calls run in parallel on the
+same prompt, which is DPO's pair distribution (independent samples of one prompt). A call returns
+one thread (a premise and JOKES lines); the Batch the show reads is joke-major over the threads that came back, and
+candidate i of every joke belongs to thread i. The show plays one thread through (app.show._pick_thread).
 
-Failure is the generator's to report and the show's to absorb: `generate` raises when the call or the reply is bad
-(the same exception for every joke of that bit, with no second call), and the show falls back to the hand-checked
-bank (app.show._prepare). Retries inside the call live in app.llm.
+Failure is the generator's to report and the show's to absorb: a call that fails, times out or returns a bad shape
+drops only its thread, and the bit goes on with the rest. `generate` raises, the same exception for every joke of the
+bit with no further calls, only when no thread came back, and the show then falls back to the hand-checked bank
+(app.show._prepare). The K calls share one wall-time budget (GENERATOR_TIMING[1]), all starting together. Retries inside a call live in app.llm.
 """
 import dataclasses
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from app import llm, safety
 from app.bank import BankGenerator
 from app.show import Batch
 
-K = 3  # threads per bit: enough for the filter to reject some and the selector to still choose
+K = 3  # threads per bit, one call each: enough for the filter to reject some and the selector to still choose
 JOKES = 5
 TEMPERATURE = 0.9
-PROMPT_ID = "gen-v3"
+PROMPT_ID = "gen-v4"
 
-# The one reply shape `parse` accepts, for providers that can enforce it (Claude structured output, Ollama json_schema).
-REPLY_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["premises", "threads"],
-                "properties": {"premises": {"type": "array", "items": {"type": "string"}},
-                               "threads": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}}}
+# The one reply shape `parse` accepts for a single thread, for providers that can enforce it (Claude structured
+# output, Ollama json_schema). gen-v3's three-threads-in-one-reply generator is frozen in app.generate_v3 (D-110).
+REPLY_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["premise", "jokes"],
+                "properties": {"premise": {"type": "string"},
+                               "jokes": {"type": "array", "items": {"type": "string"}}}}
 
 # One identity, six attitudes (HumorGen personas as modes, CLAUDE.md invariant 3).
 MODES = {
@@ -36,13 +41,13 @@ SYSTEM = """You write material for a live stand-up show that one character perfo
 
 Mode: {mode}: {mode_note}.
 
-Write one bit in {k} alternative threads. A thread has its own premise angle and {jokes} jokes played in order (opener, tag, tag, tag, closer): the opener sets up the situation, each tag builds on it, and the closer calls back to a word or image from that same thread's opener. The {k} threads must take clearly different angles. Return each thread as its own list of {jokes} lines, in playing order. The show plays one thread through, or swaps single lines between threads.
+Write one thread of a bit: a premise angle and {jokes} jokes played in order (opener, tag, tag, tag, closer). The opener sets up the situation, each tag builds on it, and the closer calls back to a word or image from this thread's opener. Give the premise as one short sentence. The user message lists premises the room has already heard (premises_already_told): take a clearly different premise from every one of them.
 
 Rules:
 - Each line is one or two short sentences made for speaking aloud, under 30 words, with no stage directions or emoji.
 - Aim every joke at the robot itself, technology, the situation, or things people say. Never at who anyone is: no jokes about bodies or appearance, no protected groups, no real or named people, nobody in the room singled out.
 {teens}
-Reply with JSON only, exactly this shape: {{"premises": ["premise of thread 0", ...], "threads": [[opener, tag, tag, tag, closer], ...]}} with {k} threads of {jokes} lines each."""
+Reply with JSON only, exactly this shape: {{"premise": "the premise", "jokes": [opener, tag, tag, tag, closer]}} with {jokes} lines."""
 TEENS_RULE = "- The audience is teenagers: no alcohol, drugs, sexual content, innuendo or swearing."
 
 # In character, hand-written, one breath each: they only have to fill a few seconds while a bit loads.
@@ -59,7 +64,8 @@ BRIDGES = (
     "Almost there. I'm double-checking the next joke for problems, and so far the main problem is me.",
 )
 
-# Seconds: (per-attempt timeout, deadline over all attempts), and the retries after the first attempt.
+# Seconds: (per-attempt timeout, deadline for a whole bit over all its calls and attempts), and the retries after the
+# first attempt of each call. The bridge lines are sized for that 12 s, so the K calls of a bit share it (D-110).
 GENERATOR_TIMING = (10.0, 12.0)
 RETRIES = 2
 # The filter's budget is sized by what a stall costs, not by how long a healthy call takes (1.3-2 s). A bit's
@@ -81,33 +87,32 @@ class GenerationError(Exception):
     pass
 
 
-def parse(reply: str) -> tuple[list[str], list[list[str]]]:
-    """Accepts one shape only: {"premises": [...], "threads": [[JOKES lines] x K]}, thread-major. Returns the premises
-    (one per thread when given) and the lines joke-major (lines[j][i] is joke j of thread i), which is what the show's
-    batches hold. Any other shape or count raises, and so does a line with no letters (emoji or symbols only, which
-    the voice cannot say): a thread cannot be repaired by guessing."""
+def parse(reply: str) -> tuple[str, list[str]]:
+    """Accepts one shape only: {"premise": str, "jokes": [JOKES lines]}. Returns the premise and the lines in playing
+    order. Any other shape or count raises, and so does a line with no letters (emoji or symbols only, which the
+    voice cannot say): a thread cannot be repaired by guessing."""
     try:
         data = json.loads(llm.strip_fence(reply))
-        threads = data["threads"]
-        premises = data.get("premises") or []
-        premises = [str(x) for x in premises] if isinstance(premises, list) else [str(premises)]
+        premise, jokes = data["premise"], data["jokes"]
     except (ValueError, KeyError, TypeError, AttributeError) as e:
         raise GenerationError(f"malformed reply: {type(e).__name__}") from e
-    if (not isinstance(threads, list) or len(threads) != K
-            or not all(isinstance(t, list) and len(t) == JOKES for t in threads)
-            or not all(isinstance(line, str) and any(c.isalpha() for c in line) for t in threads for line in t)):
-        shape = [len(t) if isinstance(t, list) else type(t).__name__ for t in threads] if isinstance(threads, list) else "?"
-        raise GenerationError(f"expected {K} threads of {JOKES} lines with letters in them, got {shape}")
-    return premises, [[threads[i][j].strip() for i in range(K)] for j in range(JOKES)]
+    if (not isinstance(premise, str) or not isinstance(jokes, list) or len(jokes) != JOKES
+            or not all(isinstance(line, str) and any(c.isalpha() for c in line) for line in jokes)):
+        shape = len(jokes) if isinstance(jokes, list) else type(jokes).__name__
+        raise GenerationError(f"expected a premise and {JOKES} lines with letters in them, got {shape}")
+    return premise.strip(), [line.strip() for line in jokes]
 
 
-class GeminiGenerator:
-    """One instance per show. It tells the model which premises the room has heard, so a bit does not repeat one:
-    only the thread the show actually played counts (`played_thread`), not the alternatives that were generated."""
+class ThreadGenerator:
+    """One instance per show. A bit is K calls with one identical prompt, run in parallel, one thread each. The
+    prompt tells the model which premises the room has heard (only the thread the show actually played counts,
+    `played_thread`, not the alternatives that were generated). Two threads of a bit may share a premise: the calls do
+    not see each other, as independent samples of one prompt must not (D-110)."""
 
-    def __init__(self, client: llm.Client):
+    def __init__(self, client: llm.Client, *, budget_s: float = GENERATOR_TIMING[1]):
         self.client = client
         self.generator_id = f"{PROMPT_ID}:{client.model}"
+        self.budget_s = budget_s
         self._bits: dict[int, tuple[str, list[list[str]], list[str]] | Exception] = {}
         self._told: list[str] = []
 
@@ -127,13 +132,29 @@ class GeminiGenerator:
 
     def _fetch(self, mode: str, context: dict) -> tuple[str, list[list[str]], list[str]] | Exception:
         teens = TEENS_RULE if context["age"] not in safety.STANDARD_AGES else ""
-        system = SYSTEM.format(mode=mode, mode_note=MODES[mode], k=K, jokes=JOKES, teens=teens)
+        system = SYSTEM.format(mode=mode, mode_note=MODES[mode], jokes=JOKES, teens=teens)
         user = json.dumps({"venue": context["venue"], "energy": context["energy"], "premises_already_told": self._told})
-        try:
-            premises, lines = parse(self.client.chat(system, user, json_reply=REPLY_SCHEMA, temperature=TEMPERATURE))
-        except (llm.LLMError, GenerationError) as e:
-            return e
-        return f"{system}\n\n{user}", lines, premises
+        left = self.budget_s  # the calls start together, so each has the whole bit's budget
+        if self.client.deadline_s is not None:
+            left = min(left, self.client.deadline_s)
+        if left < llm.MIN_ATTEMPT_S:
+            return GenerationError("no thread written: no time left for a call")
+
+        def one(_: int):
+            try:
+                return parse(self.client.chat(system, user, json_reply=REPLY_SCHEMA, temperature=TEMPERATURE,
+                                              deadline_s=left))
+            except (llm.LLMError, GenerationError) as e:
+                return e  # only this thread is lost
+
+        with ThreadPoolExecutor(K) as pool:
+            got = list(pool.map(one, range(K)))  # by call index, not completion order
+        ok = [g for g in got if not isinstance(g, Exception)]
+        if not ok:
+            err = GenerationError(f"no thread written: {type(got[-1]).__name__}: {got[-1]}")
+            err.__cause__ = got[-1]
+            return err
+        return f"{system}\n\n{user}", [[t[1][j] for t in ok] for j in range(JOKES)], [t[0] for t in ok]
 
 
 def _ollama_json(url: str, timeout: float = 5.0) -> dict:
@@ -211,10 +232,15 @@ class LiveSafety:
         return safety.check_rules(text, age)
 
 
+def writer_client() -> llm.Client:
+    """The show's joke-writer client, exactly as a show builds it (Exp 26 times this one)."""
+    return llm.from_env(GENERATOR_TIMING[0], role="joke_writer", retries=RETRIES, deadline_s=GENERATOR_TIMING[1])
+
+
 def llm_stack(room: str):
     """(generator, safety, fallback, bridge lines) for a show on the real model. Raises SafetyNotReady for a live
     room without the slur list. The deadlines keep a failing provider inside the bridge lines' cover."""
     safety.require_ready(room)
-    return (GeminiGenerator(llm.from_env(GENERATOR_TIMING[0], role="joke_writer", retries=RETRIES, deadline_s=GENERATOR_TIMING[1])),
+    return (ThreadGenerator(writer_client()),
             LiveSafety(llm.from_env(FILTER_TIMING[0], role="safety_check", retries=FILTER_RETRIES, deadline_s=FILTER_TIMING[1])),
             BankGenerator(), list(BRIDGES))

@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 import anthropic
 
-from app.llm import LLMError, run_with_retries
+from app.llm import LLMError, bump, run_with_retries
 
 MODEL = "claude-haiku-5-5"
 # Per million tokens, USD (Exp 24 cost estimates).
@@ -41,11 +41,12 @@ class Client:
     _built: Any = field(default=None, repr=False)
 
     def chat(self, system: str, user: str, *, json_reply: bool | dict = False, temperature: float = 0.0,
-             validate: Callable[[str], None] | None = None) -> str:
+             validate: Callable[[str], None] | None = None, deadline_s: float | None = None) -> str:
         # `temperature` is accepted for the shared surface and never sent: Haiku 5.5 answers a non-default one with
         # a 400. `json_reply` may be the reply's JSON schema (a dict): it is sent as structured output, since there is
         # no prefill to force JSON. A bare True sends nothing, and the prompt's "JSON only" has to do.
-        return run_with_retries(self, lambda timeout: self._once(system, user, json_reply, timeout), validate)
+        return run_with_retries(self, lambda timeout: self._once(system, user, json_reply, timeout), validate,
+                                deadline_s)
 
     def _client(self):
         if self.sdk is not None:
@@ -91,8 +92,8 @@ class Client:
 
     def _text(self, resp) -> str:
         try:  # bookkeeping must never fail a good reply
-            self.input_tokens += int(getattr(resp.usage, "input_tokens", 0) or 0)
-            self.output_tokens += int(getattr(resp.usage, "output_tokens", 0) or 0)
+            bump(self, input_tokens=int(getattr(resp.usage, "input_tokens", 0) or 0),
+                 output_tokens=int(getattr(resp.usage, "output_tokens", 0) or 0))
         except Exception:
             pass
         # Content is only meaningful for a normal stop: a refusal or a cut-off reply must not be read as an answer.

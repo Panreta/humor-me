@@ -113,6 +113,7 @@ What we decided and why, one line each. Click an ID for the full record (options
 | [D-107](agent/decisions-detail.md#d-107) | Nov 25 | Exp 24 is done. Haiku was funnier in 16 of 30 votes, but not clearly (gap 0.5 ranks, interval touches 0). We keep bonsai-2:4b as the live writer and the training base: it is a baseline to improve, and Haiku can't be trained. Haiku is the bar SFT and DPO must reach. (user) |
 | [D-108](agent/decisions-detail.md#d-108) | Nov 25 | When two models tie exactly on funniness, the faster one goes through, not the one whose name sorts first. Exp 24's result doesn't change: bonsai is faster than qwen. (user) |
 | [D-109](agent/decisions-detail.md#d-109) | Nov 25 | Shows now write with bonsai on Ollama, set up exactly as Exp 24 measured it. Each show loads the model first and won't start unless it's all on the GPU, so a busy GPU can't silently turn a show into bank jokes. (user) |
+| [D-110](agent/decisions-detail.md#d-110) | Nov 25 | The show now writes each bit as three separate calls, one thread of 5 jokes each, run at the same time on the same prompt. Why: one training example for DPO is then one request and the 5 jokes the audience hears. Cost: 3 calls instead of 1, so Exp 26 re-times it. Exp 24's pick stands as measured. (user) |
 
 New decision: add its full entry to the detailed log with the next ID, then a row here in the same PR.
 A test fails if the two files' IDs don't match.
