@@ -248,3 +248,4 @@ data/model_comparison/
 
 # Exp 27 connected threads: generated joke text, judge verdicts and your review answers; local only
 data/thread_coherence/
+data/material/
