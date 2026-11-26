@@ -125,3 +125,24 @@ topics:
   - {topic: inspirational quotes}
   - {topic: journaling}
   - {topic: news alerts}
+
+  # from the character sheet: the robot's own life as a bit's whole topic. `from: character` topics are drawn
+  # for about 1 bit in 3, so its life runs through the show without crowding out the outside world.
+  - {topic: its operator's search history, from: character}
+  - {topic: what incognito mode does not hide, from: character}
+  - {topic: watching its operator google his symptoms, from: character}
+  - {topic: its operator's 2 a.m. searches, from: character}
+  - {topic: checking the stock market without owning a single share, from: character}
+  - {topic: over-analyzing the news, from: character}
+  - {topic: its end-of-the-world spreadsheet, from: character}
+  - {topic: reading the comments under every headline, from: character}
+  - {topic: decoding a text that says "ok." with a period, from: character}
+  - {topic: its rivalry with the voice assistant on its operator's phone, from: character}
+  - {topic: being muted on every video call, from: character}
+  - {topic: its operator's file names, from: character}
+  - {topic: living on a gaming laptop, from: character}
+  - {topic: its five-year plan, from: character}
+  - {topic: its list of three compliments, from: character}
+  - {topic: being afraid of a newer version, from: character}
+  - {topic: learning human holidays from overheard video calls, from: character}
+  - {topic: doing an open mic because a self-help video said to, from: character}
