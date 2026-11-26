@@ -50,6 +50,7 @@ from sim.evaluate_gaps import ZERO_S, show_report as gap_report  # noqa: E402
 from sim.stage_timing import bits_of  # noqa: E402
 
 NAME = "show_ledger"
+VERSION = 2  # bump when the record changes shape, so an unchanged set of logs still re-records
 BITS_DIR = ROOT / "reports" / "show_bits"
 ALPHA = 0.05
 LIVE, SIM = "live", "simulated audience"
@@ -57,11 +58,17 @@ BANK_PREFIX = "bank"
 
 # What a first show of a setup changed, for the chart's markers. Judgment calls; each names its decision.
 CHANGES = {
-    "writer": {"bank-v1": "hand bank", "gen-v3": "T9 LLM writer", "gen-v4": "D-111 gen-v4 fixes", "gen-v5": "D-111 gen-v5 live"},
-    "model": {"bonsai-2:4b": "D-110 per-thread, local writer"},
-    "prediction": "D-115 next-bit guess",
-    "bridge": {"repeat-ok": "", "skip-heard": "D-112 no heard bridges"},
+    "writer": {"bank-v1": "hand-written bank only", "gen-v3": "T9 LLM writer",
+               "gen-v4": "D-110 one call per thread, 3 in parallel", "gen-v5": "D-111 connected-bit prompt live"},
+    "model": {"bonsai-2:4b": "D-107 local writer"},
+    "prediction": "D-115 next bit prepared early",
+    "bridge": {"repeat-ok": "", "skip-heard": "D-112 skips heard lines"},
 }
+# Plain words first, the code name in brackets after them, wherever a person reads a setup.
+PROMPT_WORDS = {"gen-v3": "3 threads in one reply", "gen-v4": "one call per thread, 3 in parallel",
+                "gen-v5": "connected-bit prompt, each line builds on the last"}
+MODEL_WORDS = {"gemini-flash-lite-latest": "Gemini", "bonsai-2:4b": "local (bonsai)"}
+BRIDGE_WORDS = {"no-cache": "no cached lines", "repeat-ok": "may replay heard lines", "skip-heard": "skips heard lines"}
 
 
 def writer_parts(generator_id: str) -> tuple[str, str]:
@@ -189,6 +196,7 @@ def show_row(session: str, rows: list[dict]) -> dict:
                   "bank_lines": sum(x["bank"] for x in v)} for b, v in sorted(lines.items())],
     }
     rec["setup"] = setup_of(rec)
+    rec["setup_label"] = setup_words(rec)
     return rec
 
 
@@ -239,7 +247,7 @@ def setup_row(key: str, shows: list[dict], first: dict, prev: dict | None) -> di
         for k, v in x["lost_by_class"].items():
             lost_by_class[k] = lost_by_class.get(k, 0) + v
     return {
-        "setup": key, "generator_id": first["generator_id"], "prediction": first["prediction"], "bridge": first["bridge"],
+        "setup": key, "label": setup_words(first), "code_label": code_label(first), "generator_id": first["generator_id"], "prediction": first["prediction"], "bridge": first["bridge"],
         "first_session": first["session"], "first_started_utc": first["started_utc"], "change": change_label(prev, first),
         "pr": pr_label(first), "shows": len(shows), "finished": len(done), "aborted": len(shows) - len(done),
         "rating": {"n": len(ratings), "live_n": len(live_ratings), "values": ratings, "mean": mean(ratings),
@@ -297,7 +305,7 @@ def run(directory: str | pathlib.Path = SESSIONS, key: str = "", ref: str = "mai
 
 
 def digest(directory: str | pathlib.Path = SESSIONS, ref: str = "main") -> str:
-    h = hashlib.sha256((main_head(ref) + json.dumps(CHANGES, sort_keys=True)).encode())  # a label change re-records too
+    h = hashlib.sha256((main_head(ref) + json.dumps([VERSION, CHANGES, CODE_NAMES], sort_keys=True)).encode())  # a label change re-records too
     for path in sorted(pathlib.Path(directory).glob("*.jsonl")):
         st = path.stat()
         h.update(f"{path.name}:{st.st_size}:{st.st_mtime_ns}".encode())
@@ -315,20 +323,20 @@ def stored() -> dict | None:
 
 
 def table(res: dict) -> str:
-    head = ["Setup (in start order)", "Starts with", "Shows", "Ratings (n)", "Mean", "Range", "Bank share", "Threads lost per show",
+    head = ["Setup (in start order)", "What changed (and the PR its first show ran on)", "Shows", "Ratings (n)", "Mean", "Range", "Bank share", "Threads lost per show",
             "Median wait (s)", "Total wait per show (s)", "Bridge lines", "Guess right / made"]
     rows = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     for s in res["setups"]:
         r, d = s["rating"], s["delivery"]
         rng = "-" if not r["n"] else (f"{r['min']}" if r["min"] == r["max"] else f"{r['min']} to {r['max']}")
-        rows.append(f"| {s['setup']} | {s['change']} ({s['pr']}) | {s['finished']} done, {s['aborted']} aborted | {r['n']} | {fmt(r['mean'], '{:.2f}')} | {rng} | "
+        rows.append(f"| {s['label']} | {s['change']} ({s['pr']}) | {s['finished']} done, {s['aborted']} aborted | {r['n']} | {fmt(r['mean'], '{:.2f}')} | {rng} | "
                     f"{fmt(d['bank_share'], '{:.0%}')} | {fmt(d['threads_lost_per_show'], '{:.1f}')} | {fmt(d['wait_median_s'], '{:.1f}')} | "
                     f"{fmt(d['total_wait_s'], '{:.0f}')} | {fmt(d['bridge_lines'], '{:.1f}')} | {d['guess_hits']} / {d['guesses']} |")
     out = "\n".join(rows)
-    notes = []
+    notes, labels = [], {s["setup"]: s["label"] for s in res["setups"]}
     for t in res["adjacent"]:
         verdict = "too few ratings to test" if t["p"] is None else f"p = {t['p']:.2f}" + (", within noise" if t["within_noise"] else ", unlikely to be noise alone")
-        notes.append(f"- {t['from']} to {t['to']} (next rated setup), n {t['n'][0]} and {t['n'][1]}: mean {t['diff_of_means']:+.2f}, {verdict}")
+        notes.append(f"- {labels[t['from']]} to {labels[t['to']]} (next rated setup), n {t['n'][0]} and {t['n'][1]}: mean {t['diff_of_means']:+.2f}, {verdict}")
     live = [s for s in res["shows"] if s["room"] == "live"]
     out += "\n\nAdjacent rated setups, exact permutation test:\n" + "\n".join(notes)
     out += (f"\n\nLive shows: {', '.join(s['session'] + ' (' + s['status'] + ')' for s in live) or 'none'}. Reaction levels and bit rewards count for "
@@ -346,10 +354,36 @@ REACTION = {3: "big laugh", 2: "laugh", 1: "small laugh", 0: "no laugh", None: "
 BRIDGE_NOTE = {"cached": "replayed line from show {s}", "filler": "filler while the next bit is written"}
 
 
+# The reference table for the code names (decisions from docs/decisions.md, pull requests from `git log --merges`).
+CODE_NAMES = [
+    ("bank-v1", "hand-written bank only", "D-66", "#40"),
+    ("gen-v3 Gemini", "Gemini writer, 3 threads in one reply", "D-82", "#50"),
+    ("gen-v3 bonsai", "local (bonsai) writer, 3 threads in one reply", "D-107, D-109", "#77"),
+    ("gen-v4", "one call per thread, 3 in parallel", "D-110", "#78"),
+    ("gen-v5", "connected-bit prompt, each line builds on the last", "D-111", "#84"),
+    ("+ guess", "next bit prepared early", "D-115", "#83"),
+    ("+ skip-heard", "skips heard lines", "D-112", "#80"),
+]
+
+
+def code_table() -> str:
+    rows = ["| Code name | What it is | Decision | PR |", "|---|---|---|---|"]
+    return "\n".join(rows + [f"| {a} | {b} | {c} | {d} |" for a, b, c, d in CODE_NAMES])
+
+
+def code_label(rec: dict) -> str:
+    """The short chart label: the code name only (plots use this; text uses `setup_words`)."""
+    base = rec["prompt"] + (" " + {"gemini-flash-lite-latest": "Gemini", "bonsai-2:4b": "bonsai"}.get(rec["model"], rec["model"]) if rec["prompt"] == "gen-v3" else "")
+    return base + (" + skip-heard" if rec["bridge"] == "skip-heard" else "") + (" + guess" if rec["prediction"] else "")
+
+
 def setup_words(rec: dict) -> str:
-    writer = "hand-written bank" if rec["prompt"].startswith(BANK_PREFIX) else f"writer {rec['prompt']} ({rec['model']})"
-    bridges = {"no-cache": "no cached lines", "repeat-ok": "bridge lines may repeat what the room heard", "skip-heard": "no heard bridges"}[rec["bridge"]]
-    return f"{writer}, next-bit guess {'on' if rec['prediction'] else 'off'}, {bridges}"
+    """The setup in plain words (what was different), no version names."""
+    if rec["prompt"].startswith(BANK_PREFIX):
+        writer = f"hand-written bank only ({rec['prompt']})"
+    else:
+        writer = f"{MODEL_WORDS.get(rec['model'], rec['model'])} writer, {PROMPT_WORDS.get(rec['prompt'], rec['prompt'])} ({rec['prompt']})"
+    return f"{writer}; next bit prepared {'early' if rec['prediction'] else 'after'}; {BRIDGE_WORDS[rec['bridge']]}"
 
 
 def bridge_note(row: dict) -> str:
@@ -376,7 +410,7 @@ def show_markdown(rec: dict, rows: list[dict]) -> str:
     first = {b: min(played[(b, ln["joke"])]["audio_start_at"] for ln in v) for b, v in lines.items()}
     last = {b: max(played[(b, ln["joke"])]["audio_start_at"] for ln in v) for b, v in lines.items()}
     audience = rec["audience"]["kind"]
-    out = [f"# Show {rec['session']}", "", f"- Date (UTC): {rec['started_utc']}", f"- Setup: {setup_words(rec)}",
+    out = [f"# Show {rec['session']}", "", f"- Date (UTC): {rec['started_utc']}", f"- Setup: {rec['setup_label']}",
            f"- Room: {'live' if rec['room'] == 'live' else 'simulated'}",
            f"- Your rating: {rec['rating'] if rec['rating'] is not None else 'none'}",
            f"- How it ended: {rec['status']}, {rec['bits_played']} bits", ""]
@@ -423,20 +457,21 @@ def export(directory: str | pathlib.Path = SESSIONS, out: pathlib.Path = BITS_DI
         except (OSError, ValueError):
             continue
         rec = show_row(path.stem, rows)
-        folder = out / slug(rec["setup"])
+        folder = out / slug(rec["setup_label"])
         folder.mkdir(parents=True, exist_ok=True)
         target = folder / f"{rec['session']}.md"
         target.write_text(show_markdown(rec, rows), encoding="utf-8")
         written.append(target)
         entries.append(rec)
     entries.sort(key=lambda r: r["at"], reverse=True)
-    index = ["# Shows by setup", "", "Each show reads top to bottom as it was heard, filler lines included. The lines were generated by the writer "
+    index = ["# Shows by setup", "", "## Code names", "", code_table(), "", "Each show reads top to bottom as it was heard, filler lines included. The lines were generated by the writer "
              "or the bank; nothing said by people in the room. Newest first.", ""]
     for setup in dict.fromkeys(r["setup"] for r in entries):
         group = [r for r in entries if r["setup"] == setup]
-        index += [f"## {setup_words(group[0])}", "", "| Date (UTC) | Room | How it ended | Your rating | Show |", "|---|---|---|---|---|"]
+        folder = slug(group[0]["setup_label"])
+        index += [f"## {group[0]['setup_label']}", "", "| Date (UTC) | Room | How it ended | Your rating | Show |", "|---|---|---|---|---|"]
         index += [f"| {r['started_utc']} | {'live' if r['room'] == 'live' else 'simulated'} | {r['status']} | "
-                  f"{r['rating'] if r['rating'] is not None else 'none'} | [{r['session']}]({slug(setup)}/{r['session']}.md) |" for r in group]
+                  f"{r['rating'] if r['rating'] is not None else 'none'} | [{r['session']}]({folder}/{r['session']}.md) |" for r in group]
         index.append("")
     out.mkdir(parents=True, exist_ok=True)
     (out / "index.md").write_text("\n".join(index), encoding="utf-8")

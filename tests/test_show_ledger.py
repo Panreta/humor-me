@@ -72,7 +72,7 @@ def test_setups_group_by_writer_guess_and_bridge_in_start_order(logs):
     assert [s["setup"] for s in res["setups"]] == ["gen-v3:m / guess off / bridges no-cache", "gen-v4:m / guess off / bridges skip-heard",
                                                    "gen-v4:m / guess on / bridges skip-heard"]
     assert [s["shows"] for s in res["setups"]] == [1, 1, 2]
-    assert res["setups"][2]["change"] == "D-115 next-bit guess" and res["setups"][1]["change"] == "D-111 gen-v4 fixes + D-112 no heard bridges"
+    assert res["setups"][2]["change"] == "D-115 next bit prepared early" and res["setups"][1]["change"] == "D-110 one call per thread, 3 in parallel + D-112 skips heard lines"
 
 
 def test_bridge_rule_reads_the_cache_row():
@@ -173,8 +173,9 @@ def test_export_reads_the_show_top_to_bottom_in_play_order_with_labels(logs, tmp
     index = (out / "index.md").read_text(encoding="utf-8")
     assert "| Date (UTC) | Room | How it ended | Your rating | Show |" in index
     assert index.index("sim1") < index.index("live1")  # newest first
-    assert "writer gen-v4 (m), next-bit guess off, no heard bridges" not in live  # bridge rule comes from the cache row
-    assert "writer gen-v4 (m), next-bit guess off, bridge lines may repeat what the room heard" in live
+    assert "Setup: m writer, one call per thread, 3 in parallel (gen-v4); next bit prepared after; may replay heard lines" in live
+    assert index.index("## Code names") < index.index("| bank-v1 | hand-written bank only | D-66 | #40 |") < index.index("## m writer")
+    assert "## m writer, one call per thread, 3 in parallel (gen-v4); next bit prepared after" in index  # plain words, then the code name
     for text in (live, sim, index):
         assert SECRET not in text  # context fields, candidates, prompts and rejected items are never read
 
@@ -242,3 +243,18 @@ def test_re_record_picks_up_a_new_show(logs, tmp_path, monkeypatch):
 def test_pr_label_falls_back_to_the_sha():
     assert sl.pr_label({"pr": {"pr": None, "branch": None}, "git_sha": "abcdef1"}) == "abcdef1"
     assert sl.pr_label({"pr": {"pr": 80, "branch": "feat/x"}, "git_sha": "abcdef1"}) == "#80 feat/x"
+
+
+def test_setup_words_give_plain_words_then_the_code_name():
+    base = {"prompt": "gen-v5", "model": "bonsai-2:4b", "prediction": True, "bridge": "skip-heard"}
+    assert sl.setup_words(base) == ("local (bonsai) writer, connected-bit prompt, each line builds on the last (gen-v5); "
+                                    "next bit prepared early; skips heard lines")
+    assert sl.setup_words({**base, "prompt": "bank-v1", "model": "", "prediction": False, "bridge": "no-cache"}) ==         "hand-written bank only (bank-v1); next bit prepared after; no cached lines"
+    assert sl.setup_words({**base, "prompt": "gen-v3", "model": "gemini-flash-lite-latest"}).startswith("Gemini writer, 3 threads in one reply (gen-v3)")
+
+
+def test_chart_labels_are_code_names_only():
+    rec = {"prompt": "gen-v4", "model": "bonsai-2:4b", "prediction": True, "bridge": "skip-heard"}
+    assert sl.code_label(rec) == "gen-v4 + skip-heard + guess"
+    assert sl.code_label({**rec, "prompt": "gen-v3", "model": "gemini-flash-lite-latest", "prediction": False, "bridge": "no-cache"}) == "gen-v3 Gemini"
+    assert sl.code_label({**rec, "prompt": "bank-v1", "model": "", "prediction": False, "bridge": "no-cache"}) == "bank-v1"

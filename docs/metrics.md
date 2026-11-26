@@ -930,14 +930,28 @@ Decision: [D-116](agent/decisions-detail.md#d-116). Raw: `reports/metrics/show_l
 
 36 logged shows (15 from the hand bank, 21 written by a model), all readable; 18 finished, 18 aborted (12 of the aborted are bank test runs). Only 1 live show finished (rated 3). Sim-room reactions are the made-up audience's, so they are not counted as quality. Setups in the order they started:
 
-| Setup | Started with | Finished shows | Your ratings | Mean | Lines from the bank | Threads lost per show | Median wait (s) | Total wait per show (s) | Guess right |
+| Setup | What changed (and the PR its first show ran on) | Finished shows | Your ratings | Mean | Lines from the bank | Threads lost per show | Median wait (s) | Total wait per show (s) | Guess right |
 |---|---|---|---|---|---|---|---|---|---|
-| gen-v3, Gemini, no guess, no cache | first LLM shows | 4 | 2, 2, 3, 4 | 2.75 | 22% | 0 | 11.3 | 84 | - |
-| gen-v3, local writer, no guess | per-thread writer, local model | 1 | 1 | 1.00 | 28% | 0 | 13.2 | 79 | - |
-| gen-v4, no guess, repeats allowed | gen-v4 fixes | 2 | 2, 3 | 2.50 | 0% | 1.5 | 12.8 | 92 | - |
-| gen-v4, no guess, skips heard lines | no heard bridges | 3 | 1, 2 (1 unrated) | 1.50 | 1% | 0.7 | 16.5 | 115 | - |
-| gen-v4, next-bit guess | next-bit guess | 4 | 2, 2, 3, 3 | 2.50 | 0% | 0 | 0.0 | 22 | 23 of 28 |
-| gen-v5, next-bit guess | gen-v5 live | 1 | 4 | 4.00 | 5% | 2 | 0.0 | 20 | 6 of 7 |
+| Gemini writer, 3 threads in one reply (gen-v3); next bit prepared after; no cached lines | T9 LLM writer (#56 docs/slides-update) | 4 | 2, 2, 3, 4 | 2.75 | 22% | 0.0 | 11.3 | 84 | - |
+| local (bonsai) writer, 3 threads in one reply (gen-v3); next bit prepared after; may replay heard lines | D-107 local writer (#78 feat/per-thread-generator) | 1 | 1 | 1.00 | 28% | 0.0 | 13.2 | 79 | - |
+| local (bonsai) writer, one call per thread, 3 in parallel (gen-v4); next bit prepared after; may replay heard lines | D-110 one call per thread, 3 in parallel (#79 feat/connected-threads) | 2 | 2, 3 | 2.50 | 0% | 1.5 | 12.8 | 92 | - |
+| local (bonsai) writer, one call per thread, 3 in parallel (gen-v4); next bit prepared after; skips heard lines | D-112 skips heard lines (#82 feat/judge-v2) | 3 | 1, 2 (1 unrated) | 1.50 | 1% | 0.7 | 16.5 | 115 | - |
+| local (bonsai) writer, one call per thread, 3 in parallel (gen-v4); next bit prepared early; skips heard lines | D-115 next bit prepared early (#85 docs/live-predict-results) | 4 | 2, 2, 3, 3 | 2.50 | 0% | 0.0 | 0.0 | 22 | 23 of 28 |
+| local (bonsai) writer, connected-bit prompt, each line builds on the last (gen-v5); next bit prepared early; skips heard lines | D-111 connected-bit prompt live (#84 feat/exp27-extension) | 1 | 4 | 4.00 | 5% | 2.0 | 0.0 | 20 | 6 of 7 |
+
+**Code names.** The version names in brackets in the table (and in `reports/show_bits/`) mean:
+
+| Code name | What it is | Decision | PR |
+|---|---|---|---|
+| bank-v1 | hand-written bank only | D-66 | #40 |
+| gen-v3 Gemini | Gemini writer, 3 threads in one reply | D-82 | #50 |
+| gen-v3 bonsai | local (bonsai) writer, 3 threads in one reply | D-107, D-109 | #77 |
+| gen-v4 | one call per thread, 3 in parallel | D-110 | #78 |
+| gen-v5 | connected-bit prompt, each line builds on the last | D-111 | #84 |
+| + guess | next bit prepared early | D-115 | #83 |
+| + skip-heard | skips heard lines | D-112 | #80 |
+
+The chart uses the code names only.
 
 The hand-bank shows (3 finished, 12 aborted, no ratings) are in the ledger, not in the table. Lost threads were timeouts and badly shaped replies; the gen-v5 show lost 2 of 3 threads in one bit to a timeout.
 
@@ -945,4 +959,4 @@ The hand-bank shows (3 finished, 12 aborted, no ratings) are in the ledger, not 
 
 **What is made up.** Every sim-room reaction and reward (the audience in `sim/audience.yaml`). Waits depend on it only through when reactions arrive. The setups are different shows, not paired runs, and the rater is one person.
 
-**After each show:** `python -m sim.show_ledger --record`, `python -m sim.show_ledger export`, then `python scripts/run_notebook.py notebooks/decision-plot.ipynb`.
+**After each show:** `python -m sim.show_ledger --record`, `python -m sim.show_ledger export`, then `python scripts/run_notebook.py notebooks/decision-plot.ipynb`.
