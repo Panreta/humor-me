@@ -950,18 +950,26 @@ Decision: [D-117](agent/decisions-detail.md#d-117). Raw: `reports/metrics/materi
 
 ## Topics only, no robot facts (Exp 34, 2026-11-26)
 
-Decision: [D-118](agent/decisions-detail.md#d-118). Raw: `reports/metrics/material_topic.json` (appears once the user runs it). Code: `sim/material.py --exp 34`. Setup: a topic per bit, no robot facts (gen-v5 + topic, arm C) against Exp 33's material-off bits (gen-v5, arm A), the same 40 slots. Arm A is read from Exp 33's stored bits, not rewritten. No `audience.yaml` value is involved.
+Decision: [D-118](agent/decisions-detail.md#d-118). Raw: `reports/metrics/material_topic.json`. Code: `sim/material.py --exp 34`. Setup: a topic per bit, no robot facts (gen-v5 + topic, arm C) against Exp 33's material-off bits (gen-v5, arm A), the same 40 slots. Arm A is read from Exp 33's stored bits, not rewritten. No `audience.yaml` value is involved.
 
-**Answer: pending.** Exp 33 fixed the repeat problem but the facts may have made the bit stiff, so this tries the topic alone. The user runs it.
+**Answer: keep it off.** Topic only left 17.5% of bits on hardware (7 of 40), above the 15% bar. The funniness pairs were not judged: a missed first bar cannot be rescued by them.
 
-**This is a second attempt at the same bars.** With no real difference, one attempt reaches 10 wins of 20 about 59% of the time, so two attempts reach it at least once about 83% of the time. A pass is weak evidence. 20 pairs only catch big differences.
+| Check | Result | Bar |
+|---|---|---|
+| Bits about the robot's hardware, topic only (gen-v5 + topic) | 17.5% (7 of 40) | at most 15%: **not met** |
+| Bits about the robot's hardware, without (gen-v5) | 87.5% (35 of 40) | beside the bar |
+| Drop, bit by bit (paired, 40 slots) | -0.70; 95% interval -0.85 to -0.525 | interval entirely below 0: met |
+| Same count by word list (cross-check) | 90% without, 55% with topic only | beside the bar |
+| Hardware share: robot-life topics / everyday topics (topic only) | 40% (6 of 15) / 4% (1 of 25) | beside the bar |
+| Same split in Exp 33 (topic and facts) | 20% (3 of 15) / 8% (2 of 25) | for comparison |
+| (a) Funnier, 20 new blind pairs | not judged (0 of 20) | at least 10: not met by rule |
+| Verdict | keep_off | both bars |
 
-| Check | Bar |
-|---|---|
-| Bits about the robot's hardware, topic only (gen-v5 + topic) | at most 15% |
-| Drop against Exp 33's material-off bits, slot by slot | 95% interval entirely below 0 |
-| Same count by word list (cross-check) | beside the bar |
-| (a) Funnier: topic-only wins, 20 new blind pairs from the 20 slots not shown in Exp 33 | at least 10 of 20; a tie is not a win |
-| (b) More like a specific character | beside the bar, with a 95% interval |
+**Read it:**
+- Taking the facts away did not lower hardware. On robot-life topics it went up, from 20% to 40%: the facts were giving the bit something else to talk about.
+- Everyday topics are near hardware-free with or without facts (8% and 4%).
+- Exp 33 and Exp 34 differ only by the facts (same slots, modes and topics), but 15 robot-life bits is a small sample.
+- 1 thread lost and 0 bad replies with topic only (0 and 0 without).
+- "Everyday topics only" looks promising (4%), but that idea came after seeing this data and would be a third try at the same bar. Not adopted, not run.
 
-Both bars must pass to make `topic` the default. Results go here after the run.
+**This was a second attempt at the same bars.** With no real difference, one attempt reaches 10 wins of 20 about 59% of the time, so two attempts reach it at least once about 83% of the time. 20 pairs only catch big differences.

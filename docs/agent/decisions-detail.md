@@ -1362,7 +1362,7 @@ Writer time per bit: A p50 4.3 s, p95 7.4 s; B p50 4.4 s, p95 7.6 s. Arm B had 1
 
 
 ## <a id="d-118"></a>D-118 · 2026-11-26 — Try the topic alone, with no robot facts, against Exp 33's old bits (Exp 34) (user)
-The user's hypothesis after Exp 33 failed on funniness: the two robot facts make the bit stiff and pull it back toward hardware, so give the writer a topic only. Result: pending, the user runs Exp 34 on this branch.
+The user's hypothesis after Exp 33 failed on funniness: the two robot facts make the bit stiff and pull it back toward hardware, so give the writer a topic only. Result: keep off. Repetition bar failed (topic only 17.5% hardware, bar 15%), so the funniness pairs were not judged (table at the end of this entry).
 
 **This is the second attempt at the same bars after Exp 33 failed.** Under no real difference, one attempt reaches 10 wins of 20 about 59% of the time (D-117's figure, ties ignored), so two attempts reach it at least once about 83% of the time (1 - 0.41 squared). A pass here is weak evidence of "funnier", and weaker than the same pass would have been on a first try. 20 pairs kept (user choice, 2026-11-26, over 30); 20 pairs only detect large differences.
 
@@ -1390,4 +1390,23 @@ The user's hypothesis after Exp 33 failed on funniness: the two robot facts make
 
 **Judgment calls, not measured.** The wording of `TOPIC_PARAGRAPH`; keeping the hardware sentence in it; that the 20 unseen slots are a fair sample of the 40 (they are Exp 33's seeded leftovers, not chosen by content); that the facts (not the topics) are what cost the laughs (the hypothesis this run tests, with only 20 pairs).
 
-**Result:** pending. The user runs Exp 34 on this branch; the table and the outcome go in this entry in the same PR.
+**Result (2026-11-26, the user ran `run --exp 34`; record `reports/metrics/material_topic.json`). Verdict `keep_off`: `MATERIAL` stays off by default.** 5 shows of 8 bits, 40 slots per arm, all bits delivered in both arms, 0 recycled topics (40 distinct, 15 character-topic bits), judge failures 0, writer on the GPU after the run. A = gen-v5 (material off, Exp 33's stored bits), C = gen-v5 + topic.
+
+| Check | Result | Bar | Met |
+|---|---|---|---|
+| Hardware share, C (topic only) | 17.5% (7 of 40 bits) | at most 15% | **no** |
+| Hardware share, A (material off) | 87.5% (35 of 40) | beside the bar | |
+| Paired C - A over 40 slots | -0.700, CI -0.850 to -0.525 | CI entirely below 0 | yes |
+| Word-list share, A / C (cross-check) | 90% / 55% | beside the bar | |
+| Hardware share, character-topic / everyday bits (C) | 40% (6 of 15) / 4% (1 of 25) | beside the bar | |
+| Same split in Exp 33's B (topic + facts) | 20% (3 of 15) / 8% (2 of 25) | for comparison | |
+| (a) Funnier: C wins | not judged (0 of 20 answered) | at least 10 | no (by rule) |
+| (b) More like a specific character | not judged | beside the bar | |
+
+Arm C: 1 thread lost, 0 bad replies (A: 0, 0). Writer time per bit: A p50 4.3 s, p95 7.4 s; C p50 4.8 s, p95 7.3 s.
+
+**Reading.** Taking the facts away did not lower hardware; it raised it on the robot's-own-life topics (20% with facts, 40% without), where the facts were giving the bit something else to talk about. Everyday topics are near hardware-free with or without facts (8% and 4%, 25 bits). Exp 33's B and Exp 34's C differ only by the facts (same slots, modes, topics), so the gap on robot-life topics is the facts' effect on 15 bits, a small sample.
+
+**Pairs not judged, by rule.** The pre-set rule says a failed repetition bar cannot be rescued by the pairs, so the user was told and agreed (2026-11-26) not to judge the 20 pairs. The funniness bar is therefore "not met" by default, not by a vote.
+
+**Outcome.** Keep `MATERIAL` off. Not adopted, not run: everyday topics only (4% here looks promising), because that idea was picked after seeing this data and would be a third attempt at the same bar, with the multiple-attempts penalty on the funniness gate. Whether to try it is the user's call.

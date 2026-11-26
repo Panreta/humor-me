@@ -26,7 +26,7 @@ A topic or fact counts as used only when its bit is actually played. A bit writt
 
 ## Topic only (D-118)
 
-Exp 33 left a question: did the facts make the bit stiff? `MATERIAL=topic` gives each bit a topic and no facts, with its own short instruction to the writer. `MATERIAL=1` still means topic plus two facts. Exp 34 tests the topic-only version against Exp 33's old bits, with the same bars. Its 20 blind pairs use only the slots you did not see in Exp 33, so an old bit cannot look familiar. It is a second try at bars the first try missed, so a pass counts for less. Off is still the default until it passes.
+Exp 33 left a question: did the facts make the bit stiff? `MATERIAL=topic` gives each bit a topic and no facts, with its own short instruction to the writer. `MATERIAL=1` still means topic plus two facts. Exp 34 tested the topic-only version against Exp 33's old bits, with the same bars. It is a second try at bars the first try missed, so a pass would have counted for less. Result: 17.5% of bits were still about hardware (bar 15%), so it failed the first bar and the funniness pairs were not judged. Robot-life topics got worse without facts (20% to 40%); everyday topics stayed near zero. Off is still the default.
 
 ## What is not done yet
 
@@ -34,4 +34,4 @@ Typed facts about tonight, a few news headlines and the day's stock move, all ch
 
 ## How we test it
 
-Exp 33 writes 5 shows with and without material and compares them. The bars: hardware share of at most 15% and clearly below the old prompt's, and the new bit picked as funnier in at least 10 of 20 blind pairs. 20 pairs only detect large differences. The setting stays off until both pass. Result: hardware bits fell from 88% to 12% (bar met), but the new bit won only 6 of 20 funniness pairs (bar 10), so it stays off. See [D-117](../decisions.md). Exp 34 (D-118) is the topic-only retry; the user runs it.
+Exp 33 writes 5 shows with and without material and compares them. The bars: hardware share of at most 15% and clearly below the old prompt's, and the new bit picked as funnier in at least 10 of 20 blind pairs. 20 pairs only detect large differences. The setting stays off until both pass. Result: hardware bits fell from 88% to 12% (bar met), but the new bit won only 6 of 20 funniness pairs (bar 10), so it stays off. See [D-117](../decisions.md). Exp 34 (D-118) is the topic-only retry; it also stays off.

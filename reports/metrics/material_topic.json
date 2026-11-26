@@ -1,0 +1,9 @@
+{"params": {"bits_per_show": 8, "digest_": "826c6e5a", "judge_digest_": "cb5c1fd8", "n_shows": 5, "seed": "exp34"}, "results": {
+  "n_slots": 40,
+  "arms": {"A": {"bits": 40, "bits_delivered": 40, "bits_with_no_thread": 0, "threads_lost": 0, "bad_replies": 0, "bit_p50_s": 4.296106099965982, "bit_p95_s": 7.41799170000013}, "C": {"bits": 40, "bits_delivered": 40, "bits_with_no_thread": 0, "threads_lost": 1, "bad_replies": 0, "bit_p50_s": 4.835770700010471, "bit_p95_s": 7.252592100063339, "recycled_topics": 0, "character_topic_bits": 15, "distinct_topics": 40}},
+  "metric1": {"share": {"A": {"n": 40, "hardware": 35, "share": 0.875}, "C": {"n": 40, "hardware": 7, "share": 0.175}}, "regex_share": {"A": {"n": 40, "hardware": 36, "share": 0.9}, "C": {"n": 40, "hardware": 22, "share": 0.55}}, "by_topic_kind": {"A_character": {"n": 15, "hardware": 12, "share": 0.8}, "A_everyday": {"n": 25, "hardware": 23, "share": 0.92}, "C_character": {"n": 15, "hardware": 6, "share": 0.4}, "C_everyday": {"n": 25, "hardware": 1, "share": 0.04}}, "paired_slots": ["s0b0", "s0b1", "s0b2", "s0b3", "s0b4", "s0b5", "s0b6", "s0b7", "s1b0", "s1b1", "s1b2", "s1b3", "s1b4", "s1b5", "s1b6", "s1b7", "s2b0", "s2b1", "s2b2", "s2b3", "s2b4", "s2b5", "s2b6", "s2b7", "s3b0", "s3b1", "s3b2", "s3b3", "s3b4", "s3b5", "s3b6", "s3b7", "s4b0", "s4b1", "s4b2", "s4b3", "s4b4", "s4b5", "s4b6", "s4b7"], "bar": {"n_paired": 40, "mean_diff": -0.7, "ci95": [-0.85, -0.525], "share_ok": false, "ci_below_zero": true, "passes": false}},
+  "metric2": {"asked": 20, "answered": 0, "complete": false, "funnier": {"C_wins": 0, "A_wins": 0, "ties": 0, "bar": 10, "passes": false}, "character": {"C_wins": 0, "A_wins": 0, "ties": 0, "C_share": null, "wilson95": null}, "short": false},
+  "writer_on_gpu_after_run": true,
+  "judge_failures": 0,
+  "verdict": "keep_off"
+}}
