@@ -25,8 +25,17 @@ DATA = pathlib.Path(__file__).resolve().parents[2] / "data" / "tonight"
 NEWS_URL = "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en"
 MARKET_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500"
 USER_AGENT = "humor-me-tonight/1.0"
-FETCH_TIMEOUT_S = 10.0
-MAX_HEADLINES = 10
+FETCH_TIMEOUT_S = 30.0  # Exp 35: FRED timed out at 10 s; it is slow, not down
+FETCH_TRIES = 2
+# Exp 35: today's 10 top stories left 1 gist (5 disasters, 3 names, 1 safety), too few for bits 2 and 6. So the pool adds
+# the stories followed over the last two weeks in four lighter sections (user, 2026-11-26), Google's top PER_FEED of each
+# in its own ranking order (RSS carries no read counts). No world or politics search: that is where the disasters were.
+NEWS_DAYS = 14
+TOPIC_QUERIES = ("technology", "business", "entertainment", "sports")
+TOPIC_URL = "https://news.google.com/rss/search?q={q}+when:{days}d&hl=en-US&gl=US&ceid=US:en"
+PER_FEED = 8
+MAX_HEADLINES = 40
+CONDENSE_BATCH = 15  # headlines per condense call, so one reply stays inside the safety client's deadline
 MAX_TONIGHT_FACTS = 1  # the user's call: headlines and the market already add content, so the typed line is optional
 MAX_FACT_CHARS = 120
 MAX_GISTS = 10
@@ -48,14 +57,16 @@ class TonightError(Exception):
 
 
 def enabled(environ=None) -> bool:
-    """The TONIGHT setting: off unless 1, true, yes or on."""
-    return (os.environ if environ is None else environ).get("TONIGHT", "0").strip().lower() in ("1", "true", "yes", "on")
+    """The TONIGHT setting: on unless 0, false, no or off (D-119: adopted after Exp 35 as a judgment call)."""
+    return (os.environ if environ is None else environ).get("TONIGHT", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
 # --- fetching ------------------------------------------------------------------------------------------------------
 
 def http_get(url: str, timeout: float = FETCH_TIMEOUT_S) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    # FRED stalls past any timeout on urllib's default request and answers in 0.2 s with these (measured 2026-11-26).
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/csv,application/rss+xml,*/*",
+                                               "Accept-Encoding": "identity", "Connection": "close"})
     with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 - fixed https URLs above
         return r.read().decode("utf-8", errors="replace")
 
@@ -159,6 +170,9 @@ def condense(headlines: list[str], client) -> list[tuple[str, str, list[str]]]:
 # --- the cheap name check ------------------------------------------------------------------------------------------
 
 NAME_ALLOW = frozenset({"I", "S&P", "AI", "GPU", "CPU", "CEO", "US", "UK", "EU", "TV", "EV", "GDP"})
+# Months and weekdays, which the joke rules also allow; not the brand names in `safety.CAPS_OK` (gists name no company).
+CALENDAR = frozenset("Monday Tuesday Wednesday Thursday Friday Saturday Sunday January February March April May June July "
+                     "August September October November December".split())
 TOKEN = re.compile(r"[A-Za-z][A-Za-z'’&\-]*")
 
 
@@ -179,7 +193,7 @@ def name_check(gist: str, allow: frozenset = frozenset()) -> str | None:
             base = w.removesuffix("'s").removesuffix("\u2019s")
             if base.lower() in safety.FIRST_NAMES:
                 return w
-            if base in NAME_ALLOW or base in allow:
+            if base in NAME_ALLOW or base in CALENDAR or base in allow:
                 continue
             if i and base[0].isupper():
                 return w
@@ -202,6 +216,20 @@ def clean_fact(text) -> str | None:
 
 # --- the day's fetch, cached per day -----------------------------------------------------------------------------------
 
+def news_urls() -> list[str]:
+    return [NEWS_URL] + [TOPIC_URL.format(q=q, days=NEWS_DAYS) for q in TOPIC_QUERIES]
+
+
+def _get_retrying(get, url: str, tries: int = FETCH_TRIES) -> str:
+    for attempt in range(tries):
+        try:
+            return get(url)
+        except Exception:  # noqa: BLE001 - the last failure is raised to the caller
+            if attempt == tries - 1:
+                raise
+    raise AssertionError("unreachable")
+
+
 def _zero_report() -> dict:
     return {"fetched": 0, "dropped_by_category": {c: 0 for c in CATEGORIES}, "dropped_no_gist": 0,
             "rejected_by_name_check": 0, "rejected_by_safety": 0, "kept": 0}
@@ -211,29 +239,46 @@ def build(get, condense_client, safety_client, now: datetime.datetime | None = N
     """One day's fetch: {date, fetched_at, sources, market, gists, report, errors}. A failed half is an entry in `errors`
     and an empty result, never a raise: the show then runs as it does without tonight's context."""
     now = now or datetime.datetime.now(datetime.timezone.utc)
-    out = {"date": now.astimezone().date().isoformat(), "fetched_at": now.isoformat(timespec="seconds"), "sources": {"news": NEWS_URL, "market": MARKET_URL},
-           "market": None, "gists": [], "keep": {}, "report": _zero_report(), "errors": []}
+    out = {"date": now.astimezone().date().isoformat(), "fetched_at": now.isoformat(timespec="seconds"),
+           "sources": {"news": news_urls(), "market": MARKET_URL},
+           "market": None, "gists": [], "keep": {}, "report": _zero_report(), "errors": [], "rejected": []}
     try:
-        out["market"] = parse_market(get(MARKET_URL))
+        out["market"] = parse_market(_get_retrying(get, MARKET_URL))
     except Exception as e:  # noqa: BLE001 - any failure of this half only drops the market line
         out["errors"].append(f"market: {type(e).__name__}: {e}"[:200])
     report = out["report"]
-    try:
-        headlines = parse_headlines(get(NEWS_URL))
-        report["fetched"] = len(headlines)
-        pairs = condense(headlines, condense_client)
-    except Exception as e:  # noqa: BLE001
-        out["errors"].append(f"headlines: {type(e).__name__}: {e}"[:200])
+    headlines: list[str] = []
+    for url in news_urls():  # one feed failing costs only its stories
+        try:
+            for h in parse_headlines(_get_retrying(get, url), PER_FEED):
+                if h not in headlines and len(headlines) < MAX_HEADLINES:
+                    headlines.append(h)
+        except Exception as e:  # noqa: BLE001
+            out["errors"].append(f"headlines: {url}: {type(e).__name__}: {e}"[:300])
+    report["fetched"] = len(headlines)
+    pairs = []
+    for start in range(0, len(headlines), CONDENSE_BATCH):
+        batch = headlines[start:start + CONDENSE_BATCH]
+        try:
+            pairs += condense(batch, condense_client)
+        except Exception as e:  # noqa: BLE001 - a failed batch loses its headlines, not the day
+            out["errors"].append(f"headlines: condense {start}-{start + len(batch) - 1}: {type(e).__name__}: {e}"[:300])
+    if not pairs:
         return out
     survivors: list[str] = []
     keeps: dict[str, list[str]] = {}
+    # Every gist that does not reach the operator is kept with its reason (local, gitignored), so a filter that is too
+    # strict shows up in the day's file instead of only as a count (Exp 35 could not say why its 3 name rejects were).
+    rejected = out["rejected"]
     for category, gist, keep in pairs:
         if category != "none":
             report["dropped_by_category"][category] += 1
+            rejected.append({"gist": gist, "reason": f"category:{category}"})
         elif not gist:
             report["dropped_no_gist"] += 1
-        elif name_check(gist, caps_tokens(keep)):
+        elif hit := name_check(gist, caps_tokens(keep)):
             report["rejected_by_name_check"] += 1
+            rejected.append({"gist": gist, "reason": f"name:{hit}"})
         elif gist not in survivors:
             survivors.append(gist)
             keeps[gist] = keep
@@ -246,6 +291,7 @@ def build(get, condense_client, safety_client, now: datetime.datetime | None = N
                 out["keep"][gist] = keeps[gist]
         else:
             report["rejected_by_safety"] += 1
+            rejected.append({"gist": gist, "reason": f"safety:{verdicts[gist].reason}"})
     report["kept"] = len(out["gists"])
     return out
 

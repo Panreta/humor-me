@@ -169,7 +169,90 @@ def test_build_counts_every_drop_and_keeps_what_is_left():
     assert out["market"]["pct"] == 1.0 and out["errors"] == []
     assert out["report"] == {"fetched": 6, "dropped_by_category": {"death": 1, "disaster": 0, "crime": 1, "war": 1},
                              "dropped_no_gist": 0, "rejected_by_name_check": 1, "rejected_by_safety": 1, "kept": 1}
-    assert out["sources"] == {"news": tonight.NEWS_URL, "market": tonight.MARKET_URL} and out["fetched_at"]
+    assert out["sources"] == {"news": tonight.news_urls(), "market": tonight.MARKET_URL} and out["fetched_at"]
+    assert {r["reason"] for r in out["rejected"]} == {"category:death", "category:crime", "category:war", "name:Kevin",
+                                                     next(r["reason"] for r in out["rejected"] if r["reason"].startswith("safety:"))}
+
+
+def test_the_pool_is_top_stories_plus_two_weeks_of_four_sections_deduplicated():
+    urls = tonight.news_urls()
+    assert urls[0] == tonight.NEWS_URL and len(urls) == 1 + len(tonight.TOPIC_QUERIES)
+    assert all("when:14d" in u for u in urls[1:]) and not any(q in " ".join(urls) for q in ("world", "politic"))
+    seen = []
+
+    def get(url, timeout=0):
+        seen.append(url)
+        if url == tonight.MARKET_URL:
+            return CSV
+        i = urls.index(url)  # each feed has one story of its own and one shared with every other feed
+        return f"<rss><channel><item><title>own {i} - Wire</title></item><item><title>shared - Wire</title></item></channel></rss>"
+    out = tonight.build(get, FakeClient(condensed(*[("none", f"g{i}") for i in range(6)])), FakeClient())
+    assert out["report"]["fetched"] == 6 and set(urls) <= set(seen)
+
+
+def test_one_dead_feed_costs_only_its_stories():
+    urls = tonight.news_urls()
+
+    def get(url, timeout=0):
+        if url == urls[2]:
+            raise OSError("down")
+        return CSV if url == tonight.MARKET_URL else SIX_RSS
+    out = tonight.build(get, FakeClient(SIX_REPLY), FakeClient())
+    assert out["report"]["fetched"] == 6 and len(out["errors"]) == 1 and urls[2] in out["errors"][0]
+
+
+def test_a_slow_fetch_is_tried_once_more():
+    calls = []
+
+    def get(url, timeout=0):
+        calls.append(url)
+        if url == tonight.MARKET_URL and calls.count(url) == 1:
+            raise TimeoutError("The read operation timed out")
+        return CSV if url == tonight.MARKET_URL else SIX_RSS
+    out = tonight.build(get, FakeClient(SIX_REPLY), FakeClient())
+    assert out["market"] is not None and calls.count(tonight.MARKET_URL) == 2 and out["errors"] == []
+
+
+def test_months_and_weekdays_pass_the_name_check_but_brands_and_places_do_not():
+    assert tonight.name_check("A retailer starts its sale in January, a week before Monday's launch.") is None
+    assert tonight.name_check("A search firm called Google cuts prices.") == "Google"
+    assert tonight.name_check("Farmers in Iowa brace for a cold week.") == "Iowa"
+
+
+def test_requests_ask_for_text_and_close_the_connection(monkeypatch):
+    seen = {}
+
+    class Reply:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"ok"
+
+    def urlopen(req, timeout):
+        seen.update(req.header_items())
+        return Reply()
+    monkeypatch.setattr(tonight.urllib.request, "urlopen", urlopen)
+    assert tonight.http_get("https://example.invalid/x") == "ok"
+    assert seen["Connection"] == "close" and "text/csv" in seen["Accept"] and seen["Accept-encoding"] == "identity"
+
+
+def test_many_headlines_are_condensed_in_batches():
+    n = tonight.CONDENSE_BATCH + 3
+    rss = "<rss><channel>" + "".join(f"<item><title>h{i}</title></item>" for i in range(n)) + "</channel></rss>"
+
+    class Batches(FakeClient):
+        def chat(self, system, user, **kw):
+            self.calls.append((system, user))
+            return condensed(*[("none", f"a gist {len(self.calls)} {i}") for i in range(len(json.loads(user)))])
+    client = Batches()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(tonight, "PER_FEED", n)
+        tonight.build(lambda url, timeout=0: CSV if url == tonight.MARKET_URL else rss, client, FakeClient())
+    assert [len(json.loads(u)) for _, u in client.calls] == [tonight.CONDENSE_BATCH, 3]
 
 
 def test_a_dropped_category_never_reaches_the_safety_check_or_the_operator():
@@ -294,7 +377,7 @@ def test_with_no_working_safety_client_nothing_is_approved():
 
 
 def test_the_switch_is_off_by_default():
-    assert tonight.enabled({}) is False and tonight.enabled({"TONIGHT": "0"}) is False
+    assert tonight.enabled({}) is True and tonight.enabled({"TONIGHT": "0"}) is False and tonight.enabled({"TONIGHT": "off"}) is False
     assert all(tonight.enabled({"TONIGHT": v}) for v in ("1", "true", "YES", " on "))
 
 
@@ -470,7 +553,7 @@ def test_the_endpoints_hide_the_panel_when_off_and_never_raise(monkeypatch):
 
     from app import main
     client = TestClient(main.app)
-    monkeypatch.delenv("TONIGHT", raising=False)
+    monkeypatch.setenv("TONIGHT", "0")
     assert client.get("/tonight").json() == {"enabled": False}
     monkeypatch.setenv("TONIGHT", "1")
     monkeypatch.setattr(main, "tonight_build", lambda: {"date": "d", "market": None, "gists": ["g"], "report": {}, "errors": []})
