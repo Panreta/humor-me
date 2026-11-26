@@ -1,7 +1,7 @@
 # Material: topics and character facts
 
 **Where it fits:** the writer's input, before the safety filter. Each bit gets one topic and two facts about the robot, so the jokes have something to be about.
-**Used in:** `backend/app/material.py` and the `MATERIAL` setting, Exp 32 in the [live decision notebook](../../notebooks/decisions-live.ipynb), decision D-116.
+**Used in:** `backend/app/material.py` and the `MATERIAL` setting, Exp 33 in the [live decision notebook](../../notebooks/decisions-live.ipynb), decision D-117.
 
 ## The problem
 
@@ -26,8 +26,8 @@ A topic or fact counts as used only when its bit is actually played. A bit writt
 
 ## What is not done yet
 
-Typed facts about tonight, a few news headlines and the day's stock move, all checked for safety and approved by the operator before the show, come in a later PR (D-116, option B).
+Typed facts about tonight, a few news headlines and the day's stock move, all checked for safety and approved by the operator before the show, come in a later PR (D-117, option B).
 
 ## How we test it
 
-Exp 32 writes 5 shows with and without material and compares them. The bars: hardware share of at most 15% and clearly below the old prompt's, and the new bit picked as funnier in at least 10 of 20 blind pairs. 20 pairs only detect large differences. The setting stays off until both pass. See [D-116](../decisions.md).
+Exp 33 writes 5 shows with and without material and compares them. The bars: hardware share of at most 15% and clearly below the old prompt's, and the new bit picked as funnier in at least 10 of 20 blind pairs. 20 pairs only detect large differences. The setting stays off until both pass. Result: hardware bits fell from 88% to 12% (bar met), but the new bit won only 6 of 20 funniness pairs (bar 10), so it stays off. See [D-117](../decisions.md).

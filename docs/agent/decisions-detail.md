@@ -1309,8 +1309,11 @@ Depends on the made-up `audience.yaml` values `noise`, `fatigue` and the `base` 
 - **Ratings beside, not a claim:** before 2, 1, 2 (`9fedcfa07c3f` has none); after 3, 3, 2, 2.
 On the waits in these 4 shows D-115 did what it set out to do; n is small. No new decision.
 
-## <a id="d-116"></a>D-116 · 2026-11-26 — Give each bit a topic and two robot facts so the writer stops landing on the robot's hardware (Exp 32) (user)
-The user chose the problem, the options (character sheet plus topic list now, tonight's context later) and the bars; the lead agent specified it and a Sonnet agent built it. Results: pending, the user runs Exp 32.
+## <a id="d-116"></a>D-116 · 2026-11-26 — Reserved for PR #86 (show ledger) (user)
+Placeholder so the IDs run without a gap on this branch alone (`tests/test_docs.py`). When #86 merges, replace this entry with its real D-116 entry; nothing else here refers to it.
+
+## <a id="d-117"></a>D-117 · 2026-11-26 — Give each bit a topic and two robot facts so the writer stops landing on the robot's hardware (Exp 33) (user)
+The user chose the problem, the options (character sheet plus topic list now, tonight's context later) and the bars; the lead agent specified it and a Sonnet agent built it. Result: keep off. Repetition bar passed, funniness bar failed (table at the end of this entry).
 
 **The problem.** In the 35 logged shows, 249 of 882 played jokes (28%) name robot hardware (battery, power, data, charging, processor top). The personality is also bland. Cause, from `ThreadGenerator._fetch`: the writer's only inputs are a one-sentence identity, the mode, venue and energy, and the premises told this show. The told list resets each show, so nothing stops the next show from writing the same bit; and the identity has no specifics to draw on, so the model reaches for its own hardware.
 
@@ -1328,9 +1331,9 @@ The user chose the problem, the options (character sheet plus topic list now, to
 - **Used means played.** A topic or fact is spent when the bit's thread is played (`played_thread`), as the told premises are. A bit written on a guess (D-115) spends nothing when discarded; an adopted bit keeps the material it was written with; drawing twice for one bit gives one answer (a draw is a pure function of what has been played). Tested in `tests/test_material.py`.
 - **Request.** With `MATERIAL=1` the user JSON gets `topic` and `robot_facts`, and one fixed paragraph is appended to the system prompt (the PROMPTS entries stay frozen; it works with any prompt id, the live one at run time). The generator id gets `+mat-v1`.
 - **Log (invariant 6).** One `material` row per bit that plays: bit, topic, from, facts, sheet_id, list_id, seed, recycled. Schema stays v2; every reader dispatches on event names, and a test loads a log with these rows through the director, the cache and `load_sessions`.
-- **Setting.** `MATERIAL`, off by default until Exp 32 passes.
+- **Setting.** `MATERIAL`, off by default until Exp 33 passes.
 
-**Exp 32 (`sim/material.py`, offline, the user runs it).** 5 consecutive simulated shows of 8 bits, 40 bits per arm, modes and rooms from one fixed seed and identical for both arms. A: the live prompt, material off. B: the same prompt, material on, topics skipping those used in earlier shows of the run (empty history at the start, so it does not depend on this laptop's logs). The played thread is thread 0. Writer: the live one (bonsai-2:4b on Ollama); bits are written one at a time.
+**Exp 33 (`sim/material.py`, offline, the user runs it).** 5 consecutive simulated shows of 8 bits, 40 bits per arm, modes and rooms from one fixed seed and identical for both arms. A: the live prompt, material off. B: the same prompt, material on, topics skipping those used in earlier shows of the run (empty history at the start, so it does not depend on this laptop's logs). The played thread is thread 0. Writer: the live one (bonsai-2:4b on Ollama); bits are written one at a time.
 - **Metric 1 (repetition, gates).** Share of bits whose premise and lines are about the robot's own hardware, labeled by a Claude Haiku 5.5 judge with one fixed yes/no question, blind to the arm; a word-list share beside it as a cross-check. **Bar (user): B at most 15% and the paired bootstrap 95% CI of (B - A), paired by bit slot, entirely below 0.** Reported with no bar: the share for character-topic bits against everyday-topic bits.
 - **Metric 2 (user, blind, gates funniness).** 20 pairs (same slot, A against B, sides randomized by seed). For each: (a) which is funnier, (b) which sounds more like a specific character. **Bar (user) for (a): B wins at least 10 of 20; a tie is not a win.** (b) is reported with a Wilson 95% interval, not gated. 20 pairs detect only large differences: if B is truly preferred 60% of the time it reaches 10 wins about 87% of the time, and under a coin flip it still reaches 10 about 59% of the time. So the gate is "not clearly worse", and a pass is weak evidence of "funnier".
 - **Adopt** (flip the `MATERIAL` default to on, in the same PR) only when both bars pass. A failed repetition bar cannot be rescued by the pairs.
@@ -1339,4 +1342,20 @@ The user chose the problem, the options (character sheet plus topic list now, to
 
 **Judgment calls, not measured.** 2 facts per bit (not 1 or 3); character topics for 1 bit in 3; the paragraph's wording; that a fact is rotated by least-used rather than random; the 15% bar.
 
-**Result.** Pending, the user runs Exp 32 on this branch; the outcome goes in this entry in the same PR.
+**Result (2026-11-26, the user ran `run`, `review`, `score --record`; record `reports/metrics/material.json`). Verdict `keep_off`: `MATERIAL` stays off by default.** 5 shows of 8 bits, 40 slots per arm, all bits delivered in both arms, no thread lost, 0 recycled topics (40 distinct topics, 15 character-topic bits), judge failures 0, 20 of 20 pairs answered. A = gen-v5 (material off), B = gen-v5 + material.
+
+| Check | Result | Bar | Met |
+|---|---|---|---|
+| Hardware share, B (material on) | 12% (5 of 40 bits) | at most 15% | yes |
+| Hardware share, A (material off) | 88% (35 of 40) | beside the bar | |
+| Paired B - A over 40 slots | -0.750, CI -0.900 to -0.600 | CI entirely below 0 | yes |
+| Word-list share, A / B (cross-check) | 90% / 42% | beside the bar | |
+| Hardware share, character-topic / everyday bits (B) | 20% (3 of 15) / 8% (2 of 25) | beside the bar | |
+| (a) Funnier: B wins | 6 of 20 (A 9, ties 5) | at least 10 | no |
+| (b) More like a specific character: B wins | 10 of 20 (A 7, ties 3), Wilson 95% 30% to 70% | beside the bar | |
+
+Writer time per bit: A p50 4.3 s, p95 7.4 s; B p50 4.4 s, p95 7.6 s. Arm B had 1 bad reply (A had 0); it was counted, not dropped.
+
+**Reading.** The repetition bar passed by a wide margin: the share of bits about the robot's own hardware fell from 88% to 12%, and the paired CI is far from 0. The funniness bar failed as defined: B needed 10 wins of 20 and got 6; the user preferred the material-off bit more often (A 9, B 6, 5 ties). With 20 pairs this does not show B is worse (6 against 9 is well inside coin-flip noise), only that the pre-set bar was not met, and under the rule a failed bar means keep off. Nothing was rescued by (b), which is reported and not gated: B was picked as more like a specific character in 10 of 20 (A 7, ties 3), an interval of 30% to 70%, so no direction. The word-list cross-check agrees on the direction (90% to 42%) but is far less extreme than the judge's 12%, so the word list flags many B bits the judge does not (probably battery or power words used in passing); the bar rides on the judge, which labels the bit's premise and lines. Character-topic bits stayed more hardware-heavy (20%) than everyday ones (8%) even with material on, on 15 and 25 bits.
+
+**Outcome.** Keep `MATERIAL` off. Not run: a variant with fewer or softer facts, or everyday topics only (character-topic bits are where hardware survives). Whether to try one is the user's call. Judgment call, not measured: that the funniness loss comes from the facts rather than the topics (the run did not separate them).

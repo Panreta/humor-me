@@ -1,4 +1,4 @@
-"""Material for a bit (D-116): a topic from the topic list and two facts from the character sheet, drawn so the writer
+"""Material for a bit (D-117): a topic from the topic list and two facts from the character sheet, drawn so the writer
 has something other than the robot's hardware to build on. Data lives in `app/material/*.yaml`.
 
 Used means PLAYED: a topic or fact is spent only when its bit's thread was told (`ShowMaterial.played`), mirroring

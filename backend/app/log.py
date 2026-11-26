@@ -22,7 +22,7 @@ EVENTS = {
     # The mode guessed for a bit while the one before it played its last jokes, and whether the director then picked it
     # (D-115). Written right after the bit's `bit_decision`; absent when no guess was made.
     "prediction": ("bit", "predicted", "decided", "hit", "started_at"),
-    # What a played bit was written from (D-116): its topic and the two character-sheet facts; only a bit that played.
+    # What a played bit was written from (D-117): its topic and the two character-sheet facts; only a bit that played.
     "material": ("bit", "topic", "from", "facts", "sheet_id", "list_id", "seed", "recycled"),
     "bridge": ("bit", "text", "tts_seconds", "audio_start_at", "audio_end_at"),
     "cache": ("bits",),  # the cached bits the show could draw on, written right after show_start (D-91)

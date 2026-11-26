@@ -921,3 +921,28 @@ Decision: [D-115](agent/decisions-detail.md#d-115). Sim only, no model calls. Ra
 - **Against Exp 31(b)'s bar** (hit-rate 95% interval lower end at least 0.5): 23 of 28 right (0.82), Wilson 95% interval 0.64 to 0.92, so the lower end 0.64 clears it. The interval is optimistic: guesses within a show are not independent. All 28 were on 3 labels; 23 used (Exp 31's sim: about 0.7).
 - **Waits:** the median fell from 13.7 s to 0.0 s and bridge lines from 17.5 to 3.5 per show. The 7 gaps that still waited took 6.1 to 18.7 s: 5 follow a wrong guess (12.1 to 18.7 s, the whole prep back in the wait) and 2 a right guess whose prep was not ready (6.1 and 6.2 s). The p95 stays high because a wrong guess waits as long as before; a miss being slower than no guess is not visible (those 5 waits sit inside the before range of 9.8 to 27.4 s).
 - **The number D-115 estimated** (total wait over bits 1+ per show): 108.7 s before, 21.6 s after, about 87 s saved per show against the ~50 s estimate. Different shows, so an indication.
+
+## Topics and robot facts for each bit (Exp 33, 2026-11-26)
+
+Decision: [D-117](agent/decisions-detail.md#d-117). Raw: `reports/metrics/material.json`. Code: `sim/material.py`. Setup: a topic and two robot facts per bit (gen-v5 + material) against the live prompt alone (gen-v5), 5 shows of 8 bits each, same modes and rooms. No `audience.yaml` value is involved.
+
+**Answer: keep it off.** Material cut the hardware jokes a lot (88% to 12% of bits), but you found the new bit funnier in only 6 of 20 pairs, and the bar was 10.
+
+| Check | Result | Bar |
+|---|---|---|
+| Bits about the robot's hardware, with material (gen-v5 + material) | 12% (5 of 40) | at most 15%: met |
+| Bits about the robot's hardware, without (gen-v5) | 88% (35 of 40) | beside the bar |
+| Drop, bit by bit (paired, 40 slots) | -0.750; 95% interval -0.900 to -0.600 | interval entirely below 0: met |
+| Same count by word list (cross-check) | 90% without, 42% with | beside the bar |
+| Hardware share: robot-life topics / everyday topics (with material) | 20% (3 of 15) / 8% (2 of 25) | beside the bar |
+| (a) Funnier: with material wins | 6 of 20 (without 9, ties 5) | at least 10: **not met** |
+| (b) More like a specific character: with material wins | 10 of 20 (without 7, ties 3); 95% interval 30% to 70% | beside the bar |
+| Verdict | keep_off | both bars |
+
+**Read it:**
+- The repeat problem is fixed in this test; the funniness bar is not met. 20 pairs cannot show the material bit is worse (6 against 9 is within coin-flip noise), only that the bar was missed, and the rule says a missed bar means off.
+- (b) points nowhere: 10 against 7 with an interval of 30% to 70%.
+- Robot-life topics kept more hardware jokes (20%) than everyday ones (8%), on 15 and 25 bits.
+- The word list finds 42% with material where the judge finds 12%; the bar rests on the judge, which reads each bit's premise and lines.
+- 1 bad reply with material, 0 without; time per bit is the same (median 4.3 s without, 4.4 s with). No topic was reused (40 distinct).
+- Not tested: whether the facts or the topics cost the laughs (the run did not separate them).

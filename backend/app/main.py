@@ -174,7 +174,7 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
         # with every bit on the bank.
         generator, safety, fallback, bridge_lines = make_stack(msg["room"])
         if material := getattr(generator, "material", None):
-            material.set_history(used_topics(sessions))  # D-116: a topic no earlier show used
+            material.set_history(used_topics(sessions))  # D-117: a topic no earlier show used
         pool = await asyncio.to_thread(build_pool, bridge_lines, sessions)
         warm_s = await asyncio.to_thread(warm_up, generator)
         if warm_s is not None:

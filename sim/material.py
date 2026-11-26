@@ -1,4 +1,4 @@
-"""Exp 32 (D-116): does giving each bit a topic and two character facts move the writer off the robot's own hardware
+"""Exp 33 (D-117): does giving each bit a topic and two character facts move the writer off the robot's own hardware
 without making it less funny?
 
 Usage (Ollama up with `OLLAMA_NUM_PARALLEL=3` and `OLLAMA_CONTEXT_LENGTH=8192`, `ANTHROPIC_API_KEY` set for the judge):
@@ -56,7 +56,7 @@ from sim.env import AGES, ENERGIES, VENUES  # noqa: E402
 NAME = "material"
 N_SHOWS = 5
 BITS_PER_SHOW = 8
-SEED = "exp32"
+SEED = "exp32"  # predates the renumbering to Exp 33; it feeds the run_or_load digest, so changing it orphans the record
 ARMS = ("A", "B")  # A: material off, B: material on
 N_BOOT = 10_000
 BOOT_SEED = 32
@@ -438,7 +438,7 @@ def run(n_shows: int = N_SHOWS, bits_per_show: int = BITS_PER_SHOW, seed: str = 
     client = generate.writer_client()
     bits, directory = slots(n_shows, bits_per_show, seed), run_dir(n_shows, bits_per_show, seed)
     if gather(directory, bits) is None and not getattr(client, "local", False):
-        raise SystemExit("Exp 32 writes with the local writer: set JOKE_WRITER_PROVIDER=ollama")
+        raise SystemExit("Exp 33 writes with the local writer: set JOKE_WRITER_PROVIDER=ollama")
     records = generate_bits(client, bits, directory, seed)
     verdicts = label_all(tc.make_judge_client(), records, directory)
     return summarize(records, verdicts, read_answers(directory), on_gpu=tc.writer_on_gpu(directory))
@@ -487,7 +487,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("command", choices=("run", "review", "score"))
     ap.add_argument("--rerun", action="store_true", help="run: recompute from the run folder even if a record exists")
-    ap.add_argument("--record", action="store_true", help="score: save the result as the Exp 32 record")
+    ap.add_argument("--record", action="store_true", help="score: save the result as the Exp 33 record")
     ap.add_argument("--env-file")
     a = ap.parse_args()
     if a.env_file:

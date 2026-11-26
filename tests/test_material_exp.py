@@ -1,4 +1,4 @@
-"""Exp 32 (D-116): the bookkeeping of the material experiment, with a fake Ollama and a fake judge, no model."""
+"""Exp 33 (D-117): the bookkeeping of the material experiment, with a fake Ollama and a fake judge, no model."""
 import json
 import pathlib
 import sys

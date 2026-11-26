@@ -65,7 +65,7 @@ Reply with JSON only, exactly this shape: {{"premise": "the premise", "jokes": [
 SYSTEM = _HEAD + _STRUCTURE + _TAIL
 SYSTEM_CONNECTED = _HEAD + _STRUCTURE_CONNECTED + _TAIL
 PROMPTS = {"gen-v4": SYSTEM, "gen-v5": SYSTEM_CONNECTED}
-# Appended to the system prompt when material is on (D-116); PROMPTS stay frozen, so this works with any prompt id.
+# Appended to the system prompt when material is on (D-117); PROMPTS stay frozen, so this works with any prompt id.
 MATERIAL_PARAGRAPH = ("The user message gives this bit's topic and two facts about the robot's life. Build the bit on the "
                       "topic, seen the way this robot sees it; use a fact only where it makes a line funnier. Do not make "
                       "the bit about the robot's own hardware (battery, processor, memory, shutting down).")

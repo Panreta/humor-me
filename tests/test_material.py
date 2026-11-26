@@ -1,4 +1,4 @@
-"""Material for a bit (D-116): topic and character-sheet facts, drawn per show and spent only when a bit is played.
+"""Material for a bit (D-117): topic and character-sheet facts, drawn per show and spent only when a bit is played.
 Synthetic topics and facts only; no model."""
 import json
 import pathlib
