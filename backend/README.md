@@ -183,6 +183,16 @@ Counts, from the local logs and with no model call, how many of each show's brid
 python -m sim.evaluate_heard [--dir data/sessions] [--record]
 ```
 
+## Where a bit's wait goes (Exp 29)
+
+After the live shows, one command prints where each bit's wait went, per show and pooled (seconds only, never a line of text): writing, safety check, voice queue, voice synthesis, other, and the bridge overhang. Name the session ids of the shows to count (file names in `data/sessions/` without `.jsonl`). With none it reads every log and skips shows written by the hand-written bank. Plain, it prints and saves nothing; `--record` keeps seconds and session ids (`reports/metrics/stage_timing.json`), then run `python scripts/run_notebook.py`:
+
+```sh
+python -m sim.stage_timing <session id> [<session id> ...] [--dir data/sessions] [--record]
+```
+
+Bit 0 is shown apart; bits with a pause in their wait or a failed first render are dropped. The last line names the biggest stage and the fix it points to, or says "inconclusive" (the rule needs 2 shows and 16 bits and an interval above 0; see `sim/stage_timing.py`). Shows from before D-113 have no `prep` rows and are listed without stages.
+
 ## Pick a provider first
 
 Comedy timing needs the next line within ~1 s of a laugh ending, so measure time-to-first-token:

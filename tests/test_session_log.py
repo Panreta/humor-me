@@ -20,6 +20,7 @@ VALID = {
                        items=[{"text": "x", "verdict": "pass", "reason": None}]),
     "joke_played": dict(bit=0, joke=0, chosen=0, pick_prob=0.5, text="x", tts_seconds=0.1, audio_seconds=1.0,
                         audio_start_at=1.0, audio_end_at=2.0),
+    "prep": dict(bit=1, started_at=10.0, generate_s=3.0, safety_s=1.5, render_wait_s=0.5, ready_at=15.0, bank_fallbacks=0),
     "bridge": dict(bit=1, text="Give me a second.", tts_seconds=0.9, audio_start_at=3.0, audio_end_at=5.0),
     "cache": dict(bits=[dict(session="s0", bit=1, mode="cynic", reward=0.7, source_age="mixed",
                              lines=[dict(joke=0, text="A line.", verdict="pass", reason="rules: ok")])]),
@@ -235,3 +236,47 @@ def test_a_v2_log_from_before_pauses_reads_unchanged(tmp_path):
     path = tmp_path / "old2.jsonl"
     path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
     assert read_session(path) == rows
+
+
+PREP_FULL = {**VALID["prep"], "bank_s": 0.0, "render_queue_s": 0.2, "render_s": 0.3}
+
+
+def test_a_prep_row_with_every_optional_field_round_trips_and_the_split_may_be_null(tmp_path):
+    log = SessionLog(tmp_path)
+    log.write("prep", **PREP_FULL)
+    log.write("prep", **{**PREP_FULL, "render_queue_s": None, "render_s": None})
+    log.write("prep", **{k: v for k, v in PREP_FULL.items() if k not in ("bank_s", "render_queue_s", "render_s")})
+    rows = read_session(log.path)
+    assert rows[0]["render_queue_s"] == 0.2 and rows[1]["render_s"] is None and "bank_s" not in rows[2]
+
+
+@pytest.mark.parametrize("change", [
+    {"generate_s": -0.1}, {"safety_s": -1}, {"render_wait_s": "3"}, {"render_wait_s": True},
+    {"bank_s": -1.0}, {"render_queue_s": -0.5}, {"render_s": "x"},
+    {"started_at": "now"}, {"ready_at": 9.0},  # ready before it started
+    {"bank_fallbacks": -1}, {"bank_fallbacks": 1.5}, {"bank_fallbacks": True},
+])
+def test_prep_values_outside_the_schema_are_rejected(tmp_path, change):
+    with pytest.raises(ValueError, match="prep"):
+        SessionLog(tmp_path).write("prep", **{**PREP_FULL, **change})
+
+
+@pytest.mark.parametrize("value,ok", [(0.0, True), (4.2, True), (None, True), (-0.1, False), ("1", False), (True, False)])
+def test_bridge_overhang_is_an_optional_non_negative_number(tmp_path, value, ok):
+    row = {**VALID["joke_played"], "bridge_overhang_s": value}
+    if ok:
+        SessionLog(tmp_path).write("joke_played", **row)
+    else:
+        with pytest.raises(ValueError, match="bridge_overhang_s"):
+            SessionLog(tmp_path).write("joke_played", **row)
+
+
+def test_a_log_from_before_prep_still_reads_and_a_v1_log_has_no_prep_row(tmp_path):
+    old = tmp_path / "old.jsonl"
+    played = {"schema": 2, "session": "s", "at": 1.0, "event": "joke_played", **VALID["joke_played"]}
+    old.write_text(json.dumps(played) + "\n")
+    assert "bridge_overhang_s" not in read_session(old)[0]
+    v1 = tmp_path / "v1.jsonl"
+    v1.write_text(json.dumps({"schema": 1, "session": "s", "at": 1.0, "event": "prep", **VALID["prep"]}) + "\n")
+    with pytest.raises(ValueError, match="no prep event"):
+        read_session(v1)
