@@ -111,6 +111,7 @@ What we decided and why, one line each. Click an ID for the full record (options
 | [D-105](agent/decisions-detail.md#d-105) | Nov 25 | The safety rules took curly apostrophes in words like “I’ve” for names, so a quarter of qwen’s lines were wrongly rejected. Fixed; Exp 24’s safety step is redone for all models (no regeneration), and the vote starts over. (user) |
 | [D-106](agent/decisions-detail.md#d-106) | Nov 25 | Only qwen writes curly quotes, long dashes and ellipses, which would give its bits away on the ballot. The ballot and the judge now show plain punctuation; the saved bits stay as written. (user) |
 | [D-107](agent/decisions-detail.md#d-107) | Nov 25 | Exp 24 is done. Haiku was funnier in 16 of 30 votes, but not clearly (gap 0.5 ranks, interval touches 0). We keep bonsai-2:4b as the live writer and the training base: it is a baseline to improve, and Haiku can't be trained. Haiku is the bar SFT and DPO must reach. (user) |
+| [D-108](agent/decisions-detail.md#d-108) | Nov 25 | When two models tie exactly on funniness, the faster one goes through, not the one whose name sorts first. Exp 24's result doesn't change: bonsai is faster than qwen. (user) |
 
 New decision: add its full entry to the detailed log with the next ID, then a row here in the same PR.
 A test fails if the two files' IDs don't match.

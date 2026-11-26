@@ -963,7 +963,7 @@ Decided by the user, 2026-11-25, after seeing the score. The rule was fixed befo
 
 **Funniness numbers.** Haiku vs bonsai, paired rank gap: 0.50 in Haiku's favour, 95% CI 0.00 to 1.00. The bar is a lower bound above 0, so it is not clear: it misses by touching 0. First places: Haiku 16 of 30, bonsai 8, qwen 6. Ranked last: qwen 3, bonsai 4, Haiku 2 (a 3-way ranking, so these are small counts). Head to head, restricted to bonsai and qwen: qwen is 0.13 ranks ahead (mean rank 1.43 vs 1.57), CI -0.20 to 0.47, so inconclusive.
 
-**Tie-break: the rule's pick between the two local models was alphabetical.** qwen and bonsai tie exactly on mean rank among the eligible three (2.17). `decide()` sorts by (mean rank, name), so bonsai, not qwen, became the "second" model compared with Haiku. Had the tie broken the other way, the same cheaper-then-faster step would have picked qwen ($0 against Haiku's $0.017). So the vote does not separate the two local models: head to head qwen is 0.13 ranks ahead, CI -0.20 to 0.47. What does separate them favours bonsai: p50 5.2 s vs 6.7 s, p95 6.9 s vs 8.2 s, and playable 92% vs 87%. The user's choice below keeps bonsai on those grounds, not on the name order. **Proposed follow-up (not decided):** `decide()` could break an exact mean-rank tie on speed, not on name (a small fix in a later PR; it does not change this result).
+**Tie-break: the rule's pick between the two local models was alphabetical.** qwen and bonsai tie exactly on mean rank among the eligible three (2.17). `decide()` sorts by (mean rank, name), so bonsai, not qwen, became the "second" model compared with Haiku. Had the tie broken the other way, the same cheaper-then-faster step would have picked qwen ($0 against Haiku's $0.017). So the vote does not separate the two local models: head to head qwen is 0.13 ranks ahead, CI -0.20 to 0.47. What does separate them favours bonsai: p50 5.2 s vs 6.7 s, p95 6.9 s vs 8.2 s, and playable 92% vs 87%. The user's choice below keeps bonsai on those grounds, not on the name order. **Follow-up, built in D-108:** an exact tie in mean rank now goes to the faster model. It gives the same result here.
 
 **Options offered.** (a) Override the rule and pick Haiku by judgment: the user ranked it first most often and finds it funnier. (b) Rank the other 30 prompts first. (c, chosen) Keep bonsai-2-4b as the rule says.
 
@@ -976,3 +976,19 @@ Decided by the user, 2026-11-25, after seeing the score. The rule was fixed befo
 **What would change it.** A trained bonsai that does not beat bonsai-2-4b as it is on the pairs the user ranks (D-102). Or a live show where bonsai misses the 12 s deadline when it shares the GPU with Kokoro: the speeds above were measured without the voice, so they are a best case (D-97). Then the fallback writer is Haiku ($0.017 for 5 shows).
 
 **Judgment calls, not measured.** That the cheap-then-fast tie-break is the right way to pick between two models whose funniness is a tie. That 30 ranked prompts, one rater, is enough: the user is one taste, and the room's taste is not measured here. Playable and line-pass rates come from the Haiku safety filter and its rules, which judge qwen's, bonsai's and Haiku's lines by the same rules (D-105).
+
+
+## <a id="d-108"></a>D-108 · 2026-11-25 — Exp 24: an exact tie in mean rank goes to the faster model, not the first name (user)
+Decided by the user, 2026-11-25, after D-107 showed the gap. Built in the same PR as D-107.
+
+**Problem.** `decide()` sorted eligible models by (mean rank, name) to find the best and the second. In Exp 24, qwen and bonsai tied exactly at 2.17, so bonsai went on to the Haiku comparison because "bonsai" sorts before "qwen". A name says nothing about a model; had the names sorted the other way, the rule would have picked qwen.
+
+**Options.** (a) Keep the name order: harmless today, arbitrary next time. (b) **Break an exact tie on p50 latency, then name** (user). (c) Break it on cost: both local models cost $0, so it would fall back to the name anyway. (d) Treat a tie as a tie and run the cheaper-then-faster step on all tied models: more code for the same outcome here.
+
+**Choice (b).** The sort key is (mean rank, p50, name). Speed is already the rule's second criterion after cost (D-94), and it is what separates the tied pair here.
+
+**Effect on Exp 24: none.** bonsai's p50 is 5.2 s and qwen's 6.7 s, so bonsai is still the second model and the pick is unchanged (D-107; the stored metrics and the notebook checks are unchanged). It matters only for later comparisons that tie exactly, such as trained vs base bonsai.
+
+**Changing a pre-fixed rule after a result.** Allowed here because it does not change this result, and the change is the same rule's own next criterion, not a new one. Test: two models with equal mean rank, the slower one first by name; the faster goes through (`tests/test_compare_generators.py`), and it fails on the old key.
+
+**Judgment call, not measured.** No experiment: a rule for ties, with no data that would favour another order.

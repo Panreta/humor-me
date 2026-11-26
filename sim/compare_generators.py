@@ -760,7 +760,8 @@ def decide(stats: dict, ranks: dict[str, dict[str, float]], n_boot: int = N_BOOT
         return out
     re_ranked = restrict(ranks, ok)
     mean = {m: float(np.mean([r[m] for r in re_ranked.values()])) for m in ok}
-    best, second = sorted(ok, key=lambda m: (mean[m], m))[:2]
+    # D-108: an exact tie in mean rank goes to the faster model; the name only settles a tie in speed too
+    best, second = sorted(ok, key=lambda m: (mean[m], stats[m]["latency_p50_s"] or math.inf, m))[:2]
     d, ci = diff_ci(re_ranked, second, best, n_boot, seed)
     clear = ci[0] > 0
     out.update(best=best, second=second, diff={"mean": d, "ci95": ci}, funniness_clear=clear, mean_rank_eligible=mean)
