@@ -1,4 +1,5 @@
 """Hand-written joke bank: material that needs no model, for tests, calibration and outages."""
+import copy
 import pathlib
 
 import yaml
@@ -21,6 +22,14 @@ class BankGenerator:
         self.bank = bank if bank is not None else load_bank()
         self._used: dict[str, list[int]] = {m: [0] * len(bits) for m, bits in self.bank.items()}
         self._assigned: dict[int, tuple[str, int]] = {}
+
+    def fork(self) -> "BankGenerator":
+        """An independent copy of the slot usage, for a bit written on a guessed mode (D-115): a wrong guess must not
+        use up a slot the real bit will take. The show adopts the fork only if the guess was right."""
+        twin = copy.copy(self)
+        twin._used = {m: list(v) for m, v in self._used.items()}
+        twin._assigned = dict(self._assigned)
+        return twin
 
     def candidates(self, mode: str, bit: int, joke: int) -> list[str]:
         if mode not in self.bank:

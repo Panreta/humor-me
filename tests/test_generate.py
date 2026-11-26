@@ -723,13 +723,17 @@ class Gen:
         return generate.Batch("p", f"prompt {bit}", [f"{self.tag} {bit}.{joke}.{i}" for i in range(self.threads)], self.lost)
 
 
-def show(tmp_path, gen, flt, voice=None, fallback=None, bridges=None, n_bits=3, seed=0):
+class SpecGen(Gen):
+    speculative_safe = True  # no state a guessed prep could disturb
+
+
+def show(tmp_path, gen, flt, voice=None, fallback=None, bridges=None, n_bits=3, seed=0, **kw):
     voice = voice or FakeVoice()
     log = SessionLog(tmp_path)
     asyncio.run(run_show(load_director([], seed=1), "sim", CTX, generator=gen, safety=flt,
                          selector=UniformSelector(seed), tts=voice, player=FakePlayer(voice), source=SimRoom(CTX, 0),
                          clock=RealClock(), log=log, n_bits=n_bits, config=FAST, fallback=fallback,
-                         bridge_lines=bridges))
+                         bridge_lines=bridges, **kw))
     return read_session(log.path), voice
 
 
@@ -749,11 +753,14 @@ def test_every_line_that_reaches_the_voice_passed_the_filter_first(tmp_path):
 
 def test_one_prefetch_per_bit_with_all_candidates_before_any_check(tmp_path):
     flt = Filter()
-    show(tmp_path, Gen(), flt)
+    rows, _ = show(tmp_path, SpecGen(), flt)
     kinds = [c[0] for c in flt.calls]
-    assert kinds.count("prefetch") == 3
-    for start in range(0, len(kinds), 16):  # one prefetch, then 5 jokes x 3 checks
-        assert kinds[start] == "prefetch" and len(flt.calls[start][1]) == 15
+    # a wrong guess whose prep reached the safety stage cost one more prefetch (D-115), and says so in its row
+    wasted = sum(r["spec_prefetched"] and not r["adopted"] for r in rows if r["event"] == "prediction")
+    assert kinds.count("prefetch") == 3 + wasted
+    assert [r["bit"] for r in rows if r["event"] == "prep"] == [0, 1, 2]
+    first = kinds.index("prefetch")
+    assert len(flt.calls[first][1]) == 15 and kinds[first + 1:first + 16] == ["check"] * 15  # all candidates before any check
 
 
 def test_next_line_is_rendered_while_the_current_one_plays(tmp_path):
@@ -820,7 +827,7 @@ def test_the_real_rules_pass_every_line_of_the_bank():
 
 
 def test_bridge_plays_between_bits_but_never_before_the_first(tmp_path):
-    rows, voice = show(tmp_path, Gen(), Filter(), bridges=["bridge a", "bridge b"])
+    rows, voice = show(tmp_path, Gen(), Filter(), bridges=["bridge a", "bridge b"], predict=False)
     plays = [t for kind, t in voice.events if kind == "start"]
     assert plays[0].startswith("ok 0.0") and plays.count("bridge a") + plays.count("bridge b") >= 2
     for bit in (1, 2):
@@ -1113,7 +1120,7 @@ def test_every_bridge_line_a_show_plays_is_a_bridge_row_in_play_order(tmp_path):
     events = [(r["event"], r.get("bit")) for r in rows if r["event"] in ("bridge", "joke_played", "gap")]
     for r in bridge_rows:
         at = rows.index(r)
-        assert rows[at - 1]["event"] in ("gap", "bridge", "bit_end", "bit_decision")
+        assert rows[at - 1]["event"] in ("gap", "bridge", "bit_end", "bit_decision", "prediction")
         assert next(x for x in rows[at:] if x["event"] == "joke_played")["bit"] == r["bit"]
     assert events  # the log is non-empty
 
