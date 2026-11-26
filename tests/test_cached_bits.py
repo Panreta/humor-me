@@ -674,3 +674,19 @@ def test_filler_lines_are_not_repeated_within_a_show_while_an_unused_one_remains
     assert len(said) > len(fillers)  # a long stall: the 4 run out inside the show
     assert len(set(said[:len(fillers)])) == len(fillers)  # each is said once before any is said again
     assert not [r for r in rows if r["event"] == "bridge" and r["kind"] == "cached"]
+
+
+def test_record_refuses_when_no_listed_show_reads_and_names_the_ids(tmp_path, monkeypatch):
+    monkeypatch.setattr(ev.cache, "METRICS", tmp_path / "metrics")
+    with pytest.raises(SystemExit, match="aaaaaaaaaaaa.*bbbbbbbbbbbb"):
+        ev.record(["aaaaaaaaaaaa", "bbbbbbbbbbbb"], tmp_path)
+    assert not list((tmp_path / "metrics").glob("*")) if (tmp_path / "metrics").exists() else True
+
+
+def test_record_saves_when_one_listed_show_reads(tmp_path, monkeypatch, frozen_time):
+    monkeypatch.setattr(ev.cache, "METRICS", tmp_path / "metrics")
+    rows = live_show(tmp_path, [("cynic", [3] * 5, lines("ok"))], room="sim", now=frozen_time)
+    sid = rows[0]["session"]
+    res = ev.record([sid, "cccccccccccc"], tmp_path)
+    assert [s["valid"] for s in res["shows"]] == [True, False]
+    assert (tmp_path / "metrics" / "cached_bits.json").exists()
