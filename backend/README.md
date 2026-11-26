@@ -141,16 +141,16 @@ Everything under `data/model_comparison/` (joke text, ballot, key, votes) is git
 
 ## Per-thread timing and connected threads (Exp 26, Exp 27)
 
-Run both after a merge that touches the generator, from the repo root with the root venv. Ollama up with `OLLAMA_NUM_PARALLEL=3` and `OLLAMA_CONTEXT_LENGTH=8192`, nothing else loaded, and `JOKE_WRITER_PROVIDER=ollama` (the default for these two). About 5 minutes together.
+Both took their run on 2026-11-25. Rerun after a merge that touches the generator, from the repo root with the root venv. Ollama up with `OLLAMA_NUM_PARALLEL=3` and `OLLAMA_CONTEXT_LENGTH=8192`, nothing else loaded, and `JOKE_WRITER_PROVIDER=ollama` (the default for these two). About 5 minutes together.
 
 ```bash
-python -m sim.thread_timing                # Exp 26: does a bit fit 12 s as 3 parallel calls? -> reports/metrics/thread_timing.json
-python -m sim.thread_coherence run         # Exp 27: both prompts write 20 prompts, Haiku judges each thread (needs ANTHROPIC_API_KEY)
+python -m sim.thread_timing                # Exp 26 (done, passed): does a bit fit 12 s as 3 parallel calls? -> reports/metrics/thread_timing.json
+python -m sim.thread_coherence run --env-file backend/.env   # Exp 27 (done, inconclusive_judge, D-111): both prompts write 20 prompts, Haiku judges each thread (needs ANTHROPIC_API_KEY)
 python -m sim.thread_coherence review      # you answer y/n "is this one bit?" for 10 threads, 5 the judge approved and 5 it rejected, arm and verdict hidden; q saves and quits. Required, whatever the bar says
 python -m sim.thread_coherence score       # the numbers again with your answers in, no model call -> reports/metrics/thread_coherence.json
 ```
 
-Then `python scripts/run_notebook.py` and commit the two metrics files. `run` can be stopped and restarted: finished bits and judge verdicts are kept in `data/thread_coherence/run-<digest>/` (gitignored: thread text lives only there, never commit it). The judge costs about 120 Haiku calls, under a cent. Exp 27's bar and rule are in `sim/thread_coherence.py` and D-111.
+Then `python scripts/run_notebook.py` and commit the two metrics files. `run` can be stopped and restarted: finished bits and judge verdicts are kept in `data/thread_coherence/run-<digest>/` (gitignored: thread text lives only there, never commit it). The judge costs about 120 Haiku calls, under a cent. Both commands take `--env-file backend/.env` to load the keys. Exp 27's bar and rule are in `sim/thread_coherence.py` and D-111.
 
 ## Cached bits run (Exp 23)
 

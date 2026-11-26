@@ -2,7 +2,7 @@
 prompt (gen-v4)?
 
 Usage (Ollama up with `OLLAMA_NUM_PARALLEL=3` and `OLLAMA_CONTEXT_LENGTH=8192`, `ANTHROPIC_API_KEY` set for the judge):
-    python -m sim.thread_coherence run       # generate both arms, judge every thread -> reports/metrics/thread_coherence.json
+    python -m sim.thread_coherence run [--env-file backend/.env]  # generate both arms, judge every thread -> reports/metrics/thread_coherence.json
     python -m sim.thread_coherence review    # you check 10 threads the judge called connected (y/n), arm hidden
     python -m sim.thread_coherence score     # recompute the numbers with your answers in (no model calls)
 
@@ -507,7 +507,11 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("command", choices=("run", "review", "score"))
     ap.add_argument("--rerun", action="store_true", help="run: recompute from the run folder even if a record exists")
+    ap.add_argument("--env-file")
     a = ap.parse_args()
+    if a.env_file:
+        from dotenv import load_dotenv
+        load_dotenv(a.env_file, override=True)
     os.environ.setdefault("JOKE_WRITER_PROVIDER", "ollama")
     if a.command == "run":
         res = cache.run_or_load(NAME, run, rerun=a.rerun, **params())

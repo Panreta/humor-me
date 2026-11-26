@@ -1,7 +1,7 @@
 """Exp 26 (D-110): does one bit still fit its 12 s when it is written as three parallel calls, one thread each?
 
 Usage (Ollama up, `OLLAMA_NUM_PARALLEL` at least 3, `OLLAMA_CONTEXT_LENGTH=8192`, nothing else loaded):
-    python -m sim.thread_timing [--rerun]        # -> reports/metrics/thread_timing.json
+    python -m sim.thread_timing [--rerun] [--env-file backend/.env]        # -> reports/metrics/thread_timing.json
 
 20 bits on the show's own writer client (`generate.writer_client`, bonsai-2:4b on Ollama), after `generate.warm_up`,
 on 20 seeded prompts that are not Exp 24's (ids `t00` to `t19`, another seed), with `premises_already_told` empty. No
@@ -216,7 +216,11 @@ def table(res: dict) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--rerun", action="store_true")
+    ap.add_argument("--env-file")
     a = ap.parse_args()
+    if a.env_file:
+        from dotenv import load_dotenv
+        load_dotenv(a.env_file, override=True)
     os.environ.setdefault("JOKE_WRITER_PROVIDER", "ollama")
     res = cache.run_or_load(NAME, run, rerun=a.rerun, **params())
     print(table(res), flush=True)

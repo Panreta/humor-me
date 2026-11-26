@@ -775,6 +775,36 @@ The Stage 0 exit (T11). Three simulated shows back to back, then one live show w
 
 Chart: `reports/figures/decision-plot/exp24-generator-pick.png`.
 
+## Per-thread timing (Exp 26, 2026-11-25)
+
+`python -m sim.thread_timing`; raw numbers in `reports/metrics/thread_timing.json` (no joke text). 20 bits on the show's own writer (bonsai-2:4b, 3 parallel calls per bit, `OLLAMA_NUM_PARALLEL=3`), no filter, no voice. Decision: [D-110](agent/decisions-detail.md#d-110).
+
+| Check | Result | Bar |
+|---|---|---|
+| Bits that lost a thread | 0 of 20 | at most 1 |
+| Bits with no thread | 0 | 0 |
+| Writer 100% on the GPU at context 8192 after the run | yes | yes |
+| Bit wall time p50 / p95 | 3.53 s / 5.12 s | beside the bar |
+| Call p50 / p95 (Exp 24's one-call p50: 5.16 s) | 3.17 s / 4.77 s | beside the bar |
+| Bits that queued; median slowest/fastest ratio | 1 of 20; 1.16 | beside the bar |
+| Bits with two threads on one premise; bits re-asked | 0; 0 | beside the bar |
+
+**Passed.** Three calls at once fit the bit's 12 s budget with room. **Caveat:** no bit sent a bad shape, so the re-ask path and the counted schema were not exercised; whether Ollama enforces the count is still unmeasured.
+
+## Connected threads (Exp 27, 2026-11-25)
+
+`python -m sim.thread_coherence run`, `review`, `score`; raw numbers in `reports/metrics/thread_coherence.json` (numbers only). 20 prompts, gen-v4 (A) against gen-v5 (B), Claude Haiku 5.5 as the judge, then the user checked 10 threads blind. Decision: [D-111](agent/decisions-detail.md#d-111).
+
+| Check | Result | Bar |
+|---|---|---|
+| Mean paired difference B - A (15 prompts) | +0.222, CI +0.133 to +0.333 | CI lower bound above 0: met |
+| Judge and user disagree on | 6 of 10 | under 4: failed |
+| Verdict | inconclusive_judge | |
+
+Judge against user: judge "connected" and user "one bit" 2, judge "connected" and user "separate jokes" 3, judge "not connected" and user "one bit" 3, both "not connected" 2. Agreement 4 of 10, about chance.
+
+**Read it:** the judge's +0.222 cannot be trusted, so gen-v4 stays live and gen-v5 is not adopted. **Caveat:** 5 of 20 prompts dropped out because a cluster of read timeouts (9 threads in each arm) hit both arms in a slow stretch. Judge-called connected threads: 34 of 51 for A, 45 of 51 for B.
+
 ## Bridge lines the listener has heard (Exp 28, 2026-11-25)
 
 `python -m sim.evaluate_heard --record`, from the 25 session logs on this laptop (no model call). Raw: `reports/metrics/heard_bridges.json` (counts and session ids only). Decision: [D-112](agent/decisions-detail.md#d-112).
