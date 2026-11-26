@@ -44,6 +44,7 @@ DATA = ROOT / "data" / "model_comparison"
 sys.path.insert(0, str(ROOT / "backend"))
 from app import generate, llm, safety  # noqa: E402
 from sim import cache  # noqa: E402
+from sim.blind import plain  # noqa: E402
 from sim.env import AGES, ENERGIES, VENUES  # noqa: E402
 from sim.evaluate_safety import wilson  # noqa: E402
 
@@ -553,7 +554,7 @@ def export_ballot(models: list[str], n: int, directory: pathlib.Path | None = No
         lines.append(f"\n## {pid}: {ctx['venue']}, {ctx['energy']} energy, {ctx['age']} audience\n")
         for letter, m in key[pid]["letters"].items():
             thread = final(read_record(directory / m / f"{pid}.json"))["threads"][key[pid]["threads"][m]]
-            lines.append(f"\n**{letter}**\n" + "\n".join(f"{j + 1}. {t}" for j, t in enumerate(thread)) + "\n")
+            lines.append(f"\n**{letter}**\n" + "\n".join(f"{j + 1}. {plain(t)}" for j, t in enumerate(thread)) + "\n")
     kp.parent.mkdir(parents=True, exist_ok=True)
     kp.write_text(json.dumps(key, indent=1, sort_keys=True), encoding="utf-8")
     (directory / "ballot.md").write_text("".join(lines), encoding="utf-8")

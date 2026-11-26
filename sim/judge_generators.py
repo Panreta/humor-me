@@ -37,6 +37,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
 from app import llm  # noqa: E402
 from sim import compare_generators as cg  # noqa: E402
+from sim.blind import plain  # noqa: E402
 from sim.evaluate_safety import wilson  # noqa: E402
 
 JUDGE_MODEL = "qwen2.5-7b-instruct"  # why this one: docs/agent/decisions-detail.md D-95
@@ -84,7 +85,7 @@ def setting_line(prompt: dict) -> str:
 def block(setting: str, options: dict[str, list[str]]) -> str:
     out = [f"Setting: {setting}"]
     for letter, lines in options.items():
-        out.append(f"Option {letter}:\n" + "\n".join(f"{j + 1}. {t}" for j, t in enumerate(lines)))
+        out.append(f"Option {letter}:\n" + "\n".join(f"{j + 1}. {plain(t)}" for j, t in enumerate(lines)))  # blind, D-105
     return "\n".join(out)
 
 
