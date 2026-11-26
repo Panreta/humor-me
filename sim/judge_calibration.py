@@ -459,11 +459,12 @@ def stored() -> dict | None:
 def adoptable() -> dict:
     """Every condition for the later gen-v5 adoption PR, read from the two stored records (D-114). `adoptable` is
     their conjunction; a re-score made under an earlier Exp 30 verdict, or for another n, is stale and does not count.
-    The decisive re-score is the 100-prompt extension (tc.N_EXT): the 20-prompt one failed at exactly 0 (2026-11-26)."""
+    The decisive bar is judge v2's over the 80 fresh prompts of the 100-prompt extension (tc.N_EXT, `bar_over` \"fresh\"): the
+    20-prompt one failed at exactly 0 and triggered the extension (2026-11-26)."""
     cal = stored()
     rs = tc.rescore_record("v2", tc.N_EXT)
     g = (cal or {}).get("adoption_guards", {})
-    conds = {"rescore_current": rs is not None and tc.rescore_current(rs, tc.N_EXT), "rescored_bar_passes": bool(rs and rs.get("bar_passes")),
+    conds = {"rescore_current": rs is not None and tc.rescore_current(rs, tc.N_EXT), "rescored_bar_passes": bool(rs and rs.get("bar_over") == "fresh" and rs.get("bar_passes")),
              "v2_kept_and_trusted": bool(cal and cal.get("rescore_allowed")),
              "user_diff_not_negative": bool(g.get("user_diff_not_negative")),
              "judge_diff_within_user_ci": bool(g.get("judge_diff_within_user_ci"))}

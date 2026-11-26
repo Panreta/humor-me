@@ -174,7 +174,7 @@ python -m sim.thread_coherence run --n 100 --env-file backend/.env              
 python -m sim.thread_coherence rescore --judge v2 --n 100 --env-file backend/.env   # judges all 100 prompts with v2 (c00 to c19 cached, about 470 new Haiku calls, a few cents) -> reports/metrics/thread_coherence_rescore_n100.json
 ```
 
-`run` can be stopped and restarted. Bar: v2's paired B - A over 100 prompts, CI lower bound above 0. There is no review step: v1's spot-check is superseded by v2. If `run` leaves a bit with no thread because of a timeout, move its file out of `data/thread_coherence/run-<digest>/bits/` (do not delete) and run again before `rescore`, and tell the agent how many. Then `python scripts/run_notebook.py` and commit the two metrics files.
+`run` can be stopped and restarted, and rewrites a bit that lost every thread to a timeout by itself, once (no manual step; it lists them as `bits_rewritten`). Bar: v2's paired B - A over the **80 fresh prompts** (c20 to c99), CI lower bound above 0; the pooled 100 is shown beside it and does not decide. There is no review step: v1's spot-check is superseded by v2. Then `python scripts/run_notebook.py` and commit the two metrics files.
 
 ## Cached bits run (Exp 23)
 

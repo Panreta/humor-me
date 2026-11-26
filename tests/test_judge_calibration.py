@@ -549,7 +549,7 @@ def test_adoption_needs_every_condition_and_one_missing_blocks_it(monkeypatch, t
     cache.save(jc.NAME, jc.params(), cal)
     prov = tc.exp30_provenance()
     n = tc.N_EXT
-    save_rs = lambda r: cache.save(tc.metric_name(tc.RESCORE_NAME, n), tc.rescore_params("v2", n), {"n": n, **r})  # noqa: E731
+    save_rs = lambda r: cache.save(tc.metric_name(tc.RESCORE_NAME, n), tc.rescore_params("v2", n), {"n": n, "bar_over": "fresh", **r})  # noqa: E731
     save_rs({"exp30": prov, "bar_passes": True})
     assert jc.adoptable()["adoptable"] is True
     for key in ("user_diff_not_negative", "judge_diff_within_user_ci"):

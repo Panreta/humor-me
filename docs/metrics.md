@@ -805,15 +805,15 @@ Judge against user: judge "connected" and user "one bit" 2, judge "connected" an
 
 **Read it:** the judge's +0.222 cannot be trusted, so gen-v4 stays live and gen-v5 is not adopted. **Caveat:** 5 of 20 prompts dropped out because a cluster of read timeouts (9 threads in each arm) hit both arms in a slow stretch. Judge-called connected threads: 34 of 51 for A, 45 of 51 for B.
 
-**Update 2026-11-26 (judge v2, five timed-out bits rerun).** Raw: `thread_coherence_rescore.json`. The v1 line above is superseded by judge v2 (D-114): its spot-check is no longer asked for.
+**Update 2026-11-26 (judge v2, five timed-out bits rerun).** Raw: `thread_coherence_rescore.json`. The v1 lines are superseded by judge v2 (D-114): its spot-check is no longer asked for. The original 6-of-10 `inconclusive_judge` record is at commit 079b26b.
 
 | Judge | Prompts | Mean B - A | 95% CI | Bar |
 |---|---|---|---|---|
-| v1 (untrusted) | 20 | +0.200 | +0.117 to +0.283 | met, not trusted |
+| v1 (untrusted, superseded) | 20 | +0.200 | +0.117 to +0.283 | met, not trusted |
 | v2 | 15 (before the rerun) | +0.133 | -0.022 to +0.289 | failed |
 | v2 | 20 | +0.133 | 0.0 to +0.25 | failed at exactly 0 |
 
-Delivered and lost: A 57 and 3, B 60 and 0; bit wall p95 A 12.04 s, B 9.68 s; 0 bad replies. **Read it:** too close to call, so Exp 27 grows to 100 prompts (c00 to c99, no new labels): `python -m sim.thread_coherence run --n 100`, then `rescore --judge v2 --n 100`; numbers will land in `thread_coherence_n100.json` and `thread_coherence_rescore_n100.json`. Bar: v2's paired B - A over 100 prompts, CI lower bound above 0. **Not run yet.** Power: about 77 to 79% to pass at a true gain of 0.1, 93 to 96% at 0.13, 3% false alarm (made-up inputs). Decision: [D-111 addendum](agent/decisions-detail.md#d-111).
+Delivered and lost: A 57 and 3, B 60 and 0 (one-sided); bit wall p95 A 12.04 s, B 9.68 s; 0 bad replies. **Read it:** too close to call, so Exp 27 grows to 100 prompts (c00 to c99, no new labels): `python -m sim.thread_coherence run --n 100`, then `rescore --judge v2 --n 100`; numbers will land in `thread_coherence_n100.json` and `thread_coherence_rescore_n100.json`. **Only the 80 fresh prompts (c20 to c99) decide:** v2's paired B - A, CI lower bound above 0. The pooled 100 is shown beside it, because the 20 already triggered the extension. **Not run yet.** Fresh-80 power (made-up inputs, 1,000 repetitions): about 67 to 73% to pass at a true gain of 0.1, 88 to 91% at 0.13, 2 to 4% false alarm. Decision: [D-111 addendum](agent/decisions-detail.md#d-111).
 
 ## Judge v2 on a fresh sample (Exp 30, 2026-11-25)
 

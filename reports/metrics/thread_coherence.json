@@ -7,5 +7,6 @@
   "spot_check": {"asked": 10, "answered": 2, "drawn_connected": 5, "drawn_not_connected": 5, "drawn_arm_A": 6, "drawn_arm_B": 4, "yes": 1, "no": 1, "disagree": 0, "disagreement": 0.0, "void_at_share": 0.4, "short": false, "void": false, "complete": false},
   "writer_on_gpu_after_run": true,
   "judge_failures": 0,
-  "verdict": "pending_review"
+  "verdict": "pending_review",
+  "superseded_by": "v2 (D-114)"
 }}
