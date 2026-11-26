@@ -42,6 +42,8 @@ laughs. A crowd-work exchange (banter with the audience) counts as its own bit.
 | Term | Meaning here |
 |---|---|
 | **Core identity** | The fixed character: a self-aware, slightly anxious robot (invariant 3) |
+| **Tonight context** | What the writer is told about the day: the S&P 500's last move, at most one line the operator types, and approved headline gists; bits 2 and 6 take a gist as their topic ([tonight](tonight.md), D-117) |
+| **Gist** | A headline rewritten as one nameless sentence ("a GPU company reports earnings"), with death, disaster, crime and war dropped; the operator approves each before the show ([tonight](tonight.md), D-117) |
 | **Mode (persona)** | One of six comedic attitudes from HumorGen: Neurotic, Cynic, Observer, Wordsmith, Optimist, Absurdist. Modes of the one identity, not separate characters |
 | **Set planner** | Before the show: outlines 6–10 bit specs (premise, mode, length, hooks) |
 | **Bit writer (generator)** | Writes the jokes for one bit spec, K candidates per beat |

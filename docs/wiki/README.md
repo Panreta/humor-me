@@ -23,6 +23,7 @@ how that maps to a learning problem → how we test it.
 | 5 | [rJokes dataset](rjokes-dataset.md) | Sim priors, joke scorer | 400k scored Reddit jokes: what they can and can't tell us |
 | 6 | [Explorer HPC](explorer-hpc.md) | Offline GPU jobs | Slurm, OOD and course-partition limits on Northeastern's cluster |
 | 7 | [Safety filter](safety-filter.md) | Show loop, last gate before the voice | Rules for the hard invariants, failing closed, and how recall is measured on held-out lines |
+| 9 | [Tonight's context](tonight.md) | Writer input, before the safety filter | Why the writer gets today's headlines, the market and one line, how names and tragedies stay out, and how we test it |
 | – | [Glossary](glossary.md) | Everywhere | Shared vocabulary: comedy units, agent roles, learning and evaluation terms |
 
 ```mermaid
