@@ -967,3 +967,15 @@ def test_a_warm_up_that_fails_twice_stops_the_run_and_caches_nothing_for_that_bl
         run(n=2, models=[BONSAI, QWEN], warm_fail=[None, slow, slow])  # bonsai warms fine, qwen fails twice
     assert (cg.run_dir() / BONSAI / "p00.json").exists() and not (cg.run_dir() / QWEN).exists()
     assert len(cg.read_record(cg.warmup_path(cg.run_dir()))[QWEN]["history"]) == 2
+
+
+def test_the_ballot_shows_no_punctuation_that_gives_a_model_away(data, monkeypatch):
+    # D-105: only qwen wrote curly quotes, em dashes and ellipses; on the ballot they would unblind its bits.
+    qwen = cg.MODELS[QWEN].model
+    monkeypatch.setitem(BY_ID, qwen, BY_ID[qwen] + "’s “bit” — wait…")
+    _, d = prep(n=2, models=MODELS, filt=FakeFilter())
+    ballot = (d / "ballot.md").read_text(encoding="utf-8")
+    assert "s \"bit\" - wait..." in ballot  # qwen's bit is shown, in plain form
+    assert not set(ballot) & set("’‘“”—–…")
+    stored = cg.final(rec_of(QWEN, "p00"))["threads"][0][0]
+    assert "—" in stored  # display only: the stored bit keeps what the model wrote

@@ -938,3 +938,12 @@ Decided by the user, 2026-11-25, after about 5 of 29 prompts had been voted on.
 
 **Not changed.** "That's" capitalised mid-sentence is still rejected as a possible name, straight or curly: that is the rule working as designed, and it applies to every model alike.
 
+## <a id="d-106"></a>D-106 · 2026-11-25 — Exp 24's ballot and judge show punctuation in plain form, so no model is given away (user)
+Decided by the user, 2026-11-25, before the restarted vote.
+
+**Why.** In the Exp 24 run only qwen3:4b-instruct writes typographic punctuation: of its 900 lines, 412 have a curly apostrophe, 17 a curly opening quote, 158 an em dash and 35 an ellipsis; bonsai (885 lines) and Haiku (870) have none of these. Shown as written, any of them tells the voter, or the D-95 judge, which bits are qwen's, and the vote is no longer blind. The judge's model-bias check exists for exactly this; removing the tell is cheaper than catching it.
+
+**Choice.** `sim/blind.py` maps `’ ‘` to `'`, `“ ”` to `"`, `—` to ` - `, `–` to `-` and `…` to `...` for display, in the ballot and in the judge's prompt. Stored bits keep what each model wrote, so the run's data and the safety verdicts are unchanged. Tests: no tell survives on a real export, and removing the mapping makes the test fail.
+
+**Not hidden, said plainly.** Style beyond punctuation (word choice, line length, how a bit builds) can still hint at a model; that is part of what is being judged.
+
