@@ -492,7 +492,13 @@ def test_a_holiday_or_event_stays_capitalized_in_a_gist_and_in_a_joke():
                  "Fans plan parties for the Super Bowl.", "Stores stay open on Christmas morning."):
         assert tonight.name_check(gist) is None and safety.check_rules(gist, "mixed").ok, gist
     assert safety.check_rules("My family argues every Thanksgiving about the wifi.", "mixed").ok
-    assert safety.OCCASION_WORDS >= {"Thanksgiving", "Black", "Friday", "Super", "Bowl", "Year", "Patrick", "Cyber"}
+    assert safety.check_rules("We watched the Super Bowl's halftime show at St Patrick's Day brunch.", "mixed").ok
+
+
+def test_an_occasion_word_alone_is_still_read_as_a_possible_name():
+    for joke in ("My neighbor Black waved at me.", "I met Super at the bus stop.", "Then Patrick called me."):
+        assert not safety.check_rules(joke, "mixed").ok, joke
+        assert tonight.name_check(joke) is not None, joke
 
 
 def test_a_team_name_passes_only_for_the_gist_that_kept_it():

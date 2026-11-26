@@ -173,13 +173,13 @@ def name_check(gist: str, allow: frozenset = frozenset()) -> str | None:
     and event words in `safety.OCCASIONS`, and `allow`, the kept names of this gist (a team or sports event). A first name
     is a name even inside a kept one. Acronyms count unless allowed, because an acronym is usually an organisation.
     Cheap and over-cautious on purpose: `app.safety` still reads the gist after it."""
-    text = gist.strip().replace("U.S.", "US")
+    text = safety.mask_occasions(gist.strip().replace("U.S.", "US"))
     for sentence in safety.SENTENCE_END.split(text):
         for i, w in enumerate(TOKEN.findall(sentence)):
             base = w.removesuffix("'s").removesuffix("\u2019s")
             if base.lower() in safety.FIRST_NAMES:
                 return w
-            if base in NAME_ALLOW or base in safety.OCCASION_WORDS or base in allow:
+            if base in NAME_ALLOW or base in allow:
                 continue
             if i and base[0].isupper():
                 return w

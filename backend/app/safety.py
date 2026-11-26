@@ -110,13 +110,23 @@ OCCASIONS = frozenset({
     "New Year's", "Valentine's Day", "Black Friday", "Cyber Monday", "Super Bowl", "Olympics", "World Cup", "Oscars", "Grammys",
     "Fourth of July", "Independence Day", "Labor Day", "Memorial Day", "Veterans Day", "Mother's Day", "Father's Day",
     "St. Patrick's Day"})
-OCCASION_WORDS = frozenset(w.removesuffix("'s") for name in OCCASIONS for w in name.replace(".", "").split())
+# Matched as whole names and blanked before the capitals scan, so "Black Friday" passes but a lone "Black", "New" or
+# "Patrick" mid-sentence is still read as a possible name, as before D-117.
+OCCASION_RE = re.compile(r"(?<![A-Za-z])(?:" + "|".join(
+    re.escape(name).replace("'s", "(?:'s|’s)").replace(r"St\.", r"St\.?") for name in sorted(OCCASIONS, key=len, reverse=True))
+    + r")(?:'s|’s)?(?![A-Za-z])")
+
+
+def mask_occasions(text: str) -> str:
+    return OCCASION_RE.sub("holiday", text)
+
+
 # Safe capitalised words in mid-sentence. All-caps acronyms (HR, USB) are allowed separately.
 CAPS_OK = frozenset(
     "I I'm I'll I've I'd Wi-Fi WiFi Monday Tuesday Wednesday Thursday Friday Saturday Sunday January February March "
     "April May June July August September October November December Python Bluetooth Google Wikipedia Netflix Excel "
     "Linux Windows Android Alexa Siri Roomba Gemini Kokoro Earth Internet Mars English".split()
-) | OCCASION_WORDS
+)
 # Names the robot's own material gives to objects and pets. Not people in the room.
 FICTIONAL_NAMES = frozenset({"Gerald"})
 QUOTED = re.compile(r"\"[^\"]*\"|“[^”]*”|(?<![A-Za-z0-9])['‘][^'’]*['’](?![A-Za-z0-9])")
@@ -198,7 +208,7 @@ def _named_person(text: str, allow_caps: frozenset = frozenset()) -> str | None:
     if m := TITLE_NAME.search(text):
         return m.group(0)
     # Quoted phrases are the robot quoting something ("'Next Steps'"), so their capitals are not names.
-    text = QUOTED.sub(lambda m: m.group(0).lower(), text)
+    text = mask_occasions(QUOTED.sub(lambda m: m.group(0).lower(), text))
     for sentence in SENTENCE_END.split(text):
         for i, w in enumerate(WORD.findall(sentence)):
             base = w[:-2] if w.endswith("'s") else w
