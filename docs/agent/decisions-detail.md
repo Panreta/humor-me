@@ -1346,4 +1346,11 @@ The user chose the problem, the scope of option B and every option below (2026-1
 
 **Judgment calls, not measured.** A headline on 2 bits of 8 (bits 2 and 6); the paragraph's wording; the strict age for the gist check; allowing politics and health; the name-check allowlist; caching per day; the two bars.
 
-**Result.** Pending, the user runs Exp 35 on this branch; the outcome goes in this entry in the same PR.
+**Result (Exp 35, 2026-11-26): the script says adopt; read honestly, bar 1 is inconclusive and bar 2 is a tie. Adopted as a judgment call (user).** Record: `reports/metrics/tonight.json`.
+- What was tested is narrower than designed: the market fetch timed out at 10 s (no market line), the user typed no fact, and of 10 headlines 5 were dropped as disasters, 3 by the name check and 1 by the safety check, so all 10 pairs used one Thanksgiving gist.
+- Bar 1: the user rejected 0 of 1 kept gist (Wilson 95% 0% to 79%), 0 names. The interval is far wider than the 20% gate, so by CLAUDE.md rule 4 it cannot decide; it is not a pass.
+- Bar 2: B funnier in 5 of 10 (the bar). A tie, which meets a bar that only asked "not clearly worse".
+- (b) feels like tonight: B 9 of 10 (Wilson 95% 60% to 98%), the one clear signal.
+- Why adopt anyway (user's call): the operator approves every gist before the show, which is the real safety net; with nothing approved the show runs as before; and it was not less funny. `TONIGHT` is now on by default.
+- Fixes after the run, same PR: fetch timeout 10 s to 30 s with one retry (FRED is slow, not down); every gist that does not reach the operator is kept with its reason in the day's file (Exp 35 could not say why its 3 name rejects were); and the pool grows from today's 10 top stories to today's top stories plus 14-day searches in technology, business, entertainment and sports (Google's top 8 of each by its own ranking, deduplicated, at most 40, condensed 15 per call). RSS has no read counts, so "popular" means Google's ranking (user asked for the stories followed over the last couple of weeks). No world or politics search, where the disasters were.
+- Still open: bar 1 needs more days of fetches to mean anything (`fetch` alone, no pairs).

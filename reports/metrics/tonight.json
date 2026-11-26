@@ -1,0 +1,8 @@
+{"params": {"digest_": "6e588a6f", "n_pairs": 10, "seed": "exp35"}, "results": {
+  "bar1_filter": {"fetched": 10, "dropped_by_category": {"death": 0, "disaster": 5, "crime": 0, "war": 0}, "dropped_no_gist": 0, "rejected_by_name_check": 3, "rejected_by_safety": 1, "kept": 1, "approved": 1, "rejected_by_user": 0, "reject_share": 0.0, "reject_wilson95": [0.0, 0.7934567085261071], "gists_with_a_name": 0, "market_fetched": false, "facts_typed": 0, "date": "2026-11-26", "bar": 0.2, "passes": true},
+  "bar2_pairs": {"asked": 10, "answered": 10, "complete": true, "short": false, "funnier": {"B_wins": 5, "A_wins": 5, "ties": 0, "bar": 5, "passes": true}, "tonight": {"B_wins": 9, "A_wins": 1, "ties": 0, "B_share": 0.9, "wilson95": [0.5958436145024278, 0.9821242504842788]}},
+  "arms": {"A": {"bits": 10, "bits_delivered": 10, "threads_lost": 0, "bad_replies": 0}, "B": {"bits": 10, "bits_delivered": 10, "threads_lost": 0, "bad_replies": 0}},
+  "distinct_gists": 1,
+  "writer_on_gpu_after_run": true,
+  "verdict": "adopt"
+}}

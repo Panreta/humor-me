@@ -30,3 +30,5 @@ FRED's SP500 file lags the market by a day or two, so the market line names its 
 ## How we test it
 
 Exp 35 is run by hand. You approve each gist the filter kept and flag any with a name: at most 20% rejected and no names. Then 10 pairs of bits, with and without tonight's context, shown blind: the new one must be funnier in at least 5 of 10. One day of headlines and 10 pairs are small samples, so a pass means "not clearly worse". See [D-119](../decisions.md).
+
+**Result (Nov 26):** the new bits felt like tonight in 9 of 10 pairs and tied on funniness. Only 1 of 10 headlines survived the filter that day, so the news now also comes from two weeks of lighter sections. It is on by default; `TONIGHT=0` turns it off.
