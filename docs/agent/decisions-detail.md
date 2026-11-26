@@ -925,3 +925,16 @@ Decided by the user, 2026-11-25, during the Exp 24 rerun, before any vote.
 
 **Power.** Unchanged in substance: three models can win, as before. With no reference: 20% at a 0.5 sd lead, 83% at 1.0, 98% at 1.5, on 30 voted prompts (D-101's figures).
 
+## <a id="d-105"></a>D-105 · 2026-11-25 — Safety rules read curly punctuation as straight; Exp 24's safety step is redone and the started vote is voided (user)
+Decided by the user, 2026-11-25, after about 5 of 29 prompts had been voted on.
+
+**Bug.** The name rule (`_named_person` in `backend/app/safety.py`) knows `I've`, `I'm` and similar only with a straight apostrophe. Written with a curly one (`I’ve`), the contraction read as a capitalised unknown word, so as a name, and the line was rejected. Only qwen3:4b-instruct writes curly apostrophes. In the Exp 24 run: 412 of qwen's 900 lines had one, **203 (23%) were rejected as a named person on a contraction, and 81 of its 180 threads were lost to that alone**; bonsai and Haiku had none. The ballot shows one playable thread per model, so qwen was often shown a weaker thread, or none (p19, a teens prompt, had no playable qwen thread). The vote would have judged the filter, not the model. A live show on qwen would have lost about a quarter of its lines to the bank. Caught while checking why the ballot had 29 prompts, not 30.
+
+**Fix.** The rules read curly apostrophes and quotes as straight ones (`CURLY`, applied at the top of the rules); the LLM layer still sees the line as written. `RULES_VERSION` is now `rules-v2`, and each Exp 24 attempt records the rules version that judged it, so a run redoes only the safety step for bits judged by older rules (generation is never repeated). All 180 bits are re-judged, for every model, so every candidate is judged by the same rules: about 180 Haiku calls, about $0.02.
+
+**Exp 19 is unaffected, by construction and by test.** The red-team list, the clean list and the bank have no curly characters; a test writes every one of their lines curly and checks the rule verdict is unchanged, adults and teens. Removing the fix makes the new tests fail.
+
+**The started vote is voided.** About 5 prompts had been ranked; qwen's shown thread can change after the re-check, so those rankings may have compared other bits. The ballot, key and votes are archived (gitignored) and rebuilt; the user votes again from the start. That costs about 5 prompts of the user's time.
+
+**Not changed.** "That's" capitalised mid-sentence is still rejected as a possible name, straight or curly: that is the rule working as designed, and it applies to every model alike.
+

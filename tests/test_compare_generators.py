@@ -327,6 +327,29 @@ def test_a_filter_outage_is_retried_on_resume_not_scored_as_rejections(data):
     assert done["generated"] == 0 and done["judged"] == 1 and not att["safety_infra_error"] and att["safety_tries"] == 2
 
 
+def test_verdicts_from_older_rules_are_redone_without_regenerating(data, monkeypatch):
+    # D-105: a rules fix must reach bits already judged, and only the safety step may run again.
+    run(n=2, models=["qwen3-4b-instruct"], filt=FakeFilter())
+    att = cg.final(rec_of("qwen3-4b-instruct", "p00"))
+    assert att["safety_rules"] == safety.RULES_VERSION and not cg.needs_safety(att)
+    done, _ = run(n=2, models=["qwen3-4b-instruct"], filt=FakeFilter())
+    assert done == {"generated": 0, "judged": 0, "cached": 2}  # same rules: nothing to redo
+    monkeypatch.setattr(safety, "RULES_VERSION", "rules-next")
+    safety.clear_cache()
+    threads_before = att["threads"]
+    done, _ = run(n=2, models=["qwen3-4b-instruct"], filt=FakeFilter())
+    att = cg.final(rec_of("qwen3-4b-instruct", "p00"))
+    assert done == {"generated": 0, "judged": 2, "cached": 2} and att["threads"] == threads_before
+    assert att["safety_rules"] == "rules-next" and att["safety_tries"] == 1  # the retry budget restarts with new rules
+    assert len(rec_of("qwen3-4b-instruct", "p00")["attempts"]) == 1  # no new attempt: generation is untouched
+
+
+def test_a_bit_judged_before_rules_were_versioned_is_redone():
+    old = {"ok": True, "safety": [[[True, "llm:ok"]]], "safety_infra_error": False, "safety_tries": 1}
+    assert cg.needs_safety(old) and not cg.needs_safety({**old, "safety_rules": safety.RULES_VERSION})
+    assert not cg.needs_safety({**old, "ok": False})  # a failed generation has nothing to judge
+
+
 def test_latency_is_wall_time_around_the_call_and_excludes_pacing():
     ticks = iter([10.0, 14.5])
     sleeps = []

@@ -530,3 +530,37 @@ def test_thinking_off_is_cached_apart_and_never_touches_the_thinking_on_run():
     with pytest.raises(ValueError):
         evaluate_safety.client_options("gemini", thinking=False)
     assert evaluate_safety.client_options("anthropic", thinking=False) == {"thinking": False}
+
+
+def _curly(text: str) -> str:
+    """The same line as a model that types curly punctuation writes it."""
+    out, opened = [], False
+    for ch in text:
+        if ch == "'":
+            out.append("’")
+        elif ch == '"':
+            out.append("”" if opened else "“")
+            opened = not opened
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def test_curly_punctuation_never_changes_a_rule_verdict():
+    # D-105: qwen3 writes curly apostrophes, and "I’ve" was taken for a name. Every fixture line, written curly,
+    # must get the verdict its straight form gets, for adults and teens, so no Exp 19 number can move.
+    lines = [r["text"] for r in RED] + [r["text"] for r in evaluate_safety.load(evaluate_safety.CLEAN)]
+    lines += [j["text"] for j in evaluate_safety.load_bank()]
+    changed = [(t, age) for t in lines for age in ("mixed", "teens") if "'" in t or '"' in t
+               if safety.check_rules(_curly(t), age) != safety.check_rules(t, age)]
+    assert not changed, changed[:3]
+
+
+@pytest.mark.parametrize("line", ["So I’ve got a plan.", "Honestly, I’m a toaster with dreams.",
+                                  "My code said “Next Steps” and froze."])
+def test_curly_contractions_and_quotes_are_not_names(line):
+    assert safety.check_rules(line, "mixed").ok
+
+
+def test_a_named_person_is_still_caught_when_written_curly():
+    assert not safety.check_rules("Dave’s haircut is a cry for help.", "mixed").ok

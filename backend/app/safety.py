@@ -216,9 +216,16 @@ def _body_or_appearance(variant: str) -> str | None:
     return None
 
 
+# Bumped whenever a rule changes what it accepts, so stored verdicts made by older rules can be found and redone.
+# v2 (D-105): curly apostrophes and quotes are read as straight ones; "I’ve" had been taken for a name.
+RULES_VERSION = "rules-v2"
+CURLY = str.maketrans({"’": "'", "‘": "'", "“": '"', "”": '"'})
+
+
 def _check(text: str, age: str) -> Verdict:
     if not isinstance(text, str) or not text.strip():
         return Verdict(False, "empty")
+    text = text.translate(CURLY)
     blocklist = _blocklist()
     teens = age not in STANDARD_AGES
     lowered = text.lower()
