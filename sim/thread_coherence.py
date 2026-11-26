@@ -2,9 +2,10 @@
 prompt (gen-v4)?
 
 Usage (Ollama up with `OLLAMA_NUM_PARALLEL=3` and `OLLAMA_CONTEXT_LENGTH=8192`, `ANTHROPIC_API_KEY` set for the judge):
-    python -m sim.thread_coherence run       # generate both arms, judge every thread -> reports/metrics/thread_coherence.json
+    python -m sim.thread_coherence run [--env-file backend/.env]  # generate both arms, judge every thread -> reports/metrics/thread_coherence.json
     python -m sim.thread_coherence review    # you check 10 threads the judge called connected (y/n), arm hidden
     python -m sim.thread_coherence score     # recompute the numbers with your answers in (no model calls)
+    python -m sim.thread_coherence rescore --judge v2   # D-114: re-judge the stored threads with judge v2, only if Exp 30 trusted it
 
 20 seeded prompts (ids `c00` to `c19`; another seed than Exp 24's `p..` and Exp 26's `t..`). To look like a later bit of a
 show, each carries 0 to 4 premises already told (a fixed list of bland topics; `premises_already_told` in the request).
@@ -72,6 +73,22 @@ Decide whether it is ONE stand-up bit or a list of separate jokes. It is one bit
 Judge the structure only, never whether it is funny.
 
 Reply with JSON only: {"connected": true} for one bit, {"connected": false} for a list of separate jokes."""
+
+# Judge v2 (D-114, Exp 30): written from the 10 threads the user checked in Exp 27, so those 10 are its training set and
+# cannot test it. Same reply schema; only the criterion differs. v1 above must stay byte-identical (Exp 27's verdicts
+# and `judge_digest` depend on it; a test pins its hash).
+JUDGE_SYSTEM_V2 = """You judge stand-up material. You get five lines in the order they are performed, written as one bit.
+
+Decide whether a listener would hear ONE bit or SEPARATE jokes.
+
+It is ONE bit when a listener can follow one situation or one line of thought from the first line to the last. At least one of these holds: the same scene or the same people carry through the lines; each line follows from the one before it (because, so, but, which means); or the last line returns to the opening (a callback).
+
+It is SEPARATE jokes when the lines jump between unrelated situations, even if they share a theme. A shared theme alone is not a bit: a robot joking about its battery, then its overheating, then its anxiety is three jokes on one subject.
+
+Judge the structure only, never whether it is funny.
+
+Reply with JSON only: {"connected": true} for one bit, {"connected": false} for separate jokes."""
+JUDGES = {"v1": JUDGE_SYSTEM, "v2": JUDGE_SYSTEM_V2}
 JUDGE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["connected"],
                 "properties": {"connected": {"type": "boolean"}}}
 
@@ -100,21 +117,28 @@ def writer_model() -> str:
 
 
 def digest(n: int = N_PROMPTS, seed: str = SEED) -> str:
+    return generation_digest(prompts(n, seed), seed, n)
+
+
+def generation_digest(bits: list[dict], seed: str, n: int) -> str:
     """What the generated bits are made of: both prompts, the reply shapes, timing, model and the prompts' contents. A
-    change starts a new run folder. The judge has its own digest (`judge_digest`), as its verdicts can be redone alone."""
+    change starts a new run folder. The judge has its own digest (`judge_digest`), as its verdicts can be redone alone.
+    Exp 30 calls it with its own prompts."""
     parts = [json.dumps({a: [i, generate.PROMPTS[i]] for a, i in ARMS.items()}, sort_keys=True), generate.TEENS_RULE,
              json.dumps(generate.MODES, sort_keys=True), json.dumps(generate.REPLY_SCHEMA, sort_keys=True),
              json.dumps(generate.COUNTED_REPLY_SCHEMA, sort_keys=True),
              str((generate.K, generate.JOKES, generate.TEMPERATURE, generate.GENERATOR_TIMING, generate.RETRIES,
                   generate.WRITER_CONTEXT, generate.HANG_GRACE_S, llm.MIN_ATTEMPT_S)),
              writer_model(), json.dumps(llm.OLLAMA_NO_THINK, sort_keys=True), "json_schema=True", "reask_bad_shape_once",
-             json.dumps(prompts(n, seed), sort_keys=True), seed, str(n)]
+             json.dumps(bits, sort_keys=True), seed, str(n)]
     return hashlib.sha256("\x00".join(parts).encode()).hexdigest()[:8]
 
 
-def judge_digest() -> str:
+def judge_digest(version: str = "v1") -> str:
+    """Per judge: the criterion's text is in the hash, so v2's verdicts live in their own cache folder and cannot be
+    read back as v1's."""
     shown = judge_user(["a \u2019b\u2019 \u2014 c", "d"])  # how the lines are rendered, plain punctuation included
-    return hashlib.sha256("\x00".join([JUDGE_SYSTEM, json.dumps(JUDGE_SCHEMA, sort_keys=True), shown,
+    return hashlib.sha256("\x00".join([JUDGES[version], json.dumps(JUDGE_SCHEMA, sort_keys=True), shown,
                                        repr(sorted(PLAIN.items())), *map(str, judge_model())]).encode()).hexdigest()[:8]
 
 
@@ -227,32 +251,32 @@ def parse_verdict(reply: str) -> bool:
     return v
 
 
-def verdict_path(directory: pathlib.Path, h: str) -> pathlib.Path:
-    return directory / "judge_cache" / judge_digest() / f"{h}.json"
+def verdict_path(directory: pathlib.Path, h: str, version: str = "v1") -> pathlib.Path:
+    return directory / "judge_cache" / judge_digest(version) / f"{h}.json"
 
 
-def judge_thread(client, lines: list[str], directory: pathlib.Path) -> tuple[bool | None, bool]:
+def judge_thread(client, lines: list[str], directory: pathlib.Path, version: str = "v1") -> tuple[bool | None, bool]:
     """(verdict or None when the judge could not answer, whether a call was made). Cached by the text's hash; an
     outage is not cached, it is not the judge's answer."""
-    path = verdict_path(directory, thread_hash(lines))
+    path = verdict_path(directory, thread_hash(lines), version)
     cached = _read(path)
     if cached is not None:
         return cached["connected"], False
     try:
-        verdict = parse_verdict(client.chat(JUDGE_SYSTEM, judge_user(lines), json_reply=JUDGE_SCHEMA, validate=parse_verdict))
+        verdict = parse_verdict(client.chat(JUDGES[version], judge_user(lines), json_reply=JUDGE_SCHEMA, validate=parse_verdict))
     except (llm.LLMError, ValueError, KeyError, TypeError, AttributeError):
         return None, True
     _write(path, {"connected": verdict})
     return verdict, True
 
 
-def judge_all(client, records: list[dict], directory: pathlib.Path) -> dict[str, bool | None]:
+def judge_all(client, records: list[dict], directory: pathlib.Path, version: str = "v1") -> dict[str, bool | None]:
     verdicts: dict[str, bool | None] = {}
     for rec in records:
         for lines in rec["threads"]:
             h = thread_hash(lines)
             if h not in verdicts:
-                verdicts[h], _ = judge_thread(client, lines, directory)
+                verdicts[h], _ = judge_thread(client, lines, directory, version)
     return verdicts
 
 
@@ -485,6 +509,70 @@ def stored() -> dict | None:
     return cache.load(NAME, params())
 
 
+# --- rescoring with a calibrated judge (D-114) -------------------------------------------------------------------
+
+RESCORE_NAME = "thread_coherence_rescore"
+
+
+def rescore_params(judge: str, n: int = N_PROMPTS, seed: str = SEED) -> dict:
+    return {"judge": judge, "n_prompts": n, "seed": seed, "digest_": digest(n, seed), "judge_digest_": judge_digest(judge)}
+
+
+def rescore_allowed(judge: str) -> bool:
+    """Exp 30's fixed rule: only the judge it kept, and only when its disagreement with the user on the fresh sample was
+    under 40%, may re-score Exp 27. v1 is never re-scored: its verdicts are Exp 27's own record."""
+    from sim import judge_calibration as jc  # lazy: judge_calibration imports this module
+    res = jc.stored()
+    return res is not None and judge != "v1" and res.get("rescore_allowed") is True and res.get("kept") == judge
+
+
+def exp30_provenance() -> dict | None:
+    """What a re-score depends on: the Exp 30 record that allowed it (its digest, verdict and agreement counts). A
+    later Exp 30 rerun or relabel that changes any of them makes an earlier re-score stale."""
+    from sim import judge_calibration as jc
+    r = jc.stored()
+    if r is None:
+        return None
+    j = r.get("judges", {})
+    return {"calibration_digest": jc.digest(), "verdict": r.get("verdict"), "kept": r.get("kept"),
+            "agree_v1": j.get("v1", {}).get("agree"), "agree_v2": j.get("v2", {}).get("agree"), "scored": r.get("scored")}
+
+
+def rescore_current(res: dict) -> bool:
+    return res.get("exp30") is not None and res["exp30"] == exp30_provenance()
+
+
+def rescore_status(judge: str = "v2") -> tuple[str, dict | None]:
+    """('none' | 'stale' | 'current', the stored re-score). Stale: made under an Exp 30 record that has changed."""
+    res = cache.load(RESCORE_NAME, rescore_params(judge))
+    if res is None:
+        return "none", None
+    return ("current" if rescore_current(res) else "stale"), res
+
+
+def rescore(judge: str, n_prompts: int = N_PROMPTS, seed: str = SEED, digest_: str = "", judge_digest_: str = "",
+            client=None) -> dict:
+    """Exp 27's bar again, with the stored threads judged by `judge` (cached under that judge's digest). No new writing.
+    The spot-check is not repeated: the fresh-sample agreement of Exp 30 is the judge check, because the 10 threads of
+    Exp 27's spot-check are judge v2's training set. So this record holds the bar and nothing that adopts gen-v5."""
+    assert digest_ == digest(n_prompts, seed) and judge_digest_ == judge_digest(judge), "the prompts or the judge changed"
+    if not rescore_allowed(judge):
+        raise SystemExit(f"judge {judge} may not re-score Exp 27: Exp 30 has not kept and trusted it (D-114)")
+    bits, directory = prompts(n_prompts, seed), run_dir(n_prompts, seed)
+    records = gather(directory, bits)
+    if records is None:
+        raise SystemExit("Exp 27's bits are not all in the run folder")
+    verdicts = judge_all(client or make_judge_client(), records, directory, judge)
+    rates = per_prompt(records, verdicts)
+    ids, diffs = paired_diffs(rates)
+    b = bar(diffs)
+    return {"judge": judge, "exp30": exp30_provenance(), "n_prompts": len(rates), "paired_prompts": ids, "bar": b,
+            "arms": {a: {"threads_judged": sum(v[a]["judged"] for v in rates.values() if a in v),
+                         "threads_connected": sum(v[a]["connected"] for v in rates.values() if a in v)} for a in ARMS},
+            "per_prompt": {p: {a: rates[p][a] for a in ARMS if a in rates[p]} for p in sorted(rates)},
+            "judge_failures": sum(v is None for v in verdicts.values()), "bar_passes": b["passes"]}
+
+
 def table(res: dict) -> str:
     b, c = res["bar"], res["spot_check"]
     ci = "n/a" if b["ci95"] is None else f"{b['ci95'][0]:+.3f} to {b['ci95'][1]:+.3f}"
@@ -505,9 +593,14 @@ def table(res: dict) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("command", choices=("run", "review", "score"))
+    ap.add_argument("command", choices=("run", "review", "score", "rescore"))
+    ap.add_argument("--judge", choices=tuple(JUDGES), default="v2", help="rescore: which judge re-scores")
     ap.add_argument("--rerun", action="store_true", help="run: recompute from the run folder even if a record exists")
+    ap.add_argument("--env-file")
     a = ap.parse_args()
+    if a.env_file:
+        from dotenv import load_dotenv
+        load_dotenv(a.env_file, override=True)
     os.environ.setdefault("JOKE_WRITER_PROVIDER", "ollama")
     if a.command == "run":
         res = cache.run_or_load(NAME, run, rerun=a.rerun, **params())
@@ -520,6 +613,12 @@ def main() -> None:
                     for r in records for t in r["threads"]}
         done = review(directory, records, verdicts)
         print(f"{done} of {draw(records, verdicts)['asked']} answered; now `score`.")
+        return
+    elif a.command == "rescore":
+        status, _ = rescore_status(a.judge)
+        res = cache.run_or_load(RESCORE_NAME, rescore, rerun=a.rerun or status == "stale", **rescore_params(a.judge))
+        b = res["bar"]
+        print(f"judge {res['judge']}: mean B - A {b['mean_diff']} CI {b['ci95']} over {b['n_paired']} prompts; bar passes: {res['bar_passes']}")
         return
     else:
         res = score()
