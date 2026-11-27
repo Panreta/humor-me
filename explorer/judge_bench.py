@@ -17,13 +17,15 @@ import urllib.request
 
 from explorer import eval_judge as ej
 
+# Straight to the server: the cluster sets http_proxy with no exception for localhost, and the proxy answers 403.
+OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 TEMPLATE = "Which joke is funnier?\nJoke A: {a}\nJoke B: {b}\nAnswer with A or B."
 
 
 def post(url: str, prompts: list[str]) -> tuple[list[float], float, float]:
     body = json.dumps({"prompts": prompts}).encode()
     t = time.perf_counter()
-    res = json.load(urllib.request.urlopen(urllib.request.Request(f"{url}/score", body, {"Content-Type": "application/json"}), timeout=60))
+    res = json.load(OPENER.open(urllib.request.Request(f"{url}/score", body, {"Content-Type": "application/json"}), timeout=60))
     return res["p_a"], res["seconds"], time.perf_counter() - t
 
 

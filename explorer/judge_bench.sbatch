@@ -15,5 +15,5 @@ nvidia-smi --query-gpu=name,memory.total --format=csv
 python -m explorer.judge_server --adapter "$COURSE_DIR/runs/dpo_judge_v1/final" --dtype fp16 --addr-file runs/judge_bench.addr &
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null' EXIT
-for i in $(seq 1 120); do curl -sf localhost:8765/health >/dev/null && break; sleep 5; done
+for i in $(seq 1 120); do curl -sf --noproxy "*" localhost:8765/health >/dev/null && break; sleep 5; done
 python -m explorer.judge_bench --url http://localhost:8765 --out runs/judge_bench.json
