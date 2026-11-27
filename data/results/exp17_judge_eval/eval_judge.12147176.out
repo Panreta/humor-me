@@ -1,0 +1,25 @@
+{
+  "base": "Qwen/Qwen2.5-7B-Instruct",
+  "adapter": "/courses/CS5180.202710/students/tingyu.z/runs/dpo_judge_v1/final",
+  "data": "/scratch/tingyu.z/dpo/dpo_test.jsonl",
+  "n_records": 10636,
+  "n_pairs": 5318,
+  "n_pairs_both_orders": 5318,
+  "accuracy": 0.6950921399022189,
+  "ci95": [
+    0.6841247297553357,
+    0.706059550049102
+  ],
+  "consistent_share": 0.8181647235802934,
+  "share_answered_A": 0.43033095148552086,
+  "n_nan": 0,
+  "vs_baseline": {
+    "n_pairs": 5318,
+    "diff": 0.16792027077848815,
+    "ci95": [
+      0.15671568896778074,
+      0.17912485258919555
+    ]
+  },
+  "gate_pass": true
+}

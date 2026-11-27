@@ -1,0 +1,16 @@
+{
+  "base": "Qwen/Qwen2.5-7B-Instruct",
+  "adapter": null,
+  "data": "/scratch/tingyu.z/dpo/dpo_test.jsonl",
+  "n_records": 10636,
+  "n_pairs": 5318,
+  "n_pairs_both_orders": 5318,
+  "accuracy": 0.5271718691237307,
+  "ci95": [
+    0.5176894374769858,
+    0.5366543007704756
+  ],
+  "consistent_share": 0.5007521624670929,
+  "share_answered_A": 0.2725648740127868,
+  "n_nan": 0
+}
