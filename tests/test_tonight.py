@@ -414,6 +414,27 @@ def test_prompts_stay_frozen_and_the_paragraph_is_appended_to_a_copy():
     assert system.endswith(tonight.SEP + tonight.PARAGRAPH) and g.generator_id.endswith(f"{tonight.SUFFIX}:m")
 
 
+def test_approved_people_add_a_separate_paragraph_and_a_suffix_and_no_people_changes_nothing():
+    assert all(tonight.PEOPLE_PARAGRAPH.split("{")[0] not in p for p in generate.PROMPTS.values())
+    c, seen, _ = parallel_client(*(thread_reply(tag=t) for t in "abc"))
+    g = generate.ThreadGenerator(c)
+    g.set_tonight(tonight.TonightContext(["f"], None, ["a chip appears"], None, None, ["Elon Musk", "Tim Cook"]))
+    g.generate("cynic", 2, 0, CTX)
+    system = seen[0]["messages"][0]["content"]
+    people = tonight.PEOPLE_PARAGRAPH.format(names="Elon Musk, Tim Cook")
+    assert system.endswith(tonight.SEP + tonight.PARAGRAPH + tonight.SEP + people)
+    assert g.generator_id.endswith(f"{tonight.SUFFIX}{tonight.PEOPLE_SUFFIX}:m")
+    row = g.tonight_summary()
+    assert row["allowed_people"] == ["Elon Musk", "Tim Cook"] and row["people_writer"] == "people-v1"
+    # none approved: the request is the tonight request, with no people text and no suffix
+    c2, seen2, _ = parallel_client(*(thread_reply(tag=t) for t in "abc"))
+    g2 = generate.ThreadGenerator(c2)
+    g2.set_tonight(ctx_of())
+    g2.generate("cynic", 2, 0, CTX)
+    assert seen2[0]["messages"][0]["content"].endswith(tonight.SEP + tonight.PARAGRAPH) and "public figures" not in seen2[0]["messages"][0]["content"]
+    assert tonight.PEOPLE_SUFFIX not in g2.generator_id and "people_writer" not in g2.tonight_summary()
+
+
 def test_every_bit_gets_the_background_and_only_bits_2_and_6_a_topic():
     c, seen, _ = parallel_client(*(thread_reply(tag=t) for t in "abc"))
     g = generate.ThreadGenerator(c)

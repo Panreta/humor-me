@@ -240,3 +240,17 @@ def test_the_record_is_shown_without_the_local_fetch_or_after_a_later_days_fetch
     assert ex.stored(fetch_dir) == res  # a later day's fetch for bar 1 does not hide it
     tc._write(ex.fetch_path(fetch_dir), {**rec, "approved": ["another gist"]})
     assert ex.stored(fetch_dir) is None  # the same day with other material: the record is not this run's
+
+
+def test_arm_b_sends_the_people_paragraph_only_when_the_gist_carries_approved_people_and_the_digest_covers_it():
+    rec = {**rec_of([True]), "people": {"g0": ["Elon Musk"]}}
+    slot = ex.slots(rec)[0]
+    systems = {}
+    for arm in ex.ARMS:
+        c, seen, _ = parallel_client(*(thread_reply(tag=t) for t in "abc"))
+        ex.write_bit(c, rec, slot, arm)
+        systems[arm] = seen[0]["messages"][0]["content"]
+    assert systems["B"].endswith(app_tonight.SEP + app_tonight.PEOPLE_PARAGRAPH.format(names="Elon Musk"))
+    assert app_tonight.PEOPLE_PARAGRAPH.split("{")[0] not in systems["A"]
+    assert ex.new_generator(parallel_client(thread_reply())[0], "B", rec, slot).generator_id.endswith(f"{app_tonight.PEOPLE_SUFFIX}:m")
+    assert ex.digest(rec) != ex.digest({**rec, "people": {}}) and ex.digest({**rec, "people": {}}) == ex.digest(rec_of([True]))

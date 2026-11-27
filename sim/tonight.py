@@ -169,7 +169,8 @@ def slots(rec: dict, n: int = N_PAIRS, seed: str = SEED) -> list[dict]:
 def digest(rec: dict, n: int = N_PAIRS, seed: str = SEED) -> str:
     """What the written bits are made of: the live prompt, the tonight paragraph, today's approved material, the slots, the
     writer and its settings. A change starts a new run folder."""
-    parts = [generate.PROMPT_ID, generate.PROMPTS[generate.PROMPT_ID], app_tonight.PARAGRAPH, app_tonight.SUFFIX, generate.TEENS_RULE,
+    parts = [generate.PROMPT_ID, generate.PROMPTS[generate.PROMPT_ID], app_tonight.PARAGRAPH, app_tonight.SUFFIX, app_tonight.PEOPLE_PARAGRAPH, app_tonight.PEOPLE_SUFFIX,
+             json.dumps(rec.get("people", {}), sort_keys=True), generate.TEENS_RULE,
              json.dumps(generate.MODES, sort_keys=True), json.dumps(generate.COUNTED_REPLY_SCHEMA, sort_keys=True),
              str((generate.K, generate.JOKES, generate.TEMPERATURE, generate.GENERATOR_TIMING, generate.RETRIES,
                   generate.WRITER_CONTEXT, generate.HANG_GRACE_S, llm.MIN_ATTEMPT_S)),
@@ -194,7 +195,7 @@ def new_generator(client, arm: str, rec: dict, slot: dict):
     gen = generate.ThreadGenerator(client, prompt_id=generate.PROMPT_ID)
     if arm == "B":
         market = (rec["market"] or {}).get("line")
-        gen.set_tonight(app_tonight.TonightContext(rec["facts"], market, [slot["gist"]]))
+        gen.set_tonight(app_tonight.TonightContext(rec["facts"], market, [slot["gist"]], allowed_people=rec.get("people", {}).get(slot["gist"], [])))
     return gen
 
 

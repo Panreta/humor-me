@@ -49,6 +49,10 @@ PARAGRAPH = ("The user message gives tonight's context as background: a market l
              "headline, build the bit on that topic, seen the way this robot sees it; keep it vague, name nobody, and "
              "do not make the bit about the robot's own hardware.")
 SUFFIX = "+tonight-v1"
+# D-120: the frozen prompt says "no real or named people"; with approved public figures this paragraph is the narrow exception.
+PEOPLE_PARAGRAPH = ("Tonight you may name these public figures from the news: {names}. Joke only about what they did or said in "
+                    "tonight's story. Never their body, looks, health, family, age or any protected group. Name no one else.")
+PEOPLE_SUFFIX = "+people-v1"
 SEP = "\n\n"  # between the frozen system prompt and PARAGRAPH
 
 
@@ -448,6 +452,10 @@ class TonightContext:
     def empty(self) -> bool:
         return not (self.facts or self.market or self.gists)
 
+    def people_paragraph(self) -> str:
+        """The writer's exception for approved public figures, or "" with none (the request is then unchanged)."""
+        return PEOPLE_PARAGRAPH.format(names=", ".join(sorted(self.allow_people))) if self.allow_people else ""
+
     def background(self) -> dict | None:
         return {"facts": self.facts, "market": self.market} if (self.facts or self.market) else None
 
@@ -469,7 +477,7 @@ class TonightContext:
         """The `tonight` log row: what was approved and where it came from (invariant 6)."""
         return {"facts": self.facts, "market": self.market, "gists": self.gists, "allowed_names": self.allowed_names,
                 "allowed_people": self.allowed_people,
-                **({"people_prompt": safety.PEOPLE_PROMPT_ID} if self.allowed_people else {}),
+                **({"people_prompt": safety.PEOPLE_PROMPT_ID, "people_writer": PEOPLE_SUFFIX.lstrip("+")} if self.allowed_people else {}),
                 "report": {**self.report, "approved": len(self.gists)}}
 
     def use_row(self, bit: int) -> dict | None:

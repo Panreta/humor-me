@@ -251,6 +251,8 @@ class ThreadGenerator:
         # Inserted before the first ":" so a material suffix (+mat-v1) set in __init__ survives: prompt+mat+tonight:model
         if tonight_mod.SUFFIX not in self.generator_id:
             self.generator_id = self.generator_id.replace(":", f"{tonight_mod.SUFFIX}:", 1)
+        if tonight.allow_people and tonight_mod.PEOPLE_SUFFIX not in self.generator_id:
+            self.generator_id = self.generator_id.replace(":", f"{tonight_mod.PEOPLE_SUFFIX}:", 1)
 
     def tonight_summary(self) -> dict | None:
         return self.tonight.summary() if self.tonight else None
@@ -273,6 +275,8 @@ class ThreadGenerator:
                 fields["robot_facts"] = draw["facts"]
         if self.tonight and bit is not None:  # D-119: background for every bit, a headline topic for bits 2 and 6
             system = f"{system}{tonight_mod.SEP}{tonight_mod.PARAGRAPH}"
+            if people := self.tonight.people_paragraph():
+                system = f"{system}{tonight_mod.SEP}{people}"
             fields |= {k: v for k, v in (("tonight", self.tonight.background()), ("topic", self.tonight.draw(bit))) if v}
         user = json.dumps(fields)
         left = self.budget_s  # the calls start together, so each has the whole bit's budget
