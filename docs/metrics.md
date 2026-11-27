@@ -1025,7 +1025,7 @@ Decision: [D-118](agent/decisions-detail.md#d-118). Raw: `reports/metrics/materi
 
 Decision: [D-119](agent/decisions-detail.md#d-119). Raw: `reports/metrics/tonight.json`. Code: `sim/tonight.py`. Setup: one day of headlines turned into nameless one-sentence summaries; you approved them, then 10 blind pairs of bits from the live writer, the live prompt alone (gen-v5, arm A) against the live prompt with tonight's context (gen-v5 + tonight, arm B), same modes and rooms. No `audience.yaml` value is involved.
 
-**Answer: on by your judgment call, not a pass.** The script's rule says adopt, but the filter check had 1 summary, far too few to decide, and funniness only tied.
+**First run answer: on by your judgment call, not a pass.** The script's rule says adopt, but the filter check had 1 summary, far too few to decide, and funniness only tied.
 
 | Check | Result | Bar |
 |---|---|---|
@@ -1046,3 +1046,28 @@ Decision: [D-119](agent/decisions-detail.md#d-119). Raw: `reports/metrics/tonigh
 - What was tested is narrower than what ships: no market line, no typed line, and today's 10 top stories only. The fixes after the run (longer fetch timeout, two weeks of four lighter news sections, at most 40 headlines) were not measured.
 - Next: run `python -m sim.tonight fetch` on more days to give the filter check enough summaries.
 - Changed after this run (D-119 addendum, D-120): gists may now keep country, state, city, company, product and approved public-figure names, so the "0 real names" row of the rerun counts "a name that should not be there". This record was judged under the old meaning and is not comparable.
+
+### Rerun (2026-11-26): adopt, both bars met
+
+Same decision and pairs design, run on HEAD 14f7bd0 (places, checked organisations, public figures, "so what" summaries, writer people paragraph). Record: `reports/metrics/tonight.json`. TONIGHT was already on by default; it now also has a pass.
+
+| Check | Result | Bar |
+|---|---|---|
+| Headlines fetched / dropped (death, disaster, crime, war) | 40 / 0, 5, 2, 0 | beside the bar |
+| Rejected by the name check / by the safety check | 4 / 6 | beside the bar |
+| Summaries kept / approved by you | 23 / 21 | beside the bar |
+| You rejected (likely range, one day) | 9% (2 of 23), 2% to 27% | at most 20%: met |
+| Kept summaries with a name that should not be there | 0 | 0: met |
+| (a) Funnier: with tonight wins | 5 of 10 (without 3, ties 2) | at least 5: met at the minimum |
+| (b) More like tonight: with tonight wins | 5 of 10 (without 4, ties 1), likely range 24% to 76% | beside the bar |
+| Script verdict | adopt | both bars |
+
+**Read it:**
+- Both bars are met, so adopt now has a pass behind it.
+- Second attempt at the same bars, which raises the chance of a lucky pass.
+- Funniness is met exactly at its minimum. With no real difference, 5 or more wins of 10 happens about 62% of the time, so this means "not clearly worse".
+- The reject share is 9%, but its likely range reaches 27%, above the 20% bar; one day cannot rule out a higher rate.
+- "More like tonight" fell from 9 of 10 to 5 of 10. The setups differ (names, places, "so what" summaries, 40 headlines); the run cannot say which caused it.
+- The first run's name count used the old meaning (D-120), so the two filter results are not comparable.
+- No public figure was approved that day, so none of the 10 new bits named one; the public-figure rule is covered by the filter check only.
+

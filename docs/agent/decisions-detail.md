@@ -1487,6 +1487,27 @@ The user chose the problem, the scope of option B and every option below (2026-1
 - **The gist says what happened and why it is interesting or odd**, in plain words a stranger could follow without the headline, under 25 words (was 20). No second model call for vagueness; the user's rejections at `fetch` count against the 20% bar.
 - **`fetch` question** now reads "Does it contain a name that should not be there?" (see D-120 for what that counts).
 
+**Rerun (2026-11-26, HEAD 14f7bd0; places, checked organisations, public figures, "so what" gists, writer people paragraph): adopt, both bars met.** Record: `reports/metrics/tonight.json` (setup digest c386898b); the first run's numbers are above. TONIGHT was already on by default from the user's earlier call; it now also has a pass.
+
+| Check | Result | Bar |
+|---|---|---|
+| Headlines fetched / dropped (death, disaster, crime, war) | 40 / 0, 5, 2, 0 | beside the bar |
+| Rejected by the name check / by the safety check | 4 / 6 | beside the bar |
+| Gists kept / approved | 23 / 21 | beside the bar |
+| User rejected (likely range, one day) | 9% (2 of 23), 2% to 27% | at most 20% |
+| Kept gists with a name that should not be there (flagged) | 0 | 0 |
+| (a) Funnier: B wins | 5 of 10 (A 3, ties 2) | at least 5 |
+| (b) More like tonight: B wins | 5 of 10 (A 4, ties 1), likely range 24% to 76% | beside the bar |
+| Verdict | adopt | both bars |
+
+Caveats, said plainly:
+- Second attempt at the same bars. A second try raises the chance of a lucky pass.
+- Funniness meets its bar exactly at the minimum (5 of 10 pairs). If B were no funnier than A (a coin flip), 5 or more wins out of 10 happens about 62% of the time, so this says "not clearly worse", not "funnier".
+- The reject share is 9%, but its likely range reaches 27%, above the 20% bar. One day of headlines cannot rule out a reject rate above the bar.
+- "More like tonight" fell from 9 of 10 (first run) to 5 of 10. The setups differ (names, places, "so what" summaries, 40 headlines instead of 10), and the run cannot say which caused it.
+- The first run's filter bar counted names differently (D-120), so the two filter results are not comparable.
+- The rerun used no approved public figure in any gist (the people list for the day is empty), so none of the 10 B bits could have named one: 0 of 10. The keep list held one name ("AI"), no place or organisation. The part of D-119 that adds names to jokes was not exercised by this run.
+
 ## <a id="d-120"></a>D-120 · 2026-11-26 — Public figures in the news may be named in tonight's gists and jokes (user)
 The user chose "public figures in the news OK" over the other two options below (2026-11-26). Claude specified it, a Sonnet agent built it. Measured only by the Exp 35 rerun's filter bar and the user's own approvals; everything below is a judgment call, not measured.
 
@@ -1523,3 +1544,24 @@ Not changed: a surname as the first word of a sentence still passes the rules (a
 **Writer paragraph for approved public figures (user, 2026-11-26).** With the frozen "no real or named people" rule, approved names almost never reached a joke. `tonight.PEOPLE_PARAGRAPH` is now appended to the writer's system prompt, after the tonight paragraph, **only when the show's approved people list is non-empty**: "Tonight you may name these public figures from the news: <names>. Joke only about what they did or said in tonight's story. Never their body, looks, health, family, age or any protected group. Name no one else." `PROMPTS` stay frozen (gen-v4 and gen-v5 hash pins unchanged). With an empty list the request is byte for byte what it was (tested, and diffed against HEAD 9ab290e for a fake-writer request with tonight off and with tonight on and no people). The generator id gets `+people-v1` only when the paragraph is sent, so logs say which bits could name people; the `tonight` row logs the names offered (`allowed_people`) and `people_writer`. Exp 35's arm B sends it when the gist carries approved people, as the show does, and the digest covers the paragraph, its suffix and the gist's people. Note: the tonight paragraph still says "name nobody" for the headline topic; the later people paragraph is the exception, left unedited so the no-people request stays byte-identical. Judgment call, wording not measured; the safety model's `PEOPLE_RULE` and the rules remain the gate.
 
 **Addendum to D-119 places (user's call, 2026-11-26).** The user chose to keep all current places (India, Israel, London, Berlin, Wales, Montana, Cuba, Indiana) even though each is also a name or surname.
+
+**Rerun (2026-11-26, HEAD 14f7bd0; places, checked organisations, public figures, "so what" gists, writer people paragraph): adopt, both bars met.** Record: `reports/metrics/tonight.json` (setup digest c386898b); the first run's numbers are above. TONIGHT was already on by default from the user's earlier call; it now also has a pass.
+
+| Check | Result | Bar |
+|---|---|---|
+| Headlines fetched / dropped (death, disaster, crime, war) | 40 / 0, 5, 2, 0 | beside the bar |
+| Rejected by the name check / by the safety check | 4 / 6 | beside the bar |
+| Gists kept / approved | 23 / 21 | beside the bar |
+| User rejected (likely range, one day) | 9% (2 of 23), 2% to 27% | at most 20% |
+| Kept gists with a name that should not be there (flagged) | 0 | 0 |
+| (a) Funnier: B wins | 5 of 10 (A 3, ties 2) | at least 5 |
+| (b) More like tonight: B wins | 5 of 10 (A 4, ties 1), likely range 24% to 76% | beside the bar |
+| Verdict | adopt | both bars |
+
+Caveats, said plainly:
+- Second attempt at the same bars. A second try raises the chance of a lucky pass.
+- Funniness meets its bar exactly at the minimum (5 of 10 pairs). If B were no funnier than A (a coin flip), 5 or more wins out of 10 happens about 62% of the time, so this says "not clearly worse", not "funnier".
+- The reject share is 9%, but its likely range reaches 27%, above the 20% bar. One day of headlines cannot rule out a reject rate above the bar.
+- "More like tonight" fell from 9 of 10 (first run) to 5 of 10. The setups differ (names, places, "so what" summaries, 40 headlines instead of 10), and the run cannot say which caused it.
+- The first run's filter bar counted names differently (D-120), so the two filter results are not comparable.
+- D-120's public-figure rule is covered by the filter bar only (0 flagged). No gist had an approved public figure on this day, so 0 of the 10 B bits named one, and the rule's effect on jokes is unmeasured.
