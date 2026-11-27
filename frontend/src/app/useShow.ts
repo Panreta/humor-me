@@ -20,6 +20,8 @@ export type ShowSetup = {
   operator: string;
   room: Room;
   consent: boolean;
+  // What the operator approved on the pre-show panel (D-119); left out when nothing was approved.
+  tonight?: { facts: string[]; market: string | null; gists: string[] };
 };
 
 export function useShow() {
@@ -125,6 +127,7 @@ export function useShow() {
             room: setup.room,
             operator: setup.operator.trim(),
             consent: setup.consent,
+            ...(setup.tonight ? { tonight: setup.tonight } : {}),
           }),
         );
       socket.onerror = () => {

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useShow, type ShowSetup, type ShowState } from "./useShow";
 import { REACTIONS, isPauseKey, keyInput, ratingFor, reactionKeyFor, type Room } from "./reactionKeys";
 import Waveform from "./Waveform";
+import TonightPanel from "./TonightPanel";
 import styles from "./page.module.css";
 
 const VENUES = ["bar", "company_event", "showcase"];
@@ -206,6 +207,7 @@ export default function Home() {
               </label>
             ))}
           </fieldset>
+          <TonightPanel onChange={(tonight) => set({ tonight })} />
           <label className={styles.consent}>
             <input type="checkbox" checked={setup.consent} onChange={(e) => set({ consent: e.target.checked })} />
             The room was told this show is recorded and agreed

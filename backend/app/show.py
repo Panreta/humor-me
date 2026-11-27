@@ -547,6 +547,8 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
                       "seed": explore_seed},
               generator_id=generator.generator_id, selector_id=selector.selector_id, git_sha=git_sha,
               operator=operator, audio=audio or {"consent": False, "path": None})
+    if (summary := getattr(generator, "tonight_summary", None)) and (tonight := summary()):
+        log.write("tonight", **tonight)  # D-119: what the operator approved, and where it came from
     if bridge_lines or cache_report:  # invariant 6: what the show could play, what the rule dropped, the filler order
         # skip_heard and heard_dropped: the D-112 rule and its effect, counts only; absent in a pre-D-112 log
         extra = {} if cache_info is None else {"skip_heard": cache_info.skip_heard,
@@ -627,6 +629,8 @@ async def run_show(director, room: str, context: dict, *, generator: Generator, 
                     told(adopt[0], adopt[2][0])
             if (material_of := getattr(generator, "material_row", None)) and (row := material_of(bit)):
                 log.write("material", bit=bit, **row)  # D-117: only a bit that played, after any adopt told its thread
+            if (use := getattr(generator, "tonight_use", None)) and (row := use(bit)):
+                log.write("tonight_use", bit=bit, **row)  # D-119: only a bit that played, after any adopt told its thread
             if plans and plans[0].ready_from is not None:
                 # A bit prepared on a right guess was ready before the previous one ended; only the time after counts.
                 plans[0].ready_from = max(plans[0].ready_from, boundary)

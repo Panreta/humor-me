@@ -14,6 +14,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, wait
 
 from app import llm, material as material_mod, safety
+from app import tonight as tonight_mod
 from app.bank import BankGenerator
 from app.show import Batch
 
@@ -159,6 +160,7 @@ class ThreadGenerator:
     not see each other, as independent samples of one prompt must not (D-110)."""
 
     material = None  # a subclass that skips __init__ (tests) runs without it
+    tonight = None  # a TonightContext (D-119), set by the server for a show with approved context; a subclass that skips __init__ runs without
 
     def __init__(self, client: llm.Client, *, budget_s: float = GENERATOR_TIMING[1], prompt_id: str | None = None,
                  told: list[str] | None = None, material: "material_mod.ShowMaterial | None" = None):
@@ -182,7 +184,7 @@ class ThreadGenerator:
     def generate(self, mode: str, bit: int, joke: int, context: dict) -> Batch:
         if bit not in self._bits:
             draw = self._draw(bit, context)
-            self._bits[bit] = self._fetch(mode, context, draw) if draw else self._fetch(mode, context)
+            self._bits[bit] = self._fetch(mode, context, draw, bit) if (draw or self.tonight) else self._fetch(mode, context)
             if draw:
                 self._drawn[bit] = draw
         return self._batch(self._bits[bit], mode, bit, joke)
@@ -199,7 +201,7 @@ class ThreadGenerator:
         key = (bit, mode)
         if key not in self._spec:
             draw = self._draw(bit, context)
-            got = self._fetch(mode, context, draw) if draw else self._fetch(mode, context)  # a worker thread cannot be cancelled: it may end after a discard
+            got = self._fetch(mode, context, draw, bit) if (draw or self.tonight) else self._fetch(mode, context)  # a worker thread cannot be cancelled: it may end after a discard
             if key in self._dead:
                 return self._batch(got, mode, bit, joke)  # nobody will ask again; keep nothing
             self._spec[key] = got
@@ -226,6 +228,8 @@ class ThreadGenerator:
             if self.material and (drawn := self._drawn.get(bit)):
                 self.material.played(bit, drawn)
                 self._spent[bit] = drawn
+            if self.tonight:
+                self.tonight.played(bit)  # D-119: only a played bit spends its headline
 
     def material_row(self, bit: int) -> dict | None:
         """The `material` log row's fields for a bit whose thread was played, else None (no material, or a bank bit)."""
@@ -236,9 +240,27 @@ class ThreadGenerator:
         return getattr(self.material, "variant", material_mod.FULL) == material_mod.TOPIC
 
     def _draw(self, bit: int, context: dict) -> dict | None:
+        # A bit that takes an approved headline (D-119) draws no material: its topic would be overwritten, yet it would be
+        # spent and logged as if the writer had used it. Judgment call, not measured: such a bit also gets no robot facts.
+        if self.tonight and self.tonight.draw(bit):
+            return None
         return self.material.draw(bit, context["age"]) if self.material else None
 
-    def _fetch(self, mode: str, context: dict, draw: dict | None = None) -> tuple[str, list[list[str]], list[str], list[str]] | Exception:
+    def set_tonight(self, tonight) -> None:
+        self.tonight = tonight
+        # Inserted before the first ":" so a material suffix (+mat-v1) set in __init__ survives: prompt+mat+tonight:model
+        if tonight_mod.SUFFIX not in self.generator_id:
+            self.generator_id = self.generator_id.replace(":", f"{tonight_mod.SUFFIX}:", 1)
+        if tonight.allow_people and tonight_mod.PEOPLE_SUFFIX not in self.generator_id:
+            self.generator_id = self.generator_id.replace(":", f"{tonight_mod.PEOPLE_SUFFIX}:", 1)
+
+    def tonight_summary(self) -> dict | None:
+        return self.tonight.summary() if self.tonight else None
+
+    def tonight_use(self, bit: int) -> dict | None:
+        return self.tonight.use_row(bit) if self.tonight else None
+
+    def _fetch(self, mode: str, context: dict, draw: dict | None = None, bit: int | None = None) -> tuple[str, list[list[str]], list[str], list[str]] | Exception:
         """(prompt, joke-major lines, premises, reasons for the threads lost), or the error when no thread came back.
         The error carries the same reasons as `threads_lost`, so the log shows why a bit went to the bank."""
         teens = TEENS_RULE if context["age"] not in safety.STANDARD_AGES else ""
@@ -251,6 +273,11 @@ class ThreadGenerator:
             else:
                 system += "\n\n" + MATERIAL_PARAGRAPH
                 fields["robot_facts"] = draw["facts"]
+        if self.tonight and bit is not None:  # D-119: background for every bit, a headline topic for bits 2 and 6
+            system = f"{system}{tonight_mod.SEP}{tonight_mod.PARAGRAPH}"
+            if people := self.tonight.people_paragraph():
+                system = f"{system}{tonight_mod.SEP}{people}"
+            fields |= {k: v for k, v in (("tonight", self.tonight.background()), ("topic", self.tonight.draw(bit))) if v}
         user = json.dumps(fields)
         left = self.budget_s  # the calls start together, so each has the whole bit's budget
         if self.client.deadline_s is not None:
@@ -361,16 +388,21 @@ class LiveSafety:
 
     def __init__(self, client: llm.Client):
         self.client = client
+        self.allow_people: frozenset = frozenset()  # D-120: approved public figures, per show
+        self.allow_caps: frozenset = frozenset()  # D-119: the show sets it from tonight's approved gists; empty otherwise
+
+    def _people(self) -> tuple:
+        return (self.allow_people,) if self.allow_people else ()
 
     def prefetch(self, texts: list[str], age: str) -> None:
-        safety.prefetch(texts, age, self.client)
+        safety.prefetch(texts, age, self.client, self.allow_caps, *self._people())
 
     def check(self, text: str, age: str) -> safety.Verdict:
-        return safety.check(text, age)
+        return safety.check(text, age, self.allow_caps, *self._people())
 
     def check_rules(self, text: str, age: str) -> safety.Verdict:
         """The rules alone, for the bank fallback: hand-checked lines need no API call."""
-        return safety.check_rules(text, age)
+        return safety.check_rules(text, age, self.allow_caps, *self._people())
 
 
 def writer_client() -> llm.Client:

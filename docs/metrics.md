@@ -1020,3 +1020,54 @@ Decision: [D-118](agent/decisions-detail.md#d-118). Raw: `reports/metrics/materi
 - "Everyday topics only" looks promising (4%), but that idea came after seeing this data and would be a third try at the same bar. Not adopted, not run.
 
 **This was a second attempt at the same bars.** With no real difference, one attempt reaches 10 wins of 20 about 59% of the time, so two attempts reach it at least once about 83% of the time. 20 pairs only catch big differences.
+
+## Tonight's context for each bit (Exp 35, 2026-11-26)
+
+Decision: [D-119](agent/decisions-detail.md#d-119). Raw: `reports/metrics/tonight.json` (rerun); first run's record: `reports/metrics/tonight_run1.json` (restored from git history, numbers only). Code: `sim/tonight.py`. Chart: `reports/figures/decision-plot/exp35-tonight.png`. Setup: one day of headlines turned into nameless one-sentence summaries; you approved them, then 10 blind pairs of bits from the live writer, the live prompt alone (gen-v5, arm A) against the live prompt with tonight's context (gen-v5 + tonight, arm B), same modes and rooms. No `audience.yaml` value is involved.
+
+**First run answer: on by your judgment call, not a pass.** The script's rule says adopt, but the filter check had 1 summary, far too few to decide, and funniness only tied.
+
+| Check | Result | Bar |
+|---|---|---|
+| Headlines fetched / dropped as disasters (no deaths, crimes or wars that day) | 10 / 5 | beside the bar |
+| Rejected by the name check / by the safety check | 3 / 1 | beside the bar |
+| Summaries kept / approved by you | 1 / 1 | beside the bar |
+| You rejected (95% interval) | 0% (0% to 79%) | at most 20%: met, but the interval is far wider than the bar, so it cannot decide |
+| Kept summaries with a real name | 0 | 0: met |
+| (a) Funnier: with tonight wins | 5 of 10 (without 5, ties 0) | at least 5: met at the minimum |
+| (b) More like tonight: with tonight wins | 9 of 10 (95% interval 60% to 98%) | beside the bar |
+| Market line / typed line | not fetched (timed out) / none typed | beside the bar |
+| Script verdict | adopt | both bars |
+
+**Read it:**
+- The one clear signal is (b): 9 of 10 bits with tonight's context felt like tonight.
+- Funniness is a tie. 10 pairs only rule out "clearly worse".
+- All 10 pairs used the same one summary, so this is one headline's evidence.
+- What was tested is narrower than what ships: no market line, no typed line, and today's 10 top stories only. The fixes after the run (longer fetch timeout, two weeks of four lighter news sections, at most 40 headlines) were not measured.
+- Next: run `python -m sim.tonight fetch` on more days to give the filter check enough summaries.
+- Changed after this run (D-119 addendum, D-120): gists may now keep country, state, city, company, product and approved public-figure names, so the "0 real names" row of the rerun counts "a name that should not be there". This record was judged under the old meaning and is not comparable.
+
+### Rerun (2026-11-26): adopt, both bars met
+
+Same decision and pairs design, run on HEAD 14f7bd0 (places, checked organisations, public figures, "so what" summaries, writer people paragraph). Record: `reports/metrics/tonight.json`. TONIGHT was already on by default; it now also has a pass.
+
+| Check | Result | Bar |
+|---|---|---|
+| Headlines fetched / dropped (death, disaster, crime, war) | 40 / 0, 5, 2, 0 | beside the bar |
+| Rejected by the name check / by the safety check | 4 / 6 | beside the bar |
+| Summaries kept / approved by you | 23 / 21 | beside the bar |
+| You rejected (likely range, one day) | 9% (2 of 23), 2% to 27% | at most 20%: met |
+| Kept summaries with a name that should not be there | 0 | 0: met |
+| (a) Funnier: with tonight wins | 5 of 10 (without 3, ties 2) | at least 5: met at the minimum |
+| (b) More like tonight: with tonight wins | 5 of 10 (without 4, ties 1), likely range 24% to 76% | beside the bar |
+| Script verdict | adopt | both bars |
+
+**Read it:**
+- Both bars are met, so adopt now has a pass behind it.
+- Second attempt at the same bars, which raises the chance of a lucky pass.
+- Funniness is met exactly at its minimum. With no real difference, 5 or more wins of 10 happens about 62% of the time, so this means "not clearly worse".
+- The reject share is 9%, but its likely range reaches 27%, above the 20% bar; one day cannot rule out a higher rate.
+- "More like tonight" fell from 9 of 10 to 5 of 10. The setups differ (names, places, "so what" summaries, 40 headlines); the run cannot say which caused it.
+- The first run's name count used the old meaning (D-120), so the two filter results are not comparable.
+- No public figure was approved that day, so none of the 10 new bits named one; the public-figure rule is covered by the filter check only.
+

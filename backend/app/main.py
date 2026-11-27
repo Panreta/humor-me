@@ -11,8 +11,8 @@ from app.bank import BankGenerator
 from app.cache import build_pool
 from app.material import used_topics
 from app.director import load_director
-from app import llm
-from app.generate import llm_stack, warm_up
+from app import llm, tonight
+from app.generate import FILTER_RETRIES, FILTER_TIMING, llm_stack, warm_up
 from app.live import AnnouncedSim, BankOnlySafety, ButtonSource, WebSocketPlayer, git_sha, load_sessions
 from app.log import SESSIONS, SessionLog, read_session
 from app.pauses import Pauses
@@ -57,6 +57,62 @@ def make_stack(room: str):
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+def tonight_clients():
+    """(client for the headline gists, client for the safety check): both the safety-check model (Claude Haiku, D-100)."""
+    def one():
+        return llm.from_env(FILTER_TIMING[0], role="safety_check", retries=FILTER_RETRIES, deadline_s=FILTER_TIMING[1])
+    return one(), one()
+
+
+def tonight_build() -> dict:
+    """Today's fetch, from the cache when there is one. Blocking: call it off the event loop."""
+    return tonight.load_or_build(lambda: tonight.build(tonight.http_get, *tonight_clients()), refresh=False)
+
+
+def tonight_vet(payload: dict) -> "tonight.TonightContext | None":
+    """The approved payload checked again against today's cached fetch and the safety check. Blocking."""
+    _, safety_client = tonight_clients()
+    cached = tonight.load_or_build(lambda: {"market": None, "gists": []})  # never fetches here: only today's own cache
+    return tonight.make_context(payload, cached, safety_client)
+
+
+def tonight_check_facts(facts: list[str]) -> list[dict]:
+    """The safety verdict for each typed line, so the operator sees a rejection before the show. Blocking."""
+    lines = [f for f in (tonight.clean_fact(x) for x in facts) if f][:tonight.MAX_TONIGHT_FACTS]
+    try:
+        _, client = tonight_clients()
+    except Exception:  # no key or model: fail closed
+        client = None
+    verdicts = tonight.vet(lines, client)
+    return [{"text": t, "ok": v.ok, "reason": v.reason} for t, v in verdicts.items()]
+
+
+@app.get("/tonight")
+async def get_tonight(refresh: bool = False) -> dict:
+    """Tonight's market line and gists for the pre-show panel (D-119). `enabled` false means the panel stays hidden."""
+    if not tonight.enabled():
+        return {"enabled": False}
+    try:
+        if refresh:
+            result = await asyncio.to_thread(
+                tonight.load_or_build, lambda: tonight.build(tonight.http_get, *tonight_clients()), refresh=True)
+        else:
+            result = await asyncio.to_thread(tonight_build)
+    except Exception as e:  # noqa: BLE001 - no key or a dead provider: the show runs without tonight's context
+        log.warning("tonight fetch failed: %s", e)
+        return {"enabled": True, "market": None, "gists": [], "errors": [f"{type(e).__name__}: {e}"[:200]]}
+    return {"enabled": True, "date": result["date"], "market": result["market"], "gists": result["gists"],
+            "people": result.get("people", {}), "report": result["report"], "errors": result["errors"]}
+
+
+@app.post("/tonight/check")
+async def check_tonight(body: dict) -> dict:
+    facts = body.get("facts")
+    if not tonight.enabled() or not isinstance(facts, list):
+        return {"verdicts": []}
+    return {"verdicts": await asyncio.to_thread(tonight_check_facts, [f for f in facts if isinstance(f, str)])}
 
 
 async def _release(ws: WebSocket, live: types.SimpleNamespace, reason: str | None = None) -> None:
@@ -175,6 +231,17 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
         generator, safety, fallback, bridge_lines = make_stack(msg["room"])
         if material := getattr(generator, "material", None):
             material.set_history(used_topics(sessions))  # D-117: a topic no earlier show used
+        if tonight.enabled() and msg.get("tonight") and (set_tonight := getattr(generator, "set_tonight", None)):
+            try:  # D-119: a failed check means no tonight context, never a failed show
+                if ctx := await asyncio.to_thread(tonight_vet, msg["tonight"]):
+                    set_tonight(ctx)
+                    if hasattr(safety, "allow_caps"):
+                        safety.allow_caps = ctx.allow_caps
+                        safety.allow_people = ctx.allow_people
+                else:  # approved items that are not in today's fetch (a new day) or failed the second check
+                    log.warning("tonight context dropped: nothing the operator approved survived the check at start")
+            except Exception:  # noqa: BLE001
+                log.warning("tonight context dropped: the check failed", exc_info=True)
         pool = await asyncio.to_thread(build_pool, bridge_lines, sessions)
         warm_s = await asyncio.to_thread(warm_up, generator)
         if warm_s is not None:

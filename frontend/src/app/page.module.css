@@ -227,3 +227,31 @@
   gap: 16px;
   align-items: center;
 }
+
+.tonight {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.tonight label {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.tonight .factRow {
+  display: flex;
+  gap: 8px;
+}
+
+.tonight .factRow input {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 0.9rem;
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  background: var(--background);
+}
