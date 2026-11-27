@@ -1023,7 +1023,7 @@ Decision: [D-118](agent/decisions-detail.md#d-118). Raw: `reports/metrics/materi
 
 ## Tonight's context for each bit (Exp 35, 2026-11-26)
 
-Decision: [D-119](agent/decisions-detail.md#d-119). Raw: `reports/metrics/tonight.json`. Code: `sim/tonight.py`. Setup: one day of headlines turned into nameless one-sentence summaries; you approved them, then 10 blind pairs of bits from the live writer, the live prompt alone (gen-v5, arm A) against the live prompt with tonight's context (gen-v5 + tonight, arm B), same modes and rooms. No `audience.yaml` value is involved.
+Decision: [D-119](agent/decisions-detail.md#d-119). Raw: `reports/metrics/tonight.json` (rerun); first run's record: `reports/metrics/tonight_run1.json` (restored from git history, numbers only). Code: `sim/tonight.py`. Chart: `reports/figures/decision-plot/exp35-tonight.png`. Setup: one day of headlines turned into nameless one-sentence summaries; you approved them, then 10 blind pairs of bits from the live writer, the live prompt alone (gen-v5, arm A) against the live prompt with tonight's context (gen-v5 + tonight, arm B), same modes and rooms. No `audience.yaml` value is involved.
 
 **First run answer: on by your judgment call, not a pass.** The script's rule says adopt, but the filter check had 1 summary, far too few to decide, and funniness only tied.
 
