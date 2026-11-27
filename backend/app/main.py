@@ -104,7 +104,7 @@ async def get_tonight(refresh: bool = False) -> dict:
         log.warning("tonight fetch failed: %s", e)
         return {"enabled": True, "market": None, "gists": [], "errors": [f"{type(e).__name__}: {e}"[:200]]}
     return {"enabled": True, "date": result["date"], "market": result["market"], "gists": result["gists"],
-            "report": result["report"], "errors": result["errors"]}
+            "people": result.get("people", {}), "report": result["report"], "errors": result["errors"]}
 
 
 @app.post("/tonight/check")
@@ -237,6 +237,7 @@ async def _show(ws: WebSocket, msg: dict, played: asyncio.Queue, live: types.Sim
                     set_tonight(ctx)
                     if hasattr(safety, "allow_caps"):
                         safety.allow_caps = ctx.allow_caps
+                        safety.allow_people = ctx.allow_people
                 else:  # approved items that are not in today's fetch (a new day) or failed the second check
                     log.warning("tonight context dropped: nothing the operator approved survived the check at start")
             except Exception:  # noqa: BLE001

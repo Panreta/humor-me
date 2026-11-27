@@ -564,3 +564,10 @@ def test_curly_contractions_and_quotes_are_not_names(line):
 
 def test_a_named_person_is_still_caught_when_written_curly():
     assert not safety.check_rules("Dave’s haircut is a cry for help.", "mixed").ok
+
+
+def test_the_safety_prompt_is_unchanged_without_approved_names_and_carries_them_with(  # D-120
+):
+    assert safety.system_prompt("mixed") == safety.SYSTEM.format(teens="")
+    assert safety.system_prompt("teens") == safety.SYSTEM.format(teens=safety.TEENS_RULE)
+    assert "Exception to rule 3" in safety.system_prompt("mixed", frozenset({"Tim Cook"}))

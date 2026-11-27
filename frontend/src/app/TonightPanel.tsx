@@ -8,7 +8,7 @@ const MAX_FACTS = 1; // mirrors MAX_TONIGHT_FACTS in backend/app/tonight.py
 // mirrors MAX_GISTS: the server refuses a start message with more, and the fetch can offer up to 40
 const MAX_GISTS = 10;
 
-type Fetched = { enabled: boolean; market?: { line: string } | null; gists?: string[]; errors?: string[] };
+type Fetched = { enabled: boolean; market?: { line: string } | null; gists?: string[]; people?: Record<string, string[]>; errors?: string[] };
 export type Approved = { facts: string[]; market: string | null; gists: string[] };
 
 // The pre-show panel (D-119): the market line, one checkbox per headline gist (all unchecked), and one optional line.
@@ -94,6 +94,7 @@ export default function TonightPanel({ onChange }: { onChange: (approved: Approv
             onChange={() => toggle(g)}
           />
           {g}
+          {data.people?.[g]?.length ? <em> (names: {data.people[g].join(", ")})</em> : null}
         </label>
       ))}
       {!data.gists?.length && <span>No headlines today.</span>}

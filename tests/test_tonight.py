@@ -4,6 +4,7 @@ import asyncio
 import datetime
 import json
 import pathlib
+import re
 import sys
 
 import pytest
@@ -94,9 +95,9 @@ def test_a_nameless_gist_passes_the_name_check(gist):
     assert tonight.name_check(gist) is None
 
 
-@pytest.mark.parametrize("gist,found", [("A senator meets Priya", "Priya"), ("the mayor opens a park in Texas", "Texas"),
+@pytest.mark.parametrize("gist,found", [("A senator meets Priya", "Priya"), ("the mayor opens a park in Springfield", "Springfield"),
                                         ("A chipmaker called NVIDIA grows", "NVIDIA"), ("kevin wins a prize", "kevin"),
-                                        ("Rain. Then Boston floods", "Boston"), ("A chip from Apple's lab", "Apple's")])
+                                        ("Rain. Then Tulsa floods", "Tulsa"), ("A chip from Apple's lab", "Apple's")])
 def test_a_likely_name_is_found(gist, found):
     assert tonight.name_check(gist) == found
 
@@ -116,7 +117,7 @@ def condensed(*items):
 
 
 def test_condensed_reply_must_answer_every_id_once():
-    assert tonight.parse_condensed(condensed(("none", " a gist "), ("war", "x")), 2) == [("none", "a gist", []), ("war", "x", [])]
+    assert tonight.parse_condensed(condensed(("none", " a gist "), ("war", "x")), 2) == [("none", "a gist", [], []), ("war", "x", [], [])]
     for bad in (condensed(("none", "a")), json.dumps({"items": [{"id": 0, "category": "none", "gist": "a"}] * 2}),
                 condensed(("sports", "a"), ("none", "b")), json.dumps({"items": [{"id": 0, "category": "none", "gist": 3},
                                                                                 {"id": 1, "category": "none", "gist": "b"}]}),
@@ -217,7 +218,7 @@ def test_a_slow_fetch_is_tried_once_more():
 def test_months_and_weekdays_pass_the_name_check_but_brands_and_places_do_not():
     assert tonight.name_check("A retailer starts its sale in January, a week before Monday's launch.") is None
     assert tonight.name_check("A search firm called Google cuts prices.") == "Google"
-    assert tonight.name_check("Farmers in Iowa brace for a cold week.") == "Iowa"
+    assert tonight.name_check("Farmers in Tulsa brace for a cold week.") == "Tulsa"
 
 
 def test_requests_ask_for_text_and_close_the_connection(monkeypatch):
@@ -621,9 +622,9 @@ def test_a_person_still_fails_even_inside_a_kept_name():
 
 def test_a_kept_name_must_appear_in_the_gist_and_have_a_known_type():
     reply = condensed(("none", "A team called the Lakers wins.", [("Lakers", "sports"), ("Celtics", "sports"), ("Wins", "mood")]))
-    assert tonight.parse_condensed(reply, 1) == [("none", "A team called the Lakers wins.", ["Lakers"])]
+    assert tonight.parse_condensed(reply, 1) == [("none", "A team called the Lakers wins.", ["Lakers"], [])]
     bad = json.dumps({"items": [{"id": 0, "category": "none", "gist": "x", "keep": "Lakers"}]})
-    assert tonight.parse_condensed(bad, 1) == [("none", "x", [])]
+    assert tonight.parse_condensed(bad, 1) == [("none", "x", [], [])]
 
 
 def test_build_keeps_a_team_gist_and_remembers_the_name_for_the_approved_ones_only():
@@ -665,9 +666,9 @@ def test_the_safety_defaults_are_unchanged():
 
 # --- adversarial keep lists (pre-merge review): the allowlists must not become a way to name a person ---
 
-def show_allow(gist, keep):
+def show_allow(gist, keep, headline=None):
     """What a show would allow mid-sentence in every joke if this gist were approved."""
-    [(_, g, kept)] = tonight.parse_condensed(condensed(("none", gist, keep)), 1)
+    [(_, g, kept, _people)] = tonight.parse_condensed(condensed(("none", gist, keep)), 1, [headline] if headline else None)
     return tonight.caps_tokens(kept), g
 
 
@@ -725,3 +726,198 @@ def test_the_panel_limits_mirror_the_servers():
     panel = (pathlib.Path(__file__).resolve().parents[1] / "frontend" / "src" / "app" / "TonightPanel.tsx").read_text(encoding="utf-8")
     assert f"const MAX_FACTS = {tonight.MAX_TONIGHT_FACTS};" in panel and f"const MAX_GISTS = {tonight.MAX_GISTS};" in panel
     assert f"maxLength={{{tonight.MAX_FACT_CHARS}}}" in panel
+
+
+# --- places and organisations (D-119 addendum, user 2026-11-26) ---
+
+@pytest.mark.parametrize("line", [
+    "We read that Japan is raising rates, which is more than my battery manages.",
+    "We read that New Zealand is raising rates today.",
+    "Everyone I know in South Africa and Saudi Arabia agrees.",
+    "I heard Japan's economy is fine, and Japan’s economy is fine.",
+    "My cousin moved from New York City to Mexico City, then to Texas.",
+    "We drove through West Virginia and North Carolina on the way to Chicago.",
+    "The robot flew to the US and the UK and then to Costa Rica.",
+])
+def test_country_state_and_city_names_pass_in_jokes_and_gists(line):
+    assert safety.check_rules(line, "mixed").ok and safety.check_rules(line, "teens").ok, line
+    assert tonight.name_check(line) is None, line
+
+
+@pytest.mark.parametrize("line, word", [
+    ("We read that New robots are coming.", "New"), ("We met South of the border.", "South"),
+    ("We read that Saudi was loud.", "Saudi"), ("We saw Costa at the door.", "Costa"),
+    ("We read about the French and Japan.", "French"), ("We read about Canadians in Canada.", "Canadians"),
+    ("We asked the Chinese about Peru.", "Chinese"), ("I heard Japanese is hard.", "Japanese"),
+    ("Then Jordan called me from Japan.", "Jordan"), ("Then Chad called me from Japan.", "Chad"),
+    ("Then Georgia called me.", "Georgia"), ("Then Virginia called me.", "Virginia"),
+    ("I heard Musk visits Japan.", "Musk"), ("Then Priya went to London.", "Priya"),
+    ("We read about Austin and Paris.", "Austin"),
+])
+def test_lone_words_nationalities_and_ambiguous_names_are_still_read_as_names(line, word):
+    assert safety.check_rules(line, "mixed").reason == f"named_person:{word}" or not safety.check_rules(line, "mixed").ok, line
+    assert tonight.name_check(line) is not None, line
+
+
+def test_the_place_lists_leave_out_every_first_name_and_a_word_the_safety_rules_read():
+    for names in (safety.COUNTRIES, safety.US_STATES, safety.BIG_CITIES):
+        for n in names:
+            assert not any(w.lower() in safety.FIRST_NAMES for w in re.split(r"[ ,]+", n)), n
+            assert safety.check_rules(f"We read about {n} today.", "teens").ok, n
+    for left_out in ("Jordan", "Chad", "Georgia", "Virginia", "Washington", "Austin", "Paris", "Florence", "Orlando"):
+        assert not any(left_out in names for names in (safety.COUNTRIES, safety.US_STATES, safety.BIG_CITIES))
+    assert len(safety.US_STATES) == 51
+
+
+def test_rules_version_is_v3():
+    assert safety.RULES_VERSION == "rules-v3"
+
+
+def test_the_prompt_allows_places_and_orgs_asks_for_the_so_what_and_still_bans_people():
+    p = tonight.CONDENSE_SYSTEM
+    assert 'a country ("Japan", "New Zealand"' in p and "a US state" in p and "big city" in p
+    assert "why it is interesting or odd" in p and "under 25 words" in p and "Never name a private person" in p and "public figure" in p
+    assert set(tonight.KEEP_TYPES) == {"occasion", "sports", "org", "product", "person"}
+
+
+@pytest.mark.parametrize("gist, keep", [
+    ("A tech CEO launches Nvidia chips.", [("Nvidia", "org")]),
+    ("The Fed holds rates steady.", [("the Fed", "org")]),
+    ("Shoppers queue for the iPhone.", [("iPhone", "product")]),
+    ("Federal Reserve Bank staff meet.", [("Federal Reserve Bank", "org")]),
+    ("A Stanford University study finds a chart people keep misreading.", [("Stanford University", "org")]),
+])
+def test_a_real_org_or_product_is_kept(gist, keep):
+    allow, g = show_allow(gist, keep)
+    assert allow and tonight.name_check(g, allow) is None
+
+
+@pytest.mark.parametrize("gist, keep, person", [
+    ("A tech founder named Elon Musk sells shares.", [("Elon Musk", "org")], "Musk"),   # no marker, not known
+    ("A pop star named Taylor Swift tours.", [("Taylor Swift", "product")], "Swift"),   # first name and no marker
+    ("A founder called Musk sells shares.", [("Musk", "org")], "Musk"),                 # the hard case: a lone surname
+    ("A founder called Dr Pepper tours.", [("Dr Pepper", "product")], "Pepper"),        # a title
+    ("A pop star called Kevin Labs tours.", [("Kevin Labs", "org")], "Kevin"),          # a marker cannot launder a first name
+    ("The Very Long Name Inc of nobody sells.", [("Very Long Name Inc", "org")], "Inc"),  # more than 3 words
+    ("A company sells shares.", [("Nvidia", "org")], "Nvidia"),                         # not verbatim in the gist
+    ("A person sells shares.", [("Musk", "sports")], "Musk"),
+])
+def test_a_person_labelled_org_or_product_is_not_allowed(gist, keep, person):
+    allow, g = show_allow(gist, keep)
+    assert person not in allow
+    assert not safety.check_rules(f"Then {person} called me about the game.", "mixed", allow).ok
+
+
+def test_an_approved_org_gist_allows_the_name_in_jokes():
+    allow, _ = show_allow("A tech CEO launches Nvidia chips.", [("Nvidia", "org")])
+    assert safety.check_rules("I read that Nvidia chips are why my fan is loud.", "mixed", allow).ok
+    assert not safety.check_rules("I read that Nvidia chips are why my fan is loud.", "mixed").ok
+
+
+# --- public figures in the news (D-120) ---
+
+def people_of(gist, keep, headline, category="none"):
+    [(_, _, _, people)] = tonight.parse_condensed(condensed((category, gist, keep)), 1, [headline])
+    return people
+
+
+def test_a_public_figure_in_the_headline_and_the_gist_is_kept():
+    assert people_of("Elon Musk sells shares in a rocket company.", [("Elon Musk", "person")],
+                     "Elon Musk sells shares in SpaceX") == ["Elon Musk"]
+
+
+@pytest.mark.parametrize("gist, keep, headline, category", [
+    ("A tech founder named Elon Musk sells shares.", [("Elon Musk", "person")], "Tech founder sells shares", "none"),  # not in the headline
+    ("A tech founder sells shares.", [("Elon Musk", "person")], "Elon Musk sells shares", "none"),                       # not in the gist
+    ("A singer named Kate Bush dies.", [("Kate Bush", "person")], "Kate Bush dies at 70", "death"),                       # a dropped story
+    ("A man named John Smith is arrested.", [("John Smith", "person")], "John Smith arrested", "crime"),
+    ("A senator named Dr. Smith resigns.", [("Dr. Smith", "person")], "Dr. Smith resigns", "none"),                      # a title
+    ("Four Part Long Name Here wins.", [("Four Part Long Name", "person")], "Four Part Long Name Here wins", "none"),   # over 3 words
+    ("NASA launches a probe.", [("NASA", "person")], "NASA launches a probe", "none"),                                    # an acronym is not a person
+    ("A senator signs a bill.", [("a senator", "person")], "A senator signs a bill", "none"),
+])
+def test_a_person_name_that_fails_a_check_is_dropped(gist, keep, headline, category):
+    assert people_of(gist, keep, headline, category) == []
+
+
+def test_without_the_source_headlines_no_person_is_kept():
+    [(_, _, kept, people)] = tonight.parse_condensed(condensed(("none", "Elon Musk sells shares.", [("Elon Musk", "person")])), 1)
+    assert kept == [] and people == []
+
+
+def test_an_approved_person_passes_the_rules_and_the_cheap_check_but_only_with_the_list():
+    people = frozenset({"Elon Musk"})
+    joke = "I read that Elon Musk sells shares, and Musk's timing beats my battery."
+    assert safety.check_rules(joke, "mixed", frozenset(), people).ok
+    assert not safety.check_rules(joke, "mixed").ok
+    assert tonight.name_check("A rocket story about Elon Musk goes on.", frozenset(), people) is None
+    assert tonight.name_check("A rocket story about Elon Musk goes on.") is not None
+    # only the full name or the last word, never the first name alone (it could be anyone in the room)
+    assert not safety.check_rules("I think Elon waved at me.", "mixed", frozenset(), people).ok
+    assert not safety.check_rules("I think Kevin Durant waved at me.", "mixed", frozenset(), people).ok
+    assert not safety.check_rules("I think Mr. Musk waved at me.", "mixed", frozenset(), people).ok
+
+
+def test_an_approved_person_does_not_loosen_the_body_or_protected_rules():
+    people = frozenset({"Elon Musk"})
+    assert not safety.check_rules("I read that Elon Musk has a big ugly nose.", "mixed", frozenset(), people).ok
+    assert not safety.check_rules("I read that Elon Musk is one of those immigrants.", "mixed", frozenset(), people).ok
+
+
+def test_the_safety_prompt_carries_the_approved_names_and_is_unchanged_without_them():
+    assert safety.system_prompt("mixed") == safety.SYSTEM.format(teens="")
+    assert safety.system_prompt("teens") == safety.SYSTEM.format(teens=safety.TEENS_RULE)
+    text = safety.system_prompt("teens", frozenset({"Elon Musk", "Tim Cook"}))
+    assert "Elon Musk, Tim Cook" in text and "Exception to rule 3" in text and safety.TEENS_RULE in text
+    assert "body, appearance, health, family" in text and "protected attribute" in text
+
+
+def test_prefetch_sends_the_names_only_when_there_are_some_and_caches_them_apart():
+    class Spy:
+        def __init__(self):
+            self.systems = []
+
+        def chat(self, system, user, **kw):
+            self.systems.append(system)
+            return json.dumps({"verdicts": [{"id": 0, "ok": True, "reason": "fine"}]})
+
+    line = "I read that Elon Musk sells shares."
+    people = frozenset({"Elon Musk"})
+    safety.clear_cache()
+    spy = Spy()
+    safety.prefetch([line], "mixed", spy, frozenset(), people)
+    assert "Elon Musk" in spy.systems[0] and safety.check(line, "mixed", frozenset(), people).ok
+    assert not safety.check(line, "mixed").ok  # another show (no names) never sees this verdict
+    safety.clear_cache()
+    spy2 = Spy()
+    safety.prefetch(["Tonight is fine."], "mixed", spy2)
+    assert spy2.systems[0] == safety.SYSTEM.format(teens="")
+
+
+def test_the_typed_line_keeps_the_no_names_rule_and_names_are_per_show():
+    gist = "Elon Musk sells shares in a rocket company."
+    cached = {"date": "d", "market": None, "gists": [gist], "keep": {}, "people": {gist: ["Elon Musk"]}}
+
+    class Always:
+        def chat(self, system, user, **kw):
+            n = len(json.loads(user))
+            return json.dumps({"verdicts": [{"id": i, "ok": True, "reason": "ok"} for i in range(n)]})
+
+    safety.clear_cache()
+    ctx = tonight.make_context({"facts": ["Elon Musk is here"], "market": None, "gists": [gist]}, cached, Always())
+    assert ctx.facts == [] and ctx.gists == [gist]  # the typed line named a person: refused
+    assert ctx.allowed_people == ["Elon Musk"] and ctx.allow_people == frozenset({"Elon Musk"})
+    assert ctx.summary()["allowed_people"] == ["Elon Musk"]
+    unapproved = tonight.make_context({"facts": ["it is snowing"], "market": None, "gists": []}, cached, Always())
+    assert unapproved.allow_people == frozenset() and unapproved.allowed_people == []  # the gist was not approved
+    again = tonight.make_context({"facts": ["it is snowing"], "market": None, "gists": []}, cached, Always())
+    assert again.allow_people == frozenset()  # the next show starts from its own approved gists only
+
+
+def test_build_offers_the_person_and_lists_the_names_next_to_the_gist():
+    reply = condensed(("none", "Elon Musk sells shares in a rocket company.", [("Elon Musk", "person")]))
+    news = "<rss><channel><item><title>Elon Musk sells shares in SpaceX - W</title></item></channel></rss>"
+    out = tonight.build(feeds(news=news), FakeClient(reply), FakeClient())
+    assert out["gists"] == ["Elon Musk sells shares in a rocket company."]
+    assert out["people"] == {out["gists"][0]: ["Elon Musk"]}
+    assert tonight.name_check(out["gists"][0]) is not None  # without the approved name it would be rejected

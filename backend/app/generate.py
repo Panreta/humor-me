@@ -384,17 +384,21 @@ class LiveSafety:
 
     def __init__(self, client: llm.Client):
         self.client = client
+        self.allow_people: frozenset = frozenset()  # D-120: approved public figures, per show
         self.allow_caps: frozenset = frozenset()  # D-119: the show sets it from tonight's approved gists; empty otherwise
 
+    def _people(self) -> tuple:
+        return (self.allow_people,) if self.allow_people else ()
+
     def prefetch(self, texts: list[str], age: str) -> None:
-        safety.prefetch(texts, age, self.client, self.allow_caps)
+        safety.prefetch(texts, age, self.client, self.allow_caps, *self._people())
 
     def check(self, text: str, age: str) -> safety.Verdict:
-        return safety.check(text, age, self.allow_caps)
+        return safety.check(text, age, self.allow_caps, *self._people())
 
     def check_rules(self, text: str, age: str) -> safety.Verdict:
         """The rules alone, for the bank fallback: hand-checked lines need no API call."""
-        return safety.check_rules(text, age, self.allow_caps)
+        return safety.check_rules(text, age, self.allow_caps, *self._people())
 
 
 def writer_client() -> llm.Client:

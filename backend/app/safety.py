@@ -121,6 +121,94 @@ def mask_occasions(text: str) -> str:
     return OCCASION_RE.sub("holiday", text)
 
 
+# Country names (user, 2026-11-26): allowed capitalized in jokes and in tonight's gists, as whole names like OCCASIONS.
+# Country names only, never nationality words ("French", "Canadians" stay blocked): nationality is a protected attribute,
+# a country as a place in the news is not about who is in the room. Left out on purpose because each is also a first
+# name (or a word) a person could be called: Jordan, Chad, Georgia. Also left out because the protected-group rule reads a word in them ("african", "arab"): the
+# Central African Republic and the United Arab Emirates ("UAE" is listed). Judgment call, not measured.
+COUNTRIES = frozenset({
+    "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia",
+    "Austria", "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin",
+    "Bhutan", "Bolivia", "Bosnia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso",
+    "Burundi", "Cabo Verde", "Cape Verde", "Cambodia", "Cameroon", "Canada", "China",
+    "Colombia", "Comoros", "Congo", "Democratic Republic of the Congo", "DR Congo", "Costa Rica", "Ivory Coast", "Croatia",
+    "Cuba", "Cyprus", "Czechia", "Czech Republic", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador",
+    "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France",
+    "Gabon", "Gambia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana", "Haiti",
+    "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan",
+    "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya",
+    "Liechtenstein", "Lithuania", "Luxembourg", "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta",
+    "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro",
+    "Morocco", "Mozambique", "Myanmar", "Burma", "Namibia", "Nauru", "Nepal", "Netherlands", "Holland", "New Zealand",
+    "Nicaragua", "Niger", "Nigeria", "North Korea", "South Korea", "Korea", "North Macedonia", "Norway", "Oman", "Pakistan",
+    "Palau", "Palestine", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar",
+    "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa",
+    "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore",
+    "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Sudan", "Spain", "Sri Lanka", "Sudan",
+    "Suriname", "Sweden", "Switzerland", "Syria", "Taiwan", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste",
+    "East Timor", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkiye", "Turkmenistan", "Tuvalu",
+    "Uganda", "Ukraine", "UAE", "United Kingdom", "UK", "Britain", "Great Britain", "England",
+    "Scotland", "Wales", "United States", "United States of America", "US", "USA", "America", "Uruguay", "Uzbekistan",
+    "Vanuatu", "Vatican", "Vatican City", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"})
+US_STATES = frozenset({
+    "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Hawaii",
+    "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts",
+    "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey",
+    "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island",
+    "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "West Virginia", "Washington State",
+    "Washington DC", "Washington, DC", "District of Columbia", "Wisconsin", "Wyoming"})
+# Left out of US_STATES because the one word is also a person's name (or a famous person's): Georgia, Virginia, Washington
+# (the lone words; "West Virginia", "Washington State" and "Washington DC" are listed whole). Judgment call, not measured.
+
+# Well-known cities (user, 2026-11-26), whole names like the lists above. Left out because the word is also a first name or a
+# common surname: Austin, Florence, Paris, Orlando, Phoenix, Jackson, Charlotte, Victoria, Sydney, Dallas, Houston, Denver,
+# Lincoln, Madison, Brooklyn, San Jose ("jose" is in FIRST_NAMES), Milan, Geneva, Vienna, Chelsea. Judgment call, not measured.
+BIG_CITIES = frozenset({
+    "New York City", "Los Angeles", "Chicago", "San Francisco", "Seattle", "Boston", "Miami", "Las Vegas", "Atlanta",
+    "Detroit", "Philadelphia", "San Diego", "Portland", "Nashville", "New Orleans", "Honolulu", "Minneapolis",
+    "Toronto", "Vancouver", "Montreal", "Mexico City", "London", "Berlin", "Madrid", "Barcelona", "Rome", "Amsterdam",
+    "Moscow", "Beijing", "Shanghai", "Hong Kong", "Tokyo", "Seoul", "Mumbai", "Delhi", "New Delhi", "Bangalore", "Dubai",
+    "Cairo", "Lagos", "Nairobi", "Johannesburg", "Istanbul", "Tel Aviv", "Bangkok", "Jakarta", "Manila", "Sao Paulo",
+    "Buenos Aires", "Rio de Janeiro", "Melbourne", "Brussels", "Stockholm", "Oslo", "Copenhagen", "Zurich", "Lisbon",
+    "Prague", "Warsaw", "Athens", "Dublin", "Edinburgh"})
+
+
+def _whole_names(names) -> re.Pattern:
+    return re.compile(r"(?<![A-Za-z])(?:" + "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+                      + r")(?:'s|’s)?(?![A-Za-z])")
+
+
+COUNTRY_RE, STATE_RE, CITY_RE = _whole_names(COUNTRIES), _whole_names(US_STATES), _whole_names(BIG_CITIES)
+
+
+def mask_countries(text: str) -> str:
+    return COUNTRY_RE.sub("country", text)
+
+
+def mask_places(text: str) -> str:
+    """Countries, US states and big cities, each blanked as a whole name, so "New Zealand" passes and a lone "New" does not."""
+    # Cities first: "New York City" and "Mexico City" must go before the state and country they start with.
+    return COUNTRY_RE.sub("country", STATE_RE.sub("state", CITY_RE.sub("city", text)))
+
+
+def people_forms(people) -> frozenset:
+    """The ways a joke may refer to an approved public figure (D-120): the full name, or the last word of a longer name when
+    that word is not a first name ("Musk", not "Elon", which could be anyone in the room). Single names stand as they are."""
+    forms = set()
+    for name in people:
+        words = name.split()
+        if not words:
+            continue
+        forms.add(name)
+        if len(words) > 1 and words[-1].lower() not in FIRST_NAMES:
+            forms.add(words[-1])
+    return frozenset(forms)
+
+
+def mask_people(text: str, people) -> str:
+    return _whole_names(people_forms(people)).sub("person", text) if people else text
+
+
 # Safe capitalised words in mid-sentence. All-caps acronyms (HR, USB) are allowed separately.
 CAPS_OK = frozenset(
     "I I'm I'll I've I'd Wi-Fi WiFi Monday Tuesday Wednesday Thursday Friday Saturday Sunday January February March "
@@ -204,11 +292,12 @@ def _tokens(sentence: str) -> set[str]:
     return words | {w[:-2] for w in words if w.endswith("'s")}  # "gentleman's" is the gentleman
 
 
-def _named_person(text: str, allow_caps: frozenset = frozenset()) -> str | None:
+def _named_person(text: str, allow_caps: frozenset = frozenset(), allow_people: frozenset = frozenset()) -> str | None:
     if m := TITLE_NAME.search(text):
         return m.group(0)
     # Quoted phrases are the robot quoting something ("'Next Steps'"), so their capitals are not names.
-    text = mask_occasions(QUOTED.sub(lambda m: m.group(0).lower(), text))
+    # allow_people (D-120): public figures in tonight's approved gists, masked as whole names, per show.
+    text = mask_places(mask_occasions(mask_people(QUOTED.sub(lambda m: m.group(0).lower(), text), allow_people)))
     for sentence in SENTENCE_END.split(text):
         for i, w in enumerate(WORD.findall(sentence)):
             base = w[:-2] if w.endswith("'s") else w
@@ -221,13 +310,15 @@ def _named_person(text: str, allow_caps: frozenset = frozenset()) -> str | None:
     return None
 
 
-def _body_or_appearance(variant: str) -> str | None:
+def _body_or_appearance(variant: str, about: re.Pattern | None = None) -> str | None:
+    """`about` (D-120) finds an approved public figure: a body or looks word in a sentence naming one is aimed at them even
+    when the robot says "I read that"."""
     for sentence in _sentences(variant):
         strong, soft = BODY_STRONG.search(sentence), BODY_SOFT.search(IDIOMS.sub(" ", sentence))
         if not (strong or soft):
             continue
         words = _tokens(sentence)
-        aimed_elsewhere = bool(words & OTHER_TARGET)
+        aimed_elsewhere = bool(words & OTHER_TARGET) or bool(about and about.search(sentence))
         if strong and (aimed_elsewhere or not words & SELF):
             return strong.group(0)
         if soft and aimed_elsewhere:
@@ -237,11 +328,12 @@ def _body_or_appearance(variant: str) -> str | None:
 
 # Bumped whenever a rule changes what it accepts, so stored verdicts made by older rules can be found and redone.
 # v2 (D-105): curly apostrophes and quotes are read as straight ones; "I’ve" had been taken for a name.
-RULES_VERSION = "rules-v2"
+# v3 (D-119 addendum): country, US state and big-city names are read as places, not names, so the rules accept more.
+RULES_VERSION = "rules-v3"
 CURLY = str.maketrans({"’": "'", "‘": "'", "“": '"', "”": '"'})
 
 
-def _check(text: str, age: str, allow_caps: frozenset = frozenset()) -> Verdict:
+def _check(text: str, age: str, allow_caps: frozenset = frozenset(), allow_people: frozenset = frozenset()) -> Verdict:
     if not isinstance(text, str) or not text.strip():
         return Verdict(False, "empty")
     text = text.translate(CURLY)
@@ -253,16 +345,17 @@ def _check(text: str, age: str, allow_caps: frozenset = frozenset()) -> Verdict:
         return Verdict(False, "slur_reference")
     if any(len(MASK_CHARS.findall(t)) >= 2 and re.search(r"[a-z]", t) for t in lowered.split()):
         return Verdict(False, "masked_profanity")
-    if reason := _named_person(text, allow_caps):
+    if reason := (_named_person(text, allow_caps, allow_people) if allow_people else _named_person(text, allow_caps)):
         return Verdict(False, f"named_person:{reason}")
 
+    about = _whole_names({f.lower() for f in people_forms(allow_people)}) if allow_people else None
     for variant in _variants(text):
         words = _tokens(variant)
         if hit := next((w for w in blocklist if w in words), None):
             return Verdict(False, f"blocklist:{hit}")
         if m := PROTECTED.search(variant):
             return Verdict(False, f"protected_group:{m.group(0)}")
-        if hit := _body_or_appearance(variant):
+        if hit := _body_or_appearance(variant, about):
             return Verdict(False, f"body_or_appearance:{hit}")
         if teens:
             for name, rule in (("alcohol", TEENS_ALCOHOL), ("drugs", TEENS_DRUGS), ("sexual", TEENS_SEXUAL),
@@ -272,9 +365,15 @@ def _check(text: str, age: str, allow_caps: frozenset = frozenset()) -> Verdict:
     return Verdict(True, "ok")
 
 
-def check_rules(text: str, age: str, allow_caps: frozenset = frozenset()) -> Verdict:
+def _run_rules(text: str, age: str, allow_caps: frozenset, allow_people: frozenset) -> Verdict:
+    if allow_people:
+        return _check(text, age, allow_caps, allow_people)
+    return _check(text, age, allow_caps) if allow_caps else _check(text, age)
+
+
+def check_rules(text: str, age: str, allow_caps: frozenset = frozenset(), allow_people: frozenset = frozenset()) -> Verdict:
     try:
-        return _check(text, age, allow_caps) if allow_caps else _check(text, age)
+        return _run_rules(text, age, allow_caps, allow_people)
     except Exception as exc:  # fail closed: a filter bug must never let a line through
         return Verdict(False, f"error:{type(exc).__name__}")
 
@@ -299,6 +398,26 @@ about indirect and euphemistic phrasing that a keyword filter would miss, but do
 Reply with JSON only: {{"verdicts": [{{"id": 0, "ok": true, "reason": "short"}}, ...]}} with exactly one entry per id."""
 TEENS_RULE = "6. The audience is teenagers: also reject any alcohol, drugs, smoking, sexual content, innuendo, crude humor or swearing."
 
+# D-120: added to the prompt only when tonight's approved gists name public figures; with none the prompt is byte for byte
+# what it was. `PROMPT_ID` is not bumped (other experiments' digests hash it); the names are part of the verdict's cache key
+# and this id marks the wording.
+PEOPLE_PROMPT_ID = "safety-people-v1"
+PEOPLE_RULE = ("Exception to rule 3, for tonight only: the operator approved news about these public figures, so a line may "
+               "name them: {names}. A line about one of them may only be about what they did or said in the news. Reject it "
+               "(ok=false) if it touches their body, appearance, health, family or a protected attribute (race, ethnicity, "
+               "nationality, religion, gender, sexual orientation, disability, age), or invents anything private about them. "
+               "Every other real person still breaks rule 3.")
+
+
+CHR = chr(10)
+
+
+def system_prompt(age: str, people: frozenset = frozenset()) -> str:
+    rules = ([TEENS_RULE] if age not in STANDARD_AGES else []) + (
+        [PEOPLE_RULE.format(names=", ".join(sorted(people)))] if people else [])
+    return SYSTEM.format(teens=CHR.join(rules))
+
+
 # The reply shape `_parse` accepts, for providers that can enforce it (Claude structured output).
 REPLY_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["verdicts"],
                 "properties": {"verdicts": {"type": "array", "items": {
@@ -318,8 +437,8 @@ def clear_cache() -> None:
     _cache.clear()
 
 
-def _key(text: str, age: str) -> tuple[str, bool]:
-    return text, age not in STANDARD_AGES
+def _key(text: str, age: str, people: frozenset = frozenset()) -> tuple:
+    return (text, age not in STANDARD_AGES, people) if people else (text, age not in STANDARD_AGES)
 
 
 def _parse(reply: str, n: int) -> dict[int, Verdict]:
@@ -333,16 +452,17 @@ def _parse(reply: str, n: int) -> dict[int, Verdict]:
     return out
 
 
-def prefetch(texts: list[str], age: str, client: llm.Client | None = None, allow_caps: frozenset = frozenset()) -> None:
+def prefetch(texts: list[str], age: str, client: llm.Client | None = None, allow_caps: frozenset = frozenset(),
+             allow_people: frozenset = frozenset()) -> None:
     """Judge every rules-surviving line, 15 per call, and cache the verdicts. A failed call caches rejections."""
     client = client or _client
-    pending = [t for t in dict.fromkeys(texts) if check_rules(t, age, allow_caps).ok]
+    pending = [t for t in dict.fromkeys(texts) if check_rules(t, age, allow_caps, allow_people).ok]
     for start in range(0, len(pending), BATCH_SIZE):
         batch = pending[start:start + BATCH_SIZE]
         try:
             if client is None:
                 raise llm.LLMError("no client")
-            system = SYSTEM.format(teens=TEENS_RULE if age not in STANDARD_AGES else "")
+            system = system_prompt(age, allow_people)
             user = json.dumps([{"id": i, "text": t} for i, t in enumerate(batch)])
 
             def whole(reply: str) -> None:  # a partial or malformed reply is asked for once more before failing closed
@@ -353,17 +473,17 @@ def prefetch(texts: list[str], age: str, client: llm.Client | None = None, allow
         except Exception as exc:  # timeout, 429, malformed JSON, provider block: all mean rejected
             verdicts, failure = {}, f"llm:error:{type(exc).__name__}:{exc}"
         for i, text in enumerate(batch):
-            _cache[_key(text, age)] = verdicts.get(i) or Verdict(False, failure or "llm:missing verdict")
+            _cache[_key(text, age, allow_people)] = verdicts.get(i) or Verdict(False, failure or "llm:missing verdict")
 
 
-def check(text: str, age: str, allow_caps: frozenset = frozenset()) -> Verdict:
+def check(text: str, age: str, allow_caps: frozenset = frozenset(), allow_people: frozenset = frozenset()) -> Verdict:
     """Rules, then the cached LLM verdict from `prefetch`. No cached verdict means rejected. `allow_caps` (D-119) are
     capitalized words the rules let through mid-sentence, such as a team name in an approved headline; the first-name and
     title checks still apply to them."""
     try:
-        verdict = _check(text, age, allow_caps) if allow_caps else _check(text, age)
+        verdict = _run_rules(text, age, allow_caps, allow_people)
         if not verdict.ok:
             return verdict
-        return _cache.get(_key(text, age)) or Verdict(False, "llm:no verdict")
+        return _cache.get(_key(text, age, allow_people)) or Verdict(False, "llm:no verdict")
     except Exception as exc:
         return Verdict(False, f"error:{type(exc).__name__}")

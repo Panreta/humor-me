@@ -1045,3 +1045,4 @@ Decision: [D-119](agent/decisions-detail.md#d-119). Raw: `reports/metrics/tonigh
 - All 10 pairs used the same one summary, so this is one headline's evidence.
 - What was tested is narrower than what ships: no market line, no typed line, and today's 10 top stories only. The fixes after the run (longer fetch timeout, two weeks of four lighter news sections, at most 40 headlines) were not measured.
 - Next: run `python -m sim.tonight fetch` on more days to give the filter check enough summaries.
+- Changed after this run (D-119 addendum, D-120): gists may now keep country, state, city, company, product and approved public-figure names, so the "0 real names" row of the rerun counts "a name that should not be there". This record was judged under the old meaning and is not comparable.

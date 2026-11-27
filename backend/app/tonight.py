@@ -118,12 +118,12 @@ def parse_headlines(xml_text: str, limit: int = MAX_HEADLINES) -> list[str]:
 
 # --- the Haiku step: nameless gists, off-limits categories dropped -----------------------------------------------------
 
-KEEP_TYPES = ("occasion", "sports")
+KEEP_TYPES = ("occasion", "sports", "org", "product", "person")
 CONDENSE_SYSTEM = """You prepare news for a stand-up robot's background. You get numbered headlines. For each, write a gist, a category and a keep list.
 
-The gist: one plain sentence under 20 words, present tense, with no opinion. Never name a person, company, product, band, show or place: say what they are instead ("a GPU company", "a tech CEO", "a senator", "a western state", "a streaming service"). Three kinds of name may stay, capitalized: a holiday, festival or important date ("Thanksgiving", "Black Friday"), a sports team ("the Lakers"), and a sports event ("the Super Bowl"). Use no other capital letters except the first word and "S&P", "AI", "US", "EU", "UK", "GPU", "CEO".
+The gist: one plain sentence under 25 words, present tense, with no opinion. It says what happened and why it is interesting or odd, in plain words a stranger could follow without the headline (for example "a chart people keep misreading gets a correction"). Never name a private person, and never name anyone in a story about a death, disaster, crime or war, including a victim: say what they are instead ("a tech CEO", "a senator", "a pop star", "a quarterback"). A public figure (a politician, official, CEO or founder, celebrity or athlete) may be named only when the story is about what they did or said and their name is written in the headline. These names may stay, capitalized: a country ("Japan", "New Zealand", never what people from a country are called, like "Japanese"), a US state, a well-known big city, a company, product or organisation ("Nvidia", "the Fed", "iPhone"), a holiday, festival or important date ("Thanksgiving", "Black Friday"), a sports team ("the Lakers"), and a sports event ("the Super Bowl"). Name no other place, band, show or film: say what it is instead ("a western town", "a streaming series"). Use no other capital letters except the first word and "S&P", "AI", "US", "EU", "UK", "GPU", "CEO".
 
-The keep list names every such holiday, team or event you left in the gist, exactly as written there, with its type: "occasion" (holiday, festival, important date) or "sports" (team or sports event). Use an empty list when the gist has none. A team name is never a person's name: never keep a player, coach or owner.
+The keep list names every public figure, company, product, organisation, holiday, team or event you left in the gist, exactly as written there, with its type: "person" (a public figure), "org" (company or organisation), "product", "occasion" (holiday, festival, important date) or "sports" (team or sports event). Countries, states and cities are not listed. Use an empty list when the gist has none. Never list a person as "org", "product" or "sports"; a company, team or holiday name is never a person's name.
 
 The category is one of: death (someone died, was killed, a funeral, an obituary), disaster (accident, crash, fire, flood, storm damage, outbreak, collapse), crime (arrest, shooting, trial, fraud, abuse), war (war, strikes, terrorism, hostages, military attacks), or none. Politics, money, health, science, sport and culture are none. When the category is not none, still give a gist.
 
@@ -152,31 +152,91 @@ def kept_team(name, kind, gist: str) -> str | None:
     return name if re.search(rf"(?<![A-Za-z])[Tt]he\s+{re.escape(name)}(?![A-Za-z])", gist) else None
 
 
-def parse_condensed(reply: str, n: int) -> list[tuple[str, str, list[str]]]:
-    """[(category, gist, kept names)] by headline id. Raises ValueError unless every id 0..n-1 is answered once. A kept
-    name must pass `kept_team`, or it is dropped from the list (never kept on trust)."""
-    got: dict[int, tuple[str, str, list[str]]] = {}
+# Orgs and products (user, 2026-11-26) are trusted less than teams: a kept name must look like an organisation, not only be
+# labelled one, or "Musk" listed as an org would be allowed in every joke of the show (the LeBron/Messi hole, again).
+ORG_MARKERS = frozenset(
+    "Inc Corp Corporation Co Ltd LLC Bank University College Agency Party Council Department Commission Committee Fed Federal "
+    "Reserve AI Labs Motors Airlines Airways Group Foundation Institute Association League Court Congress Senate Ministry "
+    "Authority Administration Bureau Services Systems Technologies Industries Pharmaceuticals Studios Records Pictures "
+    "Entertainment Media Network Stores Foods Holdings Capital Partners Energy Electric Software Games Bros".split())
+KNOWN_ORGS = frozenset({
+    "OpenAI", "Anthropic", "Google", "Apple", "Microsoft", "Amazon", "Meta", "Nvidia", "Tesla", "Netflix", "Disney", "Intel",
+    "AMD", "IBM", "Oracle", "Samsung", "Sony", "Nintendo", "Uber", "Airbnb", "Spotify", "TikTok", "YouTube", "Walmart",
+    "Costco", "Target", "Starbucks", "McDonald's", "Nike", "Boeing", "Ford", "Toyota", "NASA", "FDA", "FBI", "CIA", "IRS",
+    "SEC", "FTC", "Fed", "UN", "NATO", "EU", "WHO", "FIFA", "NFL", "NBA", "MLB", "NHL", "NCAA", "IMF", "OPEC", "BBC",
+    "iPhone", "iPad", "ChatGPT", "Windows", "Android", "Xbox", "PlayStation", "Instagram", "Facebook", "WhatsApp", "Zoom",
+    "Slack", "Gemini", "Claude", "Copilot", "Alexa", "Siri", "Kindle", "Bitcoin", "Wikipedia", "Reddit", "Wi-Fi"})
+
+
+def kept_org(name, kind, gist: str) -> str | None:
+    """A company, product or organisation Haiku kept, as a name the show may allow, else None. All of: type org or product;
+    written verbatim in the gist; at most 3 words; no first name from `safety.FIRST_NAMES` and no title in it; and either a
+    name in `KNOWN_ORGS` or containing an org-marker word (`ORG_MARKERS`: Inc, Bank, University, Labs...). A lone surname
+    labelled "org" has neither, so it is dropped. Judgment call, not measured; the operator's approval is the last gate."""
+    if kind not in ("org", "product") or not isinstance(name, str):
+        return None
+    name = re.sub(r"^[Tt]he\s+", "", name.strip())
+    words = TOKEN.findall(name)
+    if not name or len(name.split()) > 3 or not words or safety.TITLE_NAME.search(name):
+        return None
+    if any(w.removesuffix("'s").removesuffix("’s").lower() in safety.FIRST_NAMES for w in words):
+        return None
+    if name not in KNOWN_ORGS and not any(w in ORG_MARKERS for w in words):
+        return None
+    return name if re.search(rf"(?<![A-Za-z]){re.escape(name)}(?![A-Za-z])", gist) else None
+
+
+def kept_person(name, kind, gist: str, headline, category: str) -> str | None:
+    """A public figure Haiku kept (D-120), else None. All of: type person; the story is not death, disaster, crime or war (a
+    victim is never kept); a real name of 1 to 3 capitalized words with no title; and written verbatim in BOTH the source
+    headline and the gist, so a name the model invented cannot get in. What counts as a public figure is Haiku's call plus
+    the operator's approval of the gist: judgment call, not measured."""
+    if kind != "person" or category != "none" or not isinstance(name, str) or not isinstance(headline, str):
+        return None
+    name = " ".join(name.split())
+    words = name.split()
+    if not 1 <= len(words) <= 3 or safety.TITLE_NAME.search(name):
+        return None
+    if not all(TOKEN.fullmatch(w) and "&" not in w and w[0].isupper() and any(c.islower() for c in w[1:]) for w in words):
+        return None
+    found = rf"(?<![A-Za-z]){re.escape(name)}(?![A-Za-z])"
+    return name if re.search(found, headline) and re.search(found, gist) else None
+
+
+def parse_condensed(reply: str, n: int, headlines: list[str] | None = None) -> list[tuple[str, str, list[str], list[str]]]:
+    """[(category, gist, kept names, kept public figures)] by headline id. Raises ValueError unless every id 0..n-1 is
+    answered once. A kept name must pass `kept_team`, `kept_org` or (against its source headline) `kept_person`, or it is
+    dropped from the list (never kept on trust). Without `headlines` no person is kept."""
+    got: dict[int, tuple[str, str, list[str], list[str]]] = {}
     for item in json.loads(llm.strip_fence(reply))["items"]:
         i, cat, gist = item["id"], item["category"], item["gist"]
         if (isinstance(i, int) and not isinstance(i, bool) and 0 <= i < n and i not in got
                 and cat in ("none", *CATEGORIES) and isinstance(gist, str)):
             gist = gist.strip()
-            keep = []
+            keep, people = [], []
+            headline = headlines[i] if headlines and i < len(headlines) else None
             for k in item.get("keep") or []:
-                name = kept_team(k.get("name"), k.get("type"), gist) if isinstance(k, dict) else None
+                if not isinstance(k, dict):
+                    continue
+                if k.get("type") == "person":
+                    person = kept_person(k.get("name"), "person", gist, headline, cat)
+                    if person and person not in people:
+                        people.append(person)
+                    continue
+                name = kept_team(k.get("name"), k.get("type"), gist) or kept_org(k.get("name"), k.get("type"), gist)
                 if name and name not in keep:
                     keep.append(name)
-            got[i] = (cat, gist, keep)
+            got[i] = (cat, gist, keep, people)
     if len(got) != n:
         raise ValueError("missing or malformed items")
     return [got[i] for i in range(n)]
 
 
-def condense(headlines: list[str], client) -> list[tuple[str, str, list[str]]]:
+def condense(headlines: list[str], client) -> list[tuple[str, str, list[str], list[str]]]:
     user = json.dumps([{"id": i, "headline": h} for i, h in enumerate(headlines)])
     reply = client.chat(CONDENSE_SYSTEM, user, json_reply=CONDENSE_SCHEMA,
-                        validate=lambda r: parse_condensed(r, len(headlines)))
-    return parse_condensed(reply, len(headlines))
+                        validate=lambda r: parse_condensed(r, len(headlines), headlines))
+    return parse_condensed(reply, len(headlines), headlines)
 
 
 # --- the cheap name check ------------------------------------------------------------------------------------------
@@ -193,13 +253,13 @@ def caps_tokens(names) -> frozenset:
     return frozenset(w.removesuffix("'s").removesuffix("\u2019s") for n in names for w in TOKEN.findall(n))
 
 
-def name_check(gist: str, allow: frozenset = frozenset()) -> str | None:
+def name_check(gist: str, allow: frozenset = frozenset(), people: frozenset = frozenset()) -> str | None:
     """The first likely proper name in a gist, else None: a capitalized word that does not start a sentence and is not an
     allowed one, or a first name from the safety rules' list. Allowed: the small allowlist (`S&P`, `AI`...), the holiday
     and event words in `safety.OCCASIONS`, and `allow`, the kept names of this gist (a team or sports event). A first name
-    is a name even inside a kept one. Acronyms count unless allowed, because an acronym is usually an organisation.
+    is a name even inside a kept one. `people` are the gist's kept public figures (D-120), masked as whole names. Acronyms count unless allowed, because an acronym is usually an organisation.
     Cheap and over-cautious on purpose: `app.safety` still reads the gist after it."""
-    text = safety.mask_occasions(gist.strip().replace("U.S.", "US"))
+    text = safety.mask_places(safety.mask_occasions(safety.mask_people(gist.strip().replace("U.S.", "US"), people)))
     for sentence in safety.SENTENCE_END.split(text):
         for i, w in enumerate(TOKEN.findall(sentence)):
             base = w.removesuffix("'s").removesuffix("\u2019s")
@@ -212,11 +272,13 @@ def name_check(gist: str, allow: frozenset = frozenset()) -> str | None:
     return None
 
 
-def vet(texts: list[str], client, age: str = STRICT_AGE, allow_caps: frozenset = frozenset()) -> dict[str, safety.Verdict]:
+def vet(texts: list[str], client, age: str = STRICT_AGE, allow_caps: frozenset = frozenset(),
+        allow_people: frozenset = frozenset()) -> dict[str, safety.Verdict]:
     """Rules, then the LLM verdict, for each text (`app.safety`): the same check every joke gets. Fails closed: without a
     client every text is rejected."""
-    safety.prefetch(texts, age, client, allow_caps)
-    return {t: safety.check(t, age, allow_caps) for t in texts}
+    extra = (allow_people,) if allow_people else ()
+    safety.prefetch(texts, age, client, allow_caps, *extra)
+    return {t: safety.check(t, age, allow_caps, *extra) for t in texts}
 
 
 def clean_fact(text) -> str | None:
@@ -253,7 +315,7 @@ def build(get, condense_client, safety_client, now: datetime.datetime | None = N
     now = now or datetime.datetime.now(datetime.timezone.utc)
     out = {"date": now.astimezone().date().isoformat(), "fetched_at": now.isoformat(timespec="seconds"),
            "sources": {"news": news_urls(), "market": MARKET_URL},
-           "market": None, "gists": [], "keep": {}, "report": _zero_report(), "errors": [], "rejected": []}
+           "market": None, "gists": [], "keep": {}, "people": {}, "report": _zero_report(), "errors": [], "rejected": []}
     try:
         out["market"] = parse_market(_get_retrying(get, MARKET_URL))
     except Exception as e:  # noqa: BLE001 - any failure of this half only drops the market line
@@ -279,10 +341,11 @@ def build(get, condense_client, safety_client, now: datetime.datetime | None = N
         return out
     survivors: list[str] = []
     keeps: dict[str, list[str]] = {}
+    peoples: dict[str, list[str]] = {}
     # Every gist that does not reach the operator is kept with its reason (local, gitignored), so a filter that is too
     # strict shows up in the day's file instead of only as a count (Exp 35 could not say why its 3 name rejects were).
     rejected = out["rejected"]
-    for category, gist, keep in pairs:
+    for category, gist, keep, people in pairs:
         if category != "none":
             report["dropped_by_category"][category] += 1
             rejected.append({"gist": gist, "reason": f"category:{category}"})
@@ -291,19 +354,23 @@ def build(get, condense_client, safety_client, now: datetime.datetime | None = N
         elif len(gist) > MAX_GIST_CHARS:  # the start message refuses it (app.protocol), so the operator must not be offered it
             report["dropped_too_long"] += 1
             rejected.append({"gist": gist, "reason": "too_long"})
-        elif hit := name_check(gist, caps_tokens(keep)):
+        elif hit := name_check(gist, caps_tokens(keep), frozenset(people)):
             report["rejected_by_name_check"] += 1
             rejected.append({"gist": gist, "reason": f"name:{hit}"})
         elif gist not in survivors:
             survivors.append(gist)
             keeps[gist] = keep
+            peoples[gist] = people
     # One check for the day with every survivor's kept words allowed; `make_context` redoes it for the approved ones only.
-    verdicts = vet(survivors, safety_client, allow_caps=caps_tokens(n for g in survivors for n in keeps[g]))
+    verdicts = vet(survivors, safety_client, allow_caps=caps_tokens(n for g in survivors for n in keeps[g]),
+                   allow_people=frozenset(n for g in survivors for n in peoples[g]))
     for gist in survivors:
         if verdicts[gist].ok:
             out["gists"].append(gist)
             if keeps[gist]:
                 out["keep"][gist] = keeps[gist]
+            if peoples[gist]:
+                out["people"][gist] = peoples[gist]
         else:
             report["rejected_by_safety"] += 1
             rejected.append({"gist": gist, "reason": f"safety:{verdicts[gist].reason}"})
@@ -338,8 +405,10 @@ class TonightContext:
     """One per show: the approved facts, market line and gists, and which gists were spent."""
 
     def __init__(self, facts: list[str], market: str | None, gists: list[str], report: dict | None = None,
-                 allowed_names: list[str] | None = None):
+                 allowed_names: list[str] | None = None, allowed_people: list[str] | None = None):
         self.allowed_names = list(allowed_names or [])  # team and event names the approved gists keep, logged
+        self.allowed_people = list(allowed_people or [])  # public figures the operator approved with their gists (D-120)
+        self.allow_people = frozenset(self.allowed_people)  # per show: a new show starts from its own approved gists only
         self.allow_caps = caps_tokens(self.allowed_names)  # what the show's safety rules let through mid-sentence
         self.facts = list(facts)[:MAX_TONIGHT_FACTS]
         self.market = market
@@ -371,6 +440,7 @@ class TonightContext:
     def summary(self) -> dict:
         """The `tonight` log row: what was approved and where it came from (invariant 6)."""
         return {"facts": self.facts, "market": self.market, "gists": self.gists, "allowed_names": self.allowed_names,
+                "allowed_people": self.allowed_people,
                 "report": {**self.report, "approved": len(self.gists)}}
 
     def use_row(self, bit: int) -> dict | None:
@@ -388,7 +458,10 @@ def make_context(payload: dict, cached: dict | None, safety_client) -> TonightCo
     gists = [g for g in payload.get("gists", []) if g in known]
     keeps = (cached or {}).get("keep", {})
     allow = caps_tokens(n for g in gists for n in keeps.get(g, []))
-    verdicts = {**vet(facts, safety_client), **vet(gists, safety_client, allow_caps=allow)}
+    peoples = (cached or {}).get("people", {})
+    people = frozenset(n for g in gists for n in peoples.get(g, []))
+    # The typed line keeps the old rule, no person's name: it is where a person in the room would be named (invariant 1).
+    verdicts = {**vet(facts, safety_client), **vet(gists, safety_client, allow_caps=allow, allow_people=people)}
     rejected_at_start = sum(not verdicts[t].ok for t in facts + gists)
     report = {**((cached or {}).get("report") or {}), "rejected_at_start": rejected_at_start,
               "facts_typed": len(payload.get("facts", [])),
@@ -398,5 +471,6 @@ def make_context(payload: dict, cached: dict | None, safety_client) -> TonightCo
     use_market = payload.get("market") is not None and market is not None and payload["market"] == market["line"]
     ctx = TonightContext([f for f in facts if verdicts[f].ok], market["line"] if use_market else None,
                          [g for g in gists if verdicts[g].ok], report,
-                         [n for g in gists if verdicts[g].ok for n in keeps.get(g, [])])
+                         [n for g in gists if verdicts[g].ok for n in keeps.get(g, [])],
+                         [n for g in gists if verdicts[g].ok for n in peoples.get(g, [])])
     return None if ctx.empty() else ctx

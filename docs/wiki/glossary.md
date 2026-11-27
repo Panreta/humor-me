@@ -43,8 +43,9 @@ laughs. A crowd-work exchange (banter with the audience) counts as its own bit.
 |---|---|
 | **Core identity** | The fixed character: a self-aware, slightly anxious robot (invariant 3) |
 | **Character sheet** | A list of specific facts about the one robot (its muted calls, its wish for a houseplant); each bit gets 2, the least used this show first ([material](material.md), D-117) |
-| **Gist** | A headline rewritten as one nameless sentence ("a GPU company reports earnings"), with death, disaster, crime and war dropped; the operator approves each before the show ([tonight](tonight.md), D-119) |
+| **Gist** | A headline rewritten as one plain sentence that says what happened and why it is odd or interesting, with death, disaster, crime and war dropped; countries, states, big cities, checked companies and products, and approved public figures may keep their names; the operator approves each before the show ([tonight](tonight.md), D-119) |
 | **Tonight context** | What the writer is told about the day: the S&P 500's last move, at most one line the operator types, and approved headline gists; bits 2 and 6 take a gist as their topic ([tonight](tonight.md), D-119) |
+| **Public figure (tonight)** | A politician, official, CEO or founder, celebrity or athlete whose name is in the news headline. A gist may name one only when the story is about what they did or said; approving the gist approves the name for that show. Never a victim, a private person or anyone in the room ([tonight](tonight.md), D-120) |
 | **Topic list** | A list of everyday situations; each bit gets one that no show on this laptop has used yet, and about 1 bit in 3 takes a robot-life topic ([material](material.md), D-117) |
 | **Topic only** | The `MATERIAL=topic` setting: each bit gets a topic and no robot facts, with its own instruction to the writer; tested against the old bits in Exp 34 ([material](material.md), D-118) |
 | **Mode (persona)** | One of six comedic attitudes from HumorGen: Neurotic, Cynic, Observer, Wordsmith, Optimist, Absurdist. Modes of the one identity, not separate characters |
