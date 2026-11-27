@@ -168,11 +168,18 @@ KNOWN_ORGS = frozenset({
     "Slack", "Gemini", "Claude", "Copilot", "Alexa", "Siri", "Kindle", "Bitcoin", "Wikipedia", "Reddit", "Wi-Fi"})
 
 
-def kept_org(name, kind, gist: str) -> str | None:
+def marker_org(name: str) -> bool:
+    """An org kept for its marker word rather than by name: `caps_tokens` allows it only whole, so "Musk Labs" never
+    unlocks "Musk" alone."""
+    return name not in KNOWN_ORGS and any(w in ORG_MARKERS for w in TOKEN.findall(name))
+
+
+def kept_org(name, kind, gist: str, headline=None) -> str | None:
     """A company, product or organisation Haiku kept, as a name the show may allow, else None. All of: type org or product;
     written verbatim in the gist; at most 3 words; no first name from `safety.FIRST_NAMES` and no title in it; and either a
     name in `KNOWN_ORGS` or containing an org-marker word (`ORG_MARKERS`: Inc, Bank, University, Labs...). A lone surname
-    labelled "org" has neither, so it is dropped. Judgment call, not measured; the operator's approval is the last gate."""
+    labelled "org" has neither, so it is dropped. A marker org must also be verbatim in the source headline, so a made-up
+    "Bezos Corp" cannot get in (pre-merge review). Judgment call, not measured; the operator's approval is the last gate."""
     if kind not in ("org", "product") or not isinstance(name, str):
         return None
     name = re.sub(r"^[Tt]he\s+", "", name.strip())
@@ -183,7 +190,19 @@ def kept_org(name, kind, gist: str) -> str | None:
         return None
     if name not in KNOWN_ORGS and not any(w in ORG_MARKERS for w in words):
         return None
-    return name if re.search(rf"(?<![A-Za-z]){re.escape(name)}(?![A-Za-z])", gist) else None
+    found = rf"(?<![A-Za-z]){re.escape(name)}(?![A-Za-z])"
+    if marker_org(name) and not (isinstance(headline, str) and re.search(found, headline)):
+        return None
+    return name if re.search(found, gist) else None
+
+
+# A rule-level backstop for the category (pre-merge review): a story with one of these words in its headline or gist keeps no
+# person's name even when the model labelled it "none", so a victim, suspect or patient is never named by mislabelling.
+DARK = re.compile(
+    r"(?<![a-z])(?:die[sd]?|dying|dead|death|deaths|killed|kills?|killing|murder\w*|shot|shoots?|shooting|stabb\w*|"
+    r"arrest\w*|charged|indict\w*|convict\w*|sentenced|jail\w*|prison|trial|accused|suspect\w*|police|fraud|abuse\w*|"
+    r"assault\w*|kidnap\w*|missing|victims?|funeral|obituar\w*|crash\w*|injur\w*|hospitali[sz]ed|diagnos\w*|cancer|"
+    r"illness|war|attack\w*|bomb\w*|hostages?|terror\w*)(?![a-z])")
 
 
 def kept_person(name, kind, gist: str, headline, category: str) -> str | None:
@@ -193,9 +212,13 @@ def kept_person(name, kind, gist: str, headline, category: str) -> str | None:
     the operator's approval of the gist: judgment call, not measured."""
     if kind != "person" or category != "none" or not isinstance(name, str) or not isinstance(headline, str):
         return None
+    if DARK.search(headline.lower()) or DARK.search(gist.lower()):
+        return None
     name = " ".join(name.split())
     words = name.split()
     if not 1 <= len(words) <= 3 or safety.TITLE_NAME.search(name):
+        return None
+    if len(words) == 1 and words[0].lower() in safety.FIRST_NAMES:  # "Taylor" alone would unlock anyone called Taylor
         return None
     if not all(TOKEN.fullmatch(w) and "&" not in w and w[0].isupper() and any(c.islower() for c in w[1:]) for w in words):
         return None
@@ -223,7 +246,7 @@ def parse_condensed(reply: str, n: int, headlines: list[str] | None = None) -> l
                     if person and person not in people:
                         people.append(person)
                     continue
-                name = kept_team(k.get("name"), k.get("type"), gist) or kept_org(k.get("name"), k.get("type"), gist)
+                name = kept_team(k.get("name"), k.get("type"), gist) or kept_org(k.get("name"), k.get("type"), gist, headline)
                 if name and name not in keep:
                     keep.append(name)
             got[i] = (cat, gist, keep, people)
@@ -249,8 +272,12 @@ TOKEN = re.compile(r"[A-Za-z][A-Za-z'’&\-]*")
 
 
 def caps_tokens(names) -> frozenset:
-    """The words of kept names, as `safety` and `name_check` see them (a possessive loses its 's)."""
-    return frozenset(w.removesuffix("'s").removesuffix("\u2019s") for n in names for w in TOKEN.findall(n))
+    """The words of kept names, as `safety` and `name_check` see them (a possessive loses its 's). A marker org stays whole
+    (`marker_org`), and the checks mask it as one name."""
+    names = list(names)
+    whole = {n for n in names if " " in n.strip() and marker_org(n)}
+    return frozenset(whole) | frozenset(w.removesuffix("'s").removesuffix("\u2019s") for n in names if n not in whole
+                                        for w in TOKEN.findall(n))
 
 
 def name_check(gist: str, allow: frozenset = frozenset(), people: frozenset = frozenset()) -> str | None:
@@ -259,7 +286,8 @@ def name_check(gist: str, allow: frozenset = frozenset(), people: frozenset = fr
     and event words in `safety.OCCASIONS`, and `allow`, the kept names of this gist (a team or sports event). A first name
     is a name even inside a kept one. `people` are the gist's kept public figures (D-120), masked as whole names. Acronyms count unless allowed, because an acronym is usually an organisation.
     Cheap and over-cautious on purpose: `app.safety` still reads the gist after it."""
-    text = safety.mask_places(safety.mask_occasions(safety.mask_people(gist.strip().replace("U.S.", "US"), people)))
+    text = safety.mask_places(safety.mask_occasions(safety.mask_phrases(
+        safety.mask_people(gist.strip().replace("U.S.", "US"), people), allow)))
     for sentence in safety.SENTENCE_END.split(text):
         for i, w in enumerate(TOKEN.findall(sentence)):
             base = w.removesuffix("'s").removesuffix("\u2019s")
@@ -441,6 +469,7 @@ class TonightContext:
         """The `tonight` log row: what was approved and where it came from (invariant 6)."""
         return {"facts": self.facts, "market": self.market, "gists": self.gists, "allowed_names": self.allowed_names,
                 "allowed_people": self.allowed_people,
+                **({"people_prompt": safety.PEOPLE_PROMPT_ID} if self.allowed_people else {}),
                 "report": {**self.report, "approved": len(self.gists)}}
 
     def use_row(self, bit: int) -> dict | None:

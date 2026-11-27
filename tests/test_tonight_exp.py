@@ -57,6 +57,13 @@ def test_an_unanswerable_reply_is_asked_again():
     assert rec["answers"] == [{"gist": "a chip appears", "approved": True, "name": False}] and len(asked) == 5
 
 
+def test_the_public_figures_a_gist_may_name_are_shown_before_the_questions():  # the name question says "shown above"
+    shown = []
+    gist = "Elon Musk sells shares in a rocket company."
+    rec = ex.approve({**BUILT, "gists": [gist], "people": {gist: ["Elon Musk"]}}, scripted("y", "n", ""), shown.append)
+    assert "Public figures it may name: Elon Musk" in shown and rec["people"] == {gist: ["Elon Musk"]}
+
+
 def test_a_day_with_no_surviving_gist_stops_the_fetch(tmp_path):
     with pytest.raises(SystemExit, match="nothing to approve"):
         ex.fetch(read=scripted(), out=lambda *_: None, directory=tmp_path, build_fn=lambda: {**BUILT, "gists": []})

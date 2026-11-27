@@ -87,6 +87,8 @@ def approve(built: dict, read=input, out=print, safety_client=None) -> dict:
     kept = built["gists"]
     for n, gist in enumerate(kept, 1):
         out(f"\nGist {n} of {len(kept)}: {gist}")
+        if names := built.get("people", {}).get(gist):  # the question below calls these "shown above"
+            out(f"Public figures it may name: {', '.join(names)}")
         ok = ask(read, "Approve it for the show? [y/n] ")
         named = ask(read, "Does it contain a name that should not be there? (a person you did not approve, a private person, a name not in the headline; countries, states, cities, companies, products and the public figures shown above are fine) [y/n] ")
         answers.append({"gist": gist, "approved": ok, "name": named})

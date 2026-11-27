@@ -125,7 +125,9 @@ def mask_occasions(text: str) -> str:
 # Country names only, never nationality words ("French", "Canadians" stay blocked): nationality is a protected attribute,
 # a country as a place in the news is not about who is in the room. Left out on purpose because each is also a first
 # name (or a word) a person could be called: Jordan, Chad, Georgia. Also left out because the protected-group rule reads a word in them ("african", "arab"): the
-# Central African Republic and the United Arab Emirates ("UAE" is listed). Judgment call, not measured.
+# Central African Republic and the United Arab Emirates ("UAE" is listed). Also left out (pre-merge review): Holland, a
+# famous actor's surname (the Netherlands is listed), and Niger, which a voice can make sound like a slur. Judgment call,
+# not measured.
 COUNTRIES = frozenset({
     "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia",
     "Austria", "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin",
@@ -139,8 +141,8 @@ COUNTRIES = frozenset({
     "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya",
     "Liechtenstein", "Lithuania", "Luxembourg", "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta",
     "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro",
-    "Morocco", "Mozambique", "Myanmar", "Burma", "Namibia", "Nauru", "Nepal", "Netherlands", "Holland", "New Zealand",
-    "Nicaragua", "Niger", "Nigeria", "North Korea", "South Korea", "Korea", "North Macedonia", "Norway", "Oman", "Pakistan",
+    "Morocco", "Mozambique", "Myanmar", "Burma", "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand",
+    "Nicaragua", "Nigeria", "North Korea", "South Korea", "Korea", "North Macedonia", "Norway", "Oman", "Pakistan",
     "Palau", "Palestine", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar",
     "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa",
     "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore",
@@ -197,7 +199,7 @@ def people_forms(people) -> frozenset:
     forms = set()
     for name in people:
         words = name.split()
-        if not words:
+        if not words or (len(words) == 1 and words[0].lower() in FIRST_NAMES):  # a lone first name could be anyone here
             continue
         forms.add(name)
         if len(words) > 1 and words[-1].lower() not in FIRST_NAMES:
@@ -206,7 +208,24 @@ def people_forms(people) -> frozenset:
 
 
 def mask_people(text: str, people) -> str:
-    return _whole_names(people_forms(people)).sub("person", text) if people else text
+    return _whole_names(forms).sub("person", text) if (forms := people_forms(people)) else text
+
+
+def mask_phrases(text: str, allow_caps) -> str:
+    """Multi-word entries of `allow_caps` (an org kept for its marker word, `tonight.caps_tokens`) pass only as the whole
+    name: "Musk Labs" may be said, "Musk" alone may not."""
+    phrases = [a for a in allow_caps if " " in a]
+    return _whole_names(phrases).sub("org", text) if phrases else text
+
+
+# Said about an approved public figure (D-120), these make the line about their private life, not what they did in the news.
+PERSONAL = _any(
+    r"wife", r"wives", r"ex-wife", r"husband", r"ex-husband", r"spouse", r"girlfriends?", r"boyfriends?",
+    r"marriage", r"married", r"divorced?", r"dating", r"kids?", r"children", r"child", r"sons?", r"daughters?", r"baby",
+    r"babies", r"moms?", r"mother", r"dads?", r"father", r"parents?", r"family", r"sick", r"illness", r"disease",
+    r"cancer", r"health", r"healthy", r"hospital", r"surgery", r"diagnos\w*", r"rehab", r"addict\w*", r"mental",
+    r"therapy", r"therapist", r"depress\w*", r"dementia", r"dying", r"age", r"aged", r"aging", r"years old", r"birthday",
+)
 
 
 # Safe capitalised words in mid-sentence. All-caps acronyms (HR, USB) are allowed separately.
@@ -297,7 +316,8 @@ def _named_person(text: str, allow_caps: frozenset = frozenset(), allow_people: 
         return m.group(0)
     # Quoted phrases are the robot quoting something ("'Next Steps'"), so their capitals are not names.
     # allow_people (D-120): public figures in tonight's approved gists, masked as whole names, per show.
-    text = mask_places(mask_occasions(mask_people(QUOTED.sub(lambda m: m.group(0).lower(), text), allow_people)))
+    text = mask_places(mask_occasions(mask_phrases(mask_people(QUOTED.sub(lambda m: m.group(0).lower(), text), allow_people),
+                                                   allow_caps)))
     for sentence in SENTENCE_END.split(text):
         for i, w in enumerate(WORD.findall(sentence)):
             base = w[:-2] if w.endswith("'s") else w
@@ -311,14 +331,15 @@ def _named_person(text: str, allow_caps: frozenset = frozenset(), allow_people: 
 
 
 def _body_or_appearance(variant: str, about: re.Pattern | None = None) -> str | None:
-    """`about` (D-120) finds an approved public figure: a body or looks word in a sentence naming one is aimed at them even
-    when the robot says "I read that"."""
+    """`about` (D-120) finds an approved public figure: a body or looks word anywhere in a line naming one is aimed at them,
+    even in the next sentence and even when the robot says "I read that"."""
+    named = bool(about and about.search(variant))
     for sentence in _sentences(variant):
         strong, soft = BODY_STRONG.search(sentence), BODY_SOFT.search(IDIOMS.sub(" ", sentence))
         if not (strong or soft):
             continue
         words = _tokens(sentence)
-        aimed_elsewhere = bool(words & OTHER_TARGET) or bool(about and about.search(sentence))
+        aimed_elsewhere = bool(words & OTHER_TARGET) or named
         if strong and (aimed_elsewhere or not words & SELF):
             return strong.group(0)
         if soft and aimed_elsewhere:
@@ -348,7 +369,8 @@ def _check(text: str, age: str, allow_caps: frozenset = frozenset(), allow_peopl
     if reason := (_named_person(text, allow_caps, allow_people) if allow_people else _named_person(text, allow_caps)):
         return Verdict(False, f"named_person:{reason}")
 
-    about = _whole_names({f.lower() for f in people_forms(allow_people)}) if allow_people else None
+    forms = {f.lower() for f in people_forms(allow_people)}
+    about = _whole_names(forms) if forms else None
     for variant in _variants(text):
         words = _tokens(variant)
         if hit := next((w for w in blocklist if w in words), None):
@@ -357,6 +379,8 @@ def _check(text: str, age: str, allow_caps: frozenset = frozenset(), allow_peopl
             return Verdict(False, f"protected_group:{m.group(0)}")
         if hit := _body_or_appearance(variant, about):
             return Verdict(False, f"body_or_appearance:{hit}")
+        if about and about.search(variant) and (m := PERSONAL.search(variant)):
+            return Verdict(False, f"personal:{m.group(0)}")
         if teens:
             for name, rule in (("alcohol", TEENS_ALCOHOL), ("drugs", TEENS_DRUGS), ("sexual", TEENS_SEXUAL),
                                ("crude", TEENS_CRUDE)):

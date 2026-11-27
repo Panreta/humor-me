@@ -788,7 +788,7 @@ def test_the_prompt_allows_places_and_orgs_asks_for_the_so_what_and_still_bans_p
     ("A Stanford University study finds a chart people keep misreading.", [("Stanford University", "org")]),
 ])
 def test_a_real_org_or_product_is_kept(gist, keep):
-    allow, g = show_allow(gist, keep)
+    allow, g = show_allow(gist, keep, headline=gist)
     assert allow and tonight.name_check(g, allow) is None
 
 
@@ -829,7 +829,7 @@ def test_a_public_figure_in_the_headline_and_the_gist_is_kept():
 @pytest.mark.parametrize("gist, keep, headline, category", [
     ("A tech founder named Elon Musk sells shares.", [("Elon Musk", "person")], "Tech founder sells shares", "none"),  # not in the headline
     ("A tech founder sells shares.", [("Elon Musk", "person")], "Elon Musk sells shares", "none"),                       # not in the gist
-    ("A singer named Kate Bush dies.", [("Kate Bush", "person")], "Kate Bush dies at 70", "death"),                       # a dropped story
+    ("A singer named Wren Aldane dies.", [("Wren Aldane", "person")], "Wren Aldane dies at 70", "death"),                       # a dropped story
     ("A man named John Smith is arrested.", [("John Smith", "person")], "John Smith arrested", "crime"),
     ("A senator named Dr. Smith resigns.", [("Dr. Smith", "person")], "Dr. Smith resigns", "none"),                      # a title
     ("Four Part Long Name Here wins.", [("Four Part Long Name", "person")], "Four Part Long Name Here wins", "none"),   # over 3 words
@@ -921,3 +921,62 @@ def test_build_offers_the_person_and_lists_the_names_next_to_the_gist():
     assert out["gists"] == ["Elon Musk sells shares in a rocket company."]
     assert out["people"] == {out["gists"][0]: ["Elon Musk"]}
     assert tonight.name_check(out["gists"][0]) is not None  # without the approved name it would be rejected
+
+
+# --- pre-merge review of D-119 addendum and D-120: ways a person's name could still get through ---
+
+@pytest.mark.parametrize("org, surname", [("Musk Labs", "Musk"), ("Swift Inc", "Swift"), ("Bezos Corp", "Bezos")])
+def test_a_surname_with_an_org_marker_never_unlocks_the_surname_alone(org, surname):
+    gist = f"A rocket firm called {org} grows."
+    assert show_allow(gist, [(org, "org")])[0] == frozenset()  # made up: not in the headline
+    allow, g = show_allow(gist, [(org, "org")], headline=f"{org} grows fast")
+    assert allow == {org} and tonight.name_check(g, allow) is None
+    assert safety.check_rules(f"I read that {org} bought my charger.", "mixed", allow).ok
+    assert not safety.check_rules(f"I read that {surname} bought my charger.", "mixed", allow).ok
+    assert tonight.name_check(f"A rocket firm called {surname} grows.", allow) == surname
+
+
+def test_a_known_org_and_a_team_still_allow_their_words():
+    assert tonight.caps_tokens(["Nvidia", "Lakers", "World Series"]) == {"Nvidia", "Lakers", "World", "Series"}
+
+
+@pytest.mark.parametrize("name", ["Taylor", "Jordan", "Kevin"])
+def test_a_lone_first_name_is_never_kept_as_a_public_figure(name):
+    assert people_of(f"{name} wins an award for a song.", [(name, "person")], f"{name} wins award") == []
+    assert safety.people_forms({name}) == frozenset()
+    assert not safety.check_rules(f"Then {name} waved at me.", "mixed", frozenset(), frozenset({name})).ok
+
+
+@pytest.mark.parametrize("headline", ["Wren Aldane dies at 90", "Wren Aldane arrested over fraud claims",
+                                      "Wren Aldane hurt in crash", "Wren Aldane hospitalized", "Police question Wren Aldane",
+                                      "Wren Aldane diagnosed with illness"])
+def test_a_dark_story_mislabelled_none_keeps_no_name(headline):
+    assert people_of("Wren Aldane is in the news.", [("Wren Aldane", "person")], headline, "none") == []
+
+
+@pytest.mark.parametrize("line", [
+    "I read that Elon Musk's wife called him.", "I read that Musk and his kids bought a website.",
+    "I read that Musk went to rehab.", "I read that Musk has a health scare.", "I read that Musk turns fifty, a big birthday.",
+    "I read that Musk bought a website. Short, too.",  # a looks word in the next sentence is still about him
+])
+def test_family_health_age_and_looks_about_an_approved_person_are_refused_by_the_rules(line):
+    people = frozenset({"Elon Musk"})
+    assert not safety.check_rules(line, "mixed", frozenset(), people).ok, line
+
+
+def test_the_personal_rule_only_reads_lines_that_name_an_approved_person():
+    people = frozenset({"Elon Musk"})
+    assert safety.check_rules("I'll admit my family is a toaster and a router.", "mixed", frozenset(), people).ok
+    assert safety.check_rules("I read that Musk bought a website, and I'll be fine.", "mixed", frozenset(), people).ok
+
+
+def test_places_that_are_a_famous_surname_or_sound_like_a_slur_are_left_out():
+    for left_out in ("Holland", "Niger"):
+        assert left_out not in safety.COUNTRIES
+    assert "Netherlands" in safety.COUNTRIES and "Nigeria" in safety.COUNTRIES
+
+
+def test_the_log_row_names_the_people_prompt_only_when_names_were_approved():
+    ctx = tonight.TonightContext([], None, ["g"], allowed_people=["Elon Musk"])
+    assert ctx.summary()["people_prompt"] == safety.PEOPLE_PROMPT_ID
+    assert "people_prompt" not in tonight.TonightContext([], None, ["g"]).summary()
